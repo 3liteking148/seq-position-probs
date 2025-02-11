@@ -438,9 +438,24 @@ int main(int argc, char* argv[]) {
   std::ifstream file;
   std::istream &in = openFile(file, argv[4]);
   if (!file) return 1;
+  std::cout.precision(3);
   Sequence sequence;
   while (readSequence(in, sequence, sequenceData, charToNumber)) {
     if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
+    for (size_t i = 0; i < numOfProfiles; ++i) {
+      const Profile p = profiles[i];
+      double maxEndRatio, maxBegRatio, maxMidRatio;
+      maxProbabilityRatios(p, sequence.seq, sequence.length, &scratch[0],
+			   maxEndRatio, maxBegRatio, maxMidRatio);
+      double endE = p.length * sequence.length * p.endK / maxEndRatio;
+      double begE = p.length * sequence.length * p.begK / maxBegRatio;
+      double midE = p.length * sequence.length * p.midK / maxMidRatio;
+      std::cout << sequence.name << "\t" << sequence.length << "\t"
+		<< p.name << "\t" << p.length << "\t"
+		<< log2(maxEndRatio) << "\t" << endE << "\t"
+		<< log2(maxBegRatio) << "\t" << begE << "\t"
+		<< log2(maxMidRatio) << "\t" << midE << "\n";
+    }
   }
 
   return 0;
