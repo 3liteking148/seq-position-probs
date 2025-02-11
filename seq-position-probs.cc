@@ -16,8 +16,8 @@
 
 typedef float Float;
 
-struct Profile {
-  Float *values;
+struct Profile {  // position-specific (insert, delete, letter) probabilities
+  Float *values;  // probabilities or probability ratios
   int width;  // values per position: 4 + alphabetSize
   int length;  // number of positions
   const char *name;
@@ -90,9 +90,7 @@ void maxProbabilityRatios(Profile profile,
 
   // Backward algorithm:
 
-  for (int j = 0; j <= sequenceLength; ++j) {
-    Y[j] = 0;
-  }
+  for (int j = 0; j <= sequenceLength; ++j) Y[j] = 0;
 
   for (int i = profile.length; i >= 0; --i) {
     Float *W = scratch + i * (sequenceLength + 1);
@@ -122,9 +120,7 @@ void maxProbabilityRatios(Profile profile,
   Float maxBeg = 0;
   Float maxMid = 0;
 
-  for (int j = 0; j <= sequenceLength; ++j) {
-    Y[j] = 0;
-  }
+  for (int j = 0; j <= sequenceLength; ++j) Y[j] = 0;
 
   for (int i = 0; i <= profile.length; ++i) {
     Float *W = scratch + i * (sequenceLength + 1);
@@ -232,9 +228,7 @@ int finalizeProfile(Profile p) {
     end[k] = m;
     sum += m;
   }
-  for (int k = 4; k < p.width; ++k) {
-    end[k] /= sum;
-  }
+  for (int k = 4; k < p.width; ++k) end[k] /= sum;
 
   for (int i = 0; ; ++i) {
     Float *probs = p.values + i * p.width;
@@ -261,7 +255,7 @@ int finalizeProfile(Profile p) {
 
 int readProfiles(std::istream &in, std::vector<Profile> &profiles,
 		 std::vector<Float> &values, std::vector<char> &names) {
-  Profile p = {0};
+  Profile profile = {0};
   int state = 0;
   std::string line, word;
   while (getline(in, line)) {
@@ -304,11 +298,10 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
       break;
     case 4:
       if (word == "//") {
-	if (p.length < 2) return 0;
-	values.insert(values.end(), p.width - 4, 0.0);
-	profiles.push_back(p);
-	p.width = 0;
-	p.length = 0;
+	if (profile.length < 2) return 0;
+	values.insert(values.end(), profile.width - 4, 0.0);
+	profiles.push_back(profile);
+	profile.width = profile.length = 0;
 	state = 0;
       } else {
 	int k = 4;
@@ -319,10 +312,10 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
 	  ++k;
 	}
 	if (k == 4) return 0;
-	if (p.width > 0 && k != p.width) return 0;
-	p.width = k;
-	p.length += 1;
-	if (p.length + 1 > INT_MAX / p.width) return 0;
+	if (profile.width > 0 && k != profile.width) return 0;
+	profile.width = k;
+	profile.length += 1;
+	if (profile.length + 1 > INT_MAX / profile.width) return 0;
 	state = 2;
       }
     }
