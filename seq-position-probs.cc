@@ -14,7 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef float Float;
+typedef double Float;
 
 struct Profile {  // position-specific (insert, delete, letter) probabilities
   Float *values;  // probabilities or probability ratios
