@@ -19,6 +19,9 @@ struct Profile {
   int width;  // values per position: 4 + alphabetSize
   int length;  // number of positions
   const char *name;
+  double endK;  // Gumbel K for end-anchored sum of alignment probabilities
+  double begK;  // Gumbel K for start-anchored sum of alignment probabilities
+  double midK;  // Gumbel K for mid-anchored sum of alignment probabilities
 };
 
 bool isDash(const char *text) {
@@ -111,9 +114,9 @@ void maxProbabilityRatios(Profile profile,
   maxMidRatio = maxMid;
 }
 
-void scoresOfRandomSequences(Profile profile, const Float *letterFreqs,
-			     unsigned char *sequence, int sequenceLength,
-			     int numOfSequences, Float *scratch) {
+void estimateK(Profile &profile, const Float *letterFreqs,
+	       unsigned char *sequence, int sequenceLength, int numOfSequences,
+	       Float *scratch) {
   std::mt19937_64 randGen;
   int alphabetSize = profile.width - 4;
   std::discrete_distribution<> dist(letterFreqs, letterFreqs + alphabetSize);
@@ -136,11 +139,12 @@ void scoresOfRandomSequences(Profile profile, const Float *letterFreqs,
 	      << log2(maxBegRatio) << "\t" << log2(maxMidRatio) << std::endl;
   }
 
-  double kEnd = numOfSequences / (profile.length * sequenceLength * endSum);
-  double kBeg = numOfSequences / (profile.length * sequenceLength * begSum);
-  double kMid = numOfSequences / (profile.length * sequenceLength * midSum);
+  profile.endK = numOfSequences / (profile.length * sequenceLength * endSum);
+  profile.begK = numOfSequences / (profile.length * sequenceLength * begSum);
+  profile.midK = numOfSequences / (profile.length * sequenceLength * midSum);
   std::cout.precision(3);
-  std::cout << "#K\t" << kEnd << "\t" << kBeg << "\t" << kMid << "\n";
+  std::cout << "#K\t" << profile.endK << "\t" << profile.begK << "\t"
+	    << profile.midK << "\n";
   std::cout.precision(6);
 }
 
@@ -348,7 +352,7 @@ int main(int argc, char* argv[]) {
   std::cout << "# Sequence length: " << sequenceLength << "\n";
 
   for (size_t i = 0; i < numOfProfiles; ++i) {
-    Profile p = profiles[i];
+    Profile &p = profiles[i];
     const Float *profileEnd = p.values + p.width * p.length;
     std::cout << "# Profile name: " << p.name << "\n";
     std::cout << "# Profile length: " << p.length << "\n";
@@ -357,7 +361,7 @@ int main(int argc, char* argv[]) {
       std::cout << " " << profileEnd[j];
     }
     std::cout << "\n";
-    scoresOfRandomSequences(p, profileEnd+4, &sequence[0], sequenceLength,
-			    numOfSequences, &scratch[0]);
+    estimateK(p, profileEnd+4, &sequence[0], sequenceLength,
+	      numOfSequences, &scratch[0]);
   }
 }
