@@ -292,6 +292,15 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
   return state == 0;
 }
 
+int resizeMem(std::vector<Float> &v, int profileLength, int sequenceLength) {
+  if (sequenceLength+1 > INT_MAX / (profileLength+2)) {
+    std::cerr << "too big combination of sequence and profile\n";
+    return 0;
+  }
+  v.resize((sequenceLength+1) * (profileLength+2));
+  return 1;
+}
+
 int main(int argc, char* argv[]) {
   if (argc != 4) {
     std::cerr << "please give me: a-file.hmm numOfSequences sequenceLength\n";
@@ -332,13 +341,9 @@ int main(int argc, char* argv[]) {
     maxProfileLength = std::max(maxProfileLength, profiles[i].length);
   }
 
-  if (sequenceLength+1 > INT_MAX / (maxProfileLength+2)) {
-    std::cerr << "too big combination of sequence and profile\n";
-    return 1;
-  }
-
   std::vector<unsigned char> sequence(sequenceLength+1);
-  std::vector<Float> scratch((sequenceLength+1) * (maxProfileLength+2));
+  std::vector<Float> scratch;
+  if (!resizeMem(scratch, maxProfileLength, sequenceLength)) return 1;
 
   std::cout << "# Sequence length: " << sequenceLength << "\n";
 
