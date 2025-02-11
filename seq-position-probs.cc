@@ -199,6 +199,7 @@ int finalizeProfile(Profile p) {
     double epsilon = probs[3];
     double epsilon1 = probs[p.width + 3];
     double c = (1 - alpha - delta);
+    if (epsilon >= 1) return 0;
     probs[2] = delta * (1 - epsilon1);
     probs[3] = epsilon * (1 - epsilon1) / (1 - epsilon);
     for (int k = 4; k < p.width; ++k) {
@@ -211,7 +212,7 @@ int finalizeProfile(Profile p) {
 
 int readProfiles(std::istream &in, std::vector<Profile> &profiles,
 		 std::vector<Float> &values, std::vector<char> &names) {
-  Profile p = {0, 4, 0, 0};
+  Profile p = {0};
   int state = 0;
   std::string line, word;
   while (getline(in, line)) {
@@ -254,9 +255,10 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
       break;
     case 4:
       if (word == "//") {
+	if (p.length < 2) return 0;
 	values.insert(values.end(), p.width - 4, 0.0);
 	profiles.push_back(p);
-	p.width = 4;
+	p.width = 0;
 	p.length = 0;
 	state = 0;
       } else {
@@ -267,8 +269,8 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
 	  values.push_back(prob);
 	  ++k;
 	}
-	if (p.width > 4 && k != p.width) return 0;
 	if (k == 4) return 0;
+	if (p.width > 0 && k != p.width) return 0;
 	p.width = k;
 	p.length += 1;
 	if (p.length + 1 > INT_MAX / p.width) return 0;
