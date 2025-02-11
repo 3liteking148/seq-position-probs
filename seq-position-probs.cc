@@ -38,7 +38,7 @@ std::istream &openFile(std::ifstream &file, const char *name) {
 }
 
 void maxProbabilityRatios(Profile profile,
-			  const unsigned char *sequence, int sequenceLength,
+			  const char *sequence, int sequenceLength,
 			  Float *scratch,
 			  double &maxEndRatio, double &maxBegRatio,
 			  double &maxMidRatio) {
@@ -117,7 +117,7 @@ void maxProbabilityRatios(Profile profile,
 }
 
 void estimateK(Profile &profile, const Float *letterFreqs,
-	       unsigned char *sequence, int sequenceLength, int numOfSequences,
+	       char *sequence, int sequenceLength, int numOfSequences,
 	       Float *scratch) {
   std::mt19937_64 randGen;
   int alphabetSize = profile.width - 4;
@@ -354,7 +354,7 @@ int main(int argc, char* argv[]) {
     maxProfileLength = std::max(maxProfileLength, profiles[i].length);
   }
 
-  std::vector<unsigned char> sequence(sequenceLength+1);
+  std::vector<char> sequence(sequenceLength+1);
   std::vector<Float> scratch;
   if (!resizeMem(scratch, maxProfileLength, sequenceLength)) return 1;
 
