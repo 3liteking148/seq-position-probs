@@ -352,7 +352,8 @@ int resizeMem(std::vector<Float> &v, int profileLength, int sequenceLength) {
 
 int main(int argc, char* argv[]) {
   if (argc < 4 || argc > 5) {
-    std::cerr << "please give me: a-file.hmm numOfSequences sequenceLength\n";
+    std::cerr << "usage: seq-position-probs "
+      "profile.hmm randomTrials randomLength [sequences.fa]\n";
     return 1;
   }
 
@@ -402,9 +403,7 @@ int main(int argc, char* argv[]) {
     std::cout << "# Profile name: " << p.name << "\n";
     std::cout << "# Profile length: " << p.length << "\n";
     std::cout << "# Background letter probabilities:";
-    for (int j = 4; j < p.width; ++j) {
-      std::cout << " " << profileEnd[j];
-    }
+    for (int j = 4; j < p.width; ++j) std::cout << " " << profileEnd[j];
     std::cout << "\n";
     estimateK(p, profileEnd+4, &sequenceData[0], sequenceLength,
 	      numOfSequences, &scratch[0]);
@@ -431,6 +430,8 @@ int main(int argc, char* argv[]) {
   std::ifstream file;
   std::istream &in = openFile(file, argv[4]);
   if (!file) return 1;
+  std::cout << "#seq\tseqLen\tprofile\tproLen\t"
+    "EAscore\tE-value\tSAscore\tE-value\tMAscore\tE-value\n";
   std::cout.precision(3);
   Sequence sequence;
   while (readSequence(in, sequence, sequenceData, charToNumber)) {

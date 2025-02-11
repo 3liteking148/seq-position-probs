@@ -140,6 +140,7 @@
 49	14.3167	14.0405	13.9382
 50	13.7771	13.7351	13.3986
 #K	0.404	0.436	0.298
+#seq	seqLen	profile	proLen	EAscore	E-value	SAscore	E-value	MAscore	E-value
 hg38_dna	650	MIR	262	81.5	2.73e-20	81.6	2.15e-20	81	2.84e-20
 hg38_dna	650	U7	63	21.2	0.0068	20.5	0.0121	20.8	0.00652
 hg38_dna	500	MIR	262	33.9	4.36e-06	33.8	4.04e-06	33.7	3.73e-06
