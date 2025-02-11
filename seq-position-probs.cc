@@ -21,9 +21,14 @@ struct Profile {
   const char *name;
 };
 
+bool isDash(const char *text) {
+  return text[0] == '-' && text[1] == 0;
+}
+
 std::istream &openFile(std::ifstream &file, const char *name) {
-  if (name[0] == '-' && name[1] == 0) return std::cin;
+  if (isDash(name)) return std::cin;
   file.open(name);
+  if (!file) std::cerr << "can't open file: " << name << "\n";
   return file;
 }
 
@@ -291,7 +296,6 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  const char *fileName = argv[1];
   int numOfSequences = intFromText(argv[2]);
   int sequenceLength = intFromText(argv[3]);
 
@@ -305,20 +309,18 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  std::ifstream file;
-  std::istream &in = openFile(file, fileName);
-  if (!file) {
-    std::cerr << "can't open file\n";
-    return 1;
-  }
-
   std::vector<char> profileNames;
   std::vector<Float> profileValues;
   std::vector<Profile> profiles;
 
-  if (!readProfiles(in, profiles, profileValues, profileNames)) {
-    std::cerr << "can't read the profile data\n";
-    return 1;
+  {
+    std::ifstream file;
+    std::istream &in = openFile(file, argv[1]);
+    if (!file) return 1;
+    if (!readProfiles(in, profiles, profileValues, profileNames)) {
+      std::cerr << "can't read the profile data\n";
+      return 1;
+    }
   }
 
   size_t numOfProfiles = profiles.size();
