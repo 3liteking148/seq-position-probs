@@ -8,9 +8,11 @@
 #include <string>
 #include <vector>
 
+#include <ctype.h>
 #include <limits.h>
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 typedef float Float;
 
@@ -296,6 +298,13 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
   return state == 0;
 }
 
+void setCharToNumber(char *charToNumber, const char *alphabet) {
+  for (int i = 0; alphabet[i]; ++i) {
+    int c = alphabet[i];
+    charToNumber[toupper(c)] = charToNumber[tolower(c)] = i;
+  }
+}
+
 int resizeMem(std::vector<Float> &v, int profileLength, int sequenceLength) {
   if (sequenceLength+1 > INT_MAX / (profileLength+2)) {
     std::cerr << "too big combination of sequence and profile\n";
@@ -306,7 +315,7 @@ int resizeMem(std::vector<Float> &v, int profileLength, int sequenceLength) {
 }
 
 int main(int argc, char* argv[]) {
-  if (argc != 4) {
+  if (argc < 4 || argc > 5) {
     std::cerr << "please give me: a-file.hmm numOfSequences sequenceLength\n";
     return 1;
   }
@@ -364,4 +373,26 @@ int main(int argc, char* argv[]) {
     estimateK(p, profileEnd+4, &sequence[0], sequenceLength,
 	      numOfSequences, &scratch[0]);
   }
+
+  if (argc < 5 || numOfProfiles < 1) return 0;
+
+  int width = profiles[0].width;
+  for (size_t i = 1; i < numOfProfiles; ++i) {
+    if (profiles[i].width != width) width = 0;
+  }
+  char charToNumber[256];
+  memset(charToNumber, 127, 256);
+  if (width == 8) {
+    setCharToNumber(charToNumber, "ACGT");
+    setCharToNumber(charToNumber, "ACGU");
+  } else if (width == 24) {
+    setCharToNumber(charToNumber, "ACDEFGHIKLMNPQRSTVWY");
+  } else {
+    std::cerr << "the profiles should be all protein, or all nucleotide\n";
+    return 1;
+  }
+
+  std::ifstream file;
+  std::istream &in = openFile(file, argv[4]);
+  if (!file) return 1;
 }
