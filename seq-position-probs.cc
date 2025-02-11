@@ -26,6 +26,12 @@ struct Profile {
   double midK;  // Gumbel K for mid-anchored sum of alignment probabilities
 };
 
+struct Sequence {
+  char *name;
+  char *seq;
+  int length;
+};
+
 bool isDash(const char *text) {
   return text[0] == '-' && text[1] == 0;
 }
@@ -35,6 +41,43 @@ std::istream &openFile(std::ifstream &file, const char *name) {
   file.open(name);
   if (!file) std::cerr << "can't open file: " << name << "\n";
   return file;
+}
+
+std::istream &readSequence(std::istream &in, Sequence &sequence,
+			   std::vector<char> &vec, const char *charToNumber) {
+  vec.clear();
+
+  std::string line, word;
+  while (getline(in, line)) {
+    std::istringstream iss(line);
+    char c;
+    if (iss >> c) {
+      if (c != '>' || !(iss >> word)) in.setstate(std::ios::failbit);
+      const char *name = word.c_str();
+      vec.insert(vec.end(), name, name + word.size() + 1);
+      break;
+    }
+  }
+
+  std::streambuf *buf = in.rdbuf();
+  int c = buf->sgetc();
+  while (c != std::streambuf::traits_type::eof()) {
+    if (c > ' ') {
+      if (c == '>') break;
+      char n = charToNumber[c];
+      if (n == 127) in.setstate(std::ios::failbit);
+      vec.push_back(n);
+    }
+    c = buf->snextc();
+  }
+
+  vec.push_back(0);  // the algorithms need one arbitrary letter past the end
+
+  sequence.name = &vec[0];
+  sequence.seq = sequence.name + word.size() + 1;
+  sequence.length = sequence.name + vec.size() - sequence.seq - 1;
+
+  return in;
 }
 
 void maxProbabilityRatios(Profile profile,
@@ -354,7 +397,7 @@ int main(int argc, char* argv[]) {
     maxProfileLength = std::max(maxProfileLength, profiles[i].length);
   }
 
-  std::vector<char> sequence(sequenceLength+1);
+  std::vector<char> sequenceData(sequenceLength+1);
   std::vector<Float> scratch;
   if (!resizeMem(scratch, maxProfileLength, sequenceLength)) return 1;
 
@@ -370,7 +413,7 @@ int main(int argc, char* argv[]) {
       std::cout << " " << profileEnd[j];
     }
     std::cout << "\n";
-    estimateK(p, profileEnd+4, &sequence[0], sequenceLength,
+    estimateK(p, profileEnd+4, &sequenceData[0], sequenceLength,
 	      numOfSequences, &scratch[0]);
   }
 
@@ -395,4 +438,10 @@ int main(int argc, char* argv[]) {
   std::ifstream file;
   std::istream &in = openFile(file, argv[4]);
   if (!file) return 1;
+  Sequence sequence;
+  while (readSequence(in, sequence, sequenceData, charToNumber)) {
+    if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
+  }
+
+  return 0;
 }
