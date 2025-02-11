@@ -16,7 +16,7 @@ typedef float Float;
 
 struct Profile {
   Float *values;
-  int valuesPerPosition;  // 4 + alphabetSize
+  int width;  // values per position: 4 + alphabetSize
   int length;  // number of positions
   const char *name;
 };
@@ -44,11 +44,11 @@ void maxProbabilityRatios(Profile profile,
   for (int i = profile.length; i >= 0; --i) {
     Float *W = scratch + i * (sequenceLength + 1);
     const Float *Wfrom = W + (sequenceLength + 1);
-    Float a = profile.values[i * profile.valuesPerPosition + 0];
-    Float b = profile.values[i * profile.valuesPerPosition + 1];
-    Float d = profile.values[i * profile.valuesPerPosition + 2];
-    Float e = profile.values[i * profile.valuesPerPosition + 3];
-    const Float *S = profile.values + i * profile.valuesPerPosition + 4;
+    Float a = profile.values[i * profile.width + 0];
+    Float b = profile.values[i * profile.width + 1];
+    Float d = profile.values[i * profile.width + 2];
+    Float e = profile.values[i * profile.width + 3];
+    const Float *S = profile.values + i * profile.width + 4;
 
     Float wOld = 0;
     Float z = 0;
@@ -76,11 +76,11 @@ void maxProbabilityRatios(Profile profile,
   for (int i = 0; i <= profile.length; ++i) {
     Float *W = scratch + i * (sequenceLength + 1);
     const Float *X = i ? W - (sequenceLength + 1) : Y;
-    Float a = profile.values[i * profile.valuesPerPosition + 0];
-    Float b = profile.values[i * profile.valuesPerPosition + 1];
-    Float d = profile.values[i * profile.valuesPerPosition + 2];
-    Float e = profile.values[i * profile.valuesPerPosition + 3];
-    const Float *S = profile.values + i * profile.valuesPerPosition + 4;
+    Float a = profile.values[i * profile.width + 0];
+    Float b = profile.values[i * profile.width + 1];
+    Float d = profile.values[i * profile.width + 2];
+    Float e = profile.values[i * profile.width + 3];
+    const Float *S = profile.values + i * profile.width + 4;
 
     Float x = 0;
     Float z = 0;
@@ -110,7 +110,7 @@ void scoresOfRandomSequences(Profile profile, const Float *letterFreqs,
 			     unsigned char *sequence, int sequenceLength,
 			     int numOfSequences, Float *scratch) {
   std::mt19937_64 randGen;
-  int alphabetSize = profile.valuesPerPosition - 4;
+  int alphabetSize = profile.width - 4;
   std::discrete_distribution<> dist(letterFreqs, letterFreqs + alphabetSize);
 
   double endSum = 0;
@@ -163,28 +163,27 @@ double geometricMean(const Float *values, int length, int step) {
 }
 
 int finalizeProfile(Profile p) {
-  Float *end = p.values + p.valuesPerPosition * p.length;
+  Float *end = p.values + p.width * p.length;
 
   // set the final epsilon to the geometric mean of the other epsilons
-  end[3] = geometricMean(p.values + p.valuesPerPosition + 3,
-			 p.length - 1, p.valuesPerPosition);
+  end[3] = geometricMean(p.values + p.width + 3, p.length - 1, p.width);
   std::cerr << "final epsilon: " << end[3] << "\n";
 
   // set the background letter probabilities proportional to the
   // geometric mean of the foreground letter probabilities
   double sum = 0;
-  for (int k = 4; k < p.valuesPerPosition; ++k) {
-    double m = geometricMean(p.values + k, p.length, p.valuesPerPosition);
+  for (int k = 4; k < p.width; ++k) {
+    double m = geometricMean(p.values + k, p.length, p.width);
     if (m <= 0) return 0;
     end[k] = m;
     sum += m;
   }
-  for (int k = 4; k < p.valuesPerPosition; ++k) {
+  for (int k = 4; k < p.width; ++k) {
     end[k] /= sum;
   }
 
   for (int i = 0; ; ++i) {
-    Float *probs = p.values + i * p.valuesPerPosition;
+    Float *probs = p.values + i * p.width;
     double alpha = probs[0];
     double beta = probs[1];
     probs[0] = alpha * (1 - beta);
@@ -193,11 +192,11 @@ int finalizeProfile(Profile p) {
 
     double delta = probs[2];
     double epsilon = probs[3];
-    double epsilon1 = probs[p.valuesPerPosition + 3];
+    double epsilon1 = probs[p.width + 3];
     double c = (1 - alpha - delta);
     probs[2] = delta * (1 - epsilon1);
     probs[3] = epsilon * (1 - epsilon1) / (1 - epsilon);
-    for (int k = 4; k < p.valuesPerPosition; ++k) {
+    for (int k = 4; k < p.width; ++k) {
       probs[k] = c * probs[k] / end[k];
     }
   }
@@ -250,9 +249,9 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
       break;
     case 4:
       if (word == "//") {
-	values.insert(values.end(), p.valuesPerPosition - 4, 0.0);
+	values.insert(values.end(), p.width - 4, 0.0);
 	profiles.push_back(p);
-	p.valuesPerPosition = 4;
+	p.width = 4;
 	p.length = 0;
 	state = 0;
       } else {
@@ -263,11 +262,11 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
 	  values.push_back(prob);
 	  ++k;
 	}
-	if (p.valuesPerPosition > 4 && k != p.valuesPerPosition) return 0;
+	if (p.width > 4 && k != p.width) return 0;
 	if (k == 4) return 0;
-	p.valuesPerPosition = k;
+	p.width = k;
 	p.length += 1;
-	if (p.length + 1 > INT_MAX / p.valuesPerPosition) return 0;
+	if (p.length + 1 > INT_MAX / p.width) return 0;
 	state = 2;
       }
     }
@@ -279,7 +278,7 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
     profiles[i].values = v;
     profiles[i].name = n;
     if (!finalizeProfile(profiles[i])) return 0;
-    v += profiles[i].valuesPerPosition * (profiles[i].length + 1);
+    v += profiles[i].width * (profiles[i].length + 1);
     n += strlen(n) + 1;
   }
 
@@ -341,11 +340,11 @@ int main(int argc, char* argv[]) {
 
   for (size_t i = 0; i < numOfProfiles; ++i) {
     Profile p = profiles[i];
-    const Float *profileEnd = p.values + p.valuesPerPosition * p.length;
+    const Float *profileEnd = p.values + p.width * p.length;
     std::cout << "# Profile name: " << p.name << "\n";
     std::cout << "# Profile length: " << p.length << "\n";
     std::cout << "# Background letter probabilities:";
-    for (int j = 4; j < p.valuesPerPosition; ++j) {
+    for (int j = 4; j < p.width; ++j) {
       std::cout << " " << profileEnd[j];
     }
     std::cout << "\n";
