@@ -34,6 +34,14 @@ struct Sequence {
   int length;
 };
 
+void reverseComplement(char *beg, char *end) {
+  while (beg < end) {
+    char c = *--end;
+    *end = 3 - *beg;
+    *beg++ = 3 - c;
+  }
+}
+
 bool isDash(const char *text) {
   return text[0] == '-' && text[1] == 0;
 }
@@ -375,9 +383,9 @@ options:\n\
   int c;
   while ((c = getopt_long(argc, argv, sOpts, lOpts, &c)) != -1) {
     switch (c) {
-      case 'h':
-	std::cout << help;
-	return 0;
+    case 'h':
+      std::cout << help;
+      return 0;
     case 's':
       strandOpt = intFromText(optarg);
       if (strandOpt < 0 || strandOpt > 2) {
@@ -470,27 +478,32 @@ options:\n\
   std::ifstream file;
   std::istream &in = openFile(file, argv[optind + 3]);
   if (!file) return 1;
-  std::cout << "#seq\tseqLen\tprofile\tproLen\t"
+  std::cout << "#seq\tseqLen\tprofile\tproLen\tstrand\t"
     "EAscore\tE-value\tSAscore\tE-value\tMAscore\tE-value\n";
   std::cout.precision(3);
   size_t totalSequenceLength = 0;
   Sequence sequence;
   while (readSequence(in, sequence, sequenceData, charToNumber)) {
     if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
-    totalSequenceLength += sequence.length;
-    for (size_t i = 0; i < numOfProfiles; ++i) {
-      const Profile p = profiles[i];
-      double maxEndRatio, maxBegRatio, maxMidRatio;
-      maxProbabilityRatios(p, sequence.seq, sequence.length, &scratch[0],
-			   maxEndRatio, maxBegRatio, maxMidRatio);
-      double endE = p.length * sequence.length * p.endK / maxEndRatio;
-      double begE = p.length * sequence.length * p.begK / maxBegRatio;
-      double midE = p.length * sequence.length * p.midK / maxMidRatio;
-      std::cout << sequence.name << "\t" << sequence.length << "\t"
-		<< p.name << "\t" << p.length << "\t"
-		<< log2(maxEndRatio) << "\t" << endE << "\t"
-		<< log2(maxBegRatio) << "\t" << begE << "\t"
-		<< log2(maxMidRatio) << "\t" << midE << "\n";
+    for (int s = 0; s < 2; ++s) {
+      if (s != strandOpt) {
+	totalSequenceLength += sequence.length;
+	for (size_t i = 0; i < numOfProfiles; ++i) {
+	  const Profile p = profiles[i];
+	  double maxEndRatio, maxBegRatio, maxMidRatio;
+	  maxProbabilityRatios(p, sequence.seq, sequence.length, &scratch[0],
+			       maxEndRatio, maxBegRatio, maxMidRatio);
+	  double endE = p.length * sequence.length * p.endK / maxEndRatio;
+	  double begE = p.length * sequence.length * p.begK / maxBegRatio;
+	  double midE = p.length * sequence.length * p.midK / maxMidRatio;
+	  std::cout << sequence.name << "\t" << sequence.length << "\t"
+		    << p.name << "\t" << p.length << "\t" << "+-"[s] << "\t"
+		    << log2(maxEndRatio) << "\t" << endE << "\t"
+		    << log2(maxBegRatio) << "\t" << begE << "\t"
+		    << log2(maxMidRatio) << "\t" << midE << "\n";
+	}
+	reverseComplement(sequence.seq, sequence.seq + sequence.length);
+      }
     }
   }
   std::cout << "# Total sequence length: " << totalSequenceLength << "\n";
