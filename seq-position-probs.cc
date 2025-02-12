@@ -357,6 +357,11 @@ int main(int argc, char* argv[]) {
 
   const char help[] = "\
 usage: seq-position-probs profile.hmm randomTrials randomLength [sequences.fa]\n\
+\n\
+options:\n\
+  -h, --help        show this help message and exit\n\
+  -s S, --strand S  strand: 0=reverse, 1=forward, 2=both, ignored for protein\n\
+                    (default: 2)\n\
 ";
 
   const char sOpts[] = "hs:";
@@ -456,6 +461,7 @@ usage: seq-position-probs profile.hmm randomTrials randomLength [sequences.fa]\n
     setCharToNumber(charToNumber, "ACGU");
   } else if (width == 24) {
     setCharToNumber(charToNumber, "ACDEFGHIKLMNPQRSTVWY");
+    strandOpt = 1;
   } else {
     std::cerr << "the profiles should be all protein, or all nucleotide\n";
     return 1;
