@@ -433,9 +433,11 @@ int main(int argc, char* argv[]) {
   std::cout << "#seq\tseqLen\tprofile\tproLen\t"
     "EAscore\tE-value\tSAscore\tE-value\tMAscore\tE-value\n";
   std::cout.precision(3);
+  size_t totalSequenceLength = 0;
   Sequence sequence;
   while (readSequence(in, sequence, sequenceData, charToNumber)) {
     if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
+    totalSequenceLength += sequence.length;
     for (size_t i = 0; i < numOfProfiles; ++i) {
       const Profile p = profiles[i];
       double maxEndRatio, maxBegRatio, maxMidRatio;
@@ -451,6 +453,7 @@ int main(int argc, char* argv[]) {
 		<< log2(maxMidRatio) << "\t" << midE << "\n";
     }
   }
+  std::cout << "# Total sequence length: " << totalSequenceLength << "\n";
 
   return 0;
 }
