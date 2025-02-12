@@ -191,13 +191,13 @@ void estimateK(Profile &profile, const Float *letterFreqs,
 
 int intFromText(const char *text) {
   long x = strtol(text, 0, 0);
-  if (x > INT_MAX || x < INT_MIN) return 0;
+  if (x > INT_MAX || x < INT_MIN) return -1;
   return x;
 }
 
-double probFromText(const char *s) {
-  if (*s == '*') return 0;
-  double d = strtod(s, 0);
+double probFromText(const char *text) {
+  if (*text == '*') return 0;
+  double d = strtod(text, 0);
   return exp(-d);
 }
 
@@ -351,9 +351,12 @@ int resizeMem(std::vector<Float> &v, int profileLength, int sequenceLength) {
 }
 
 int main(int argc, char* argv[]) {
+  const char help[] = "\
+usage: seq-position-probs profile.hmm randomTrials randomLength [sequences.fa]\n\
+";
+
   if (argc < 4 || argc > 5) {
-    std::cerr << "usage: seq-position-probs "
-      "profile.hmm randomTrials randomLength [sequences.fa]\n";
+    std::cerr << help;
     return 1;
   }
 
