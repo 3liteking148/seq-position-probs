@@ -14,6 +14,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <getopt.h>
+
 typedef double Float;
 
 struct Profile {  // position-specific (insert, delete, letter) probabilities
@@ -351,17 +353,46 @@ int resizeMem(std::vector<Float> &v, int profileLength, int sequenceLength) {
 }
 
 int main(int argc, char* argv[]) {
+  int strandOpt = 2;
+
   const char help[] = "\
 usage: seq-position-probs profile.hmm randomTrials randomLength [sequences.fa]\n\
 ";
 
-  if (argc < 4 || argc > 5) {
+  const char sOpts[] = "hs:";
+
+  static struct option lOpts[] = {
+    {"help",   no_argument,       0, 'h'},
+    {"strand", required_argument, 0, 's'},
+    {0, 0, 0, 0}
+  };
+
+  int c;
+  while ((c = getopt_long(argc, argv, sOpts, lOpts, &c)) != -1) {
+    switch (c) {
+      case 'h':
+	std::cout << help;
+	return 0;
+    case 's':
+      strandOpt = intFromText(optarg);
+      if (strandOpt < 0 || strandOpt > 2) {
+	std::cerr << help;
+	return 1;
+      }
+      break;
+    case '?':
+      std::cerr << help;
+      return 1;
+    }
+  }
+
+  if (argc - optind < 3 || argc - optind > 4) {
     std::cerr << help;
     return 1;
   }
 
-  int numOfSequences = intFromText(argv[2]);
-  int sequenceLength = intFromText(argv[3]);
+  int numOfSequences = intFromText(argv[optind + 1]);
+  int sequenceLength = intFromText(argv[optind + 2]);
 
   if (numOfSequences < 1) {
     std::cerr << "bad numOfSequences\n";
@@ -379,7 +410,7 @@ usage: seq-position-probs profile.hmm randomTrials randomLength [sequences.fa]\n
 
   {
     std::ifstream file;
-    std::istream &in = openFile(file, argv[1]);
+    std::istream &in = openFile(file, argv[optind]);
     if (!file) return 1;
     if (!readProfiles(in, profiles, profileValues, profileNames)) {
       std::cerr << "can't read the profile data\n";
@@ -412,7 +443,7 @@ usage: seq-position-probs profile.hmm randomTrials randomLength [sequences.fa]\n
 	      numOfSequences, &scratch[0]);
   }
 
-  if (argc < 5 || numOfProfiles < 1) return 0;
+  if (argc - optind < 4 || numOfProfiles < 1) return 0;
 
   int width = profiles[0].width;
   for (size_t i = 1; i < numOfProfiles; ++i) {
@@ -431,7 +462,7 @@ usage: seq-position-probs profile.hmm randomTrials randomLength [sequences.fa]\n
   }
 
   std::ifstream file;
-  std::istream &in = openFile(file, argv[4]);
+  std::istream &in = openFile(file, argv[optind + 3]);
   if (!file) return 1;
   std::cout << "#seq\tseqLen\tprofile\tproLen\t"
     "EAscore\tE-value\tSAscore\tE-value\tMAscore\tE-value\n";
