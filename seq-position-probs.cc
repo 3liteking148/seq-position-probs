@@ -147,11 +147,11 @@ void maxProbabilityRatios(Profile profile,
       Float y = Y[j];
       Float w = x + y + z + 1;
 
-      Float s = W[j];
-      Float m = w * b;
+      Float wBeg = W[j];
+      Float wMid = w * wBeg;
       if (w > maxEnd) maxEnd = w;
-      if (s > maxBeg) maxBeg = s;
-      if (m > maxMid) maxMid = m;
+      if (wBeg > maxBeg) maxBeg = wBeg;
+      if (wMid > maxMid) maxMid = wMid;
 
       x = X[j];
       W[j] = S[sequence[j]] * w;
