@@ -22,7 +22,7 @@ struct Profile {  // position-specific (insert, delete, letter) probabilities
   Float *values;  // probabilities or probability ratios
   int width;  // values per position: 4 + alphabetSize
   int length;  // number of positions
-  const char *name;
+  size_t nameIdx;
   double endK;  // Gumbel K for end-anchored sum of alignment probabilities
   double begK;  // Gumbel K for start-anchored sum of alignment probabilities
   double midK;  // Gumbel K for mid-anchored sum of alignment probabilities
@@ -273,6 +273,7 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
     switch (state) {
     case 0:
       if (word == "NAME") {
+	profile.nameIdx = names.size();
 	iss >> word;
 	const char *name = word.c_str();
 	names.insert(names.end(), name, name + word.size() + 1);
@@ -331,13 +332,10 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
   }
 
   Float *v = &values[0];
-  const char *n = &names[0];
   for (size_t i = 0; i < profiles.size(); ++i) {
     profiles[i].values = v;
-    profiles[i].name = n;
     if (!finalizeProfile(profiles[i])) return 0;
     v += profiles[i].width * (profiles[i].length + 1);
-    n += strlen(n) + 1;
   }
 
   return state == 0;
@@ -416,7 +414,7 @@ options:\n\
     return 1;
   }
 
-  std::vector<char> profileNames;
+  std::vector<char> charVec;
   std::vector<Float> profileValues;
   std::vector<Profile> profiles;
 
@@ -424,7 +422,7 @@ options:\n\
     std::ifstream file;
     std::istream &in = openFile(file, argv[optind]);
     if (!file) return 1;
-    if (!readProfiles(in, profiles, profileValues, profileNames)) {
+    if (!readProfiles(in, profiles, profileValues, charVec)) {
       std::cerr << "can't read the profile data\n";
       return 1;
     }
@@ -446,7 +444,7 @@ options:\n\
   for (size_t i = 0; i < numOfProfiles; ++i) {
     Profile &p = profiles[i];
     const Float *profileEnd = p.values + p.width * p.length;
-    std::cout << "# Profile name: " << p.name << "\n";
+    std::cout << "# Profile name: " << &charVec[p.nameIdx] << "\n";
     std::cout << "# Profile length: " << p.length << "\n";
     std::cout << "# Background letter probabilities:";
     for (int j = 4; j < p.width; ++j) std::cout << " " << profileEnd[j];
@@ -494,7 +492,8 @@ options:\n\
 	  Profile p = profiles[j];
 	  double area = p.length * sequence.length;
 	  std::cout << sequence.name << "\t" << sequence.length << "\t"
-		    << p.name << "\t" << p.length << "\t" << "+-"[s] << "\t"
+		    << &charVec[p.nameIdx] << "\t" << p.length << "\t"
+		    << "+-"[s] << "\t"
 		    << log2(endRatio) << "\t" << p.endK*area/endRatio << "\t"
 		    << log2(begRatio) << "\t" << p.begK*area/begRatio << "\t"
 		    << log2(midRatio) << "\t" << p.midK*area/midRatio << "\n";
