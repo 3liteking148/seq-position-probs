@@ -488,18 +488,16 @@ options:\n\
       if (s != strandOpt) {
 	totSequenceLength += sequence.length;
 	for (size_t j = 0; j < numOfProfiles; ++j) {
-	  const Profile p = profiles[j];
-	  double maxEndRatio, maxBegRatio, maxMidRatio;
-	  maxProbabilityRatios(p, sequence.seq, sequence.length, &scratch[0],
-			       maxEndRatio, maxBegRatio, maxMidRatio);
-	  double endE = p.length * sequence.length * p.endK / maxEndRatio;
-	  double begE = p.length * sequence.length * p.begK / maxBegRatio;
-	  double midE = p.length * sequence.length * p.midK / maxMidRatio;
+	  double endRatio, begRatio, midRatio;
+	  maxProbabilityRatios(profiles[j], sequence.seq, sequence.length,
+			       &scratch[0], endRatio, begRatio, midRatio);
+	  Profile p = profiles[j];
+	  double area = p.length * sequence.length;
 	  std::cout << sequence.name << "\t" << sequence.length << "\t"
 		    << p.name << "\t" << p.length << "\t" << "+-"[s] << "\t"
-		    << log2(maxEndRatio) << "\t" << endE << "\t"
-		    << log2(maxBegRatio) << "\t" << begE << "\t"
-		    << log2(maxMidRatio) << "\t" << midE << "\n";
+		    << log2(endRatio) << "\t" << p.endK*area/endRatio << "\t"
+		    << log2(begRatio) << "\t" << p.begK*area/begRatio << "\t"
+		    << log2(midRatio) << "\t" << p.midK*area/midRatio << "\n";
 	}
       }
       reverseComplement(sequence.seq, sequence.seq + sequence.length);
