@@ -8,4 +8,5 @@ PATH=../bin:$PATH
     seq-position-probs dfam-test.hmm 10 200
     seq-position-probs -s1 dfam-test.hmm 50 500 dna-test.fa
     seq-position-probs dfam-test.hmm 50 500 dna-test.fa
+    seq-position-probs -s0 dfam-test.hmm 50 500 dna-test.fa
 } | diff -u tests.txt -

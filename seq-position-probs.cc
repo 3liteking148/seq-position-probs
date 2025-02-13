@@ -502,8 +502,8 @@ options:\n\
 		    << log2(maxBegRatio) << "\t" << begE << "\t"
 		    << log2(maxMidRatio) << "\t" << midE << "\n";
 	}
-	reverseComplement(sequence.seq, sequence.seq + sequence.length);
       }
+      reverseComplement(sequence.seq, sequence.seq + sequence.length);
     }
   }
   std::cout << "# Total sequence length: " << totalSequenceLength << "\n";
