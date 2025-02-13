@@ -81,11 +81,10 @@ std::istream &readSequence(std::istream &in, Sequence &sequence,
     c = buf->snextc();
   }
 
+  sequence.length = vec.size() - word.size() - 1;
   vec.push_back(0);  // the algorithms need one arbitrary letter past the end
-
   sequence.name = &vec[0];
   sequence.seq = sequence.name + word.size() + 1;
-  sequence.length = sequence.name + vec.size() - sequence.seq - 1;
 
   return in;
 }
@@ -481,15 +480,15 @@ options:\n\
   std::cout << "#seq\tseqLen\tprofile\tproLen\tstrand\t"
     "EAscore\tE-value\tSAscore\tE-value\tMAscore\tE-value\n";
   std::cout.precision(3);
-  size_t totalSequenceLength = 0;
+  size_t totSequenceLength = 0;
   Sequence sequence;
   while (readSequence(in, sequence, sequenceData, charToNumber)) {
     if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
     for (int s = 0; s < 2; ++s) {
       if (s != strandOpt) {
-	totalSequenceLength += sequence.length;
-	for (size_t i = 0; i < numOfProfiles; ++i) {
-	  const Profile p = profiles[i];
+	totSequenceLength += sequence.length;
+	for (size_t j = 0; j < numOfProfiles; ++j) {
+	  const Profile p = profiles[j];
 	  double maxEndRatio, maxBegRatio, maxMidRatio;
 	  maxProbabilityRatios(p, sequence.seq, sequence.length, &scratch[0],
 			       maxEndRatio, maxBegRatio, maxMidRatio);
@@ -506,7 +505,7 @@ options:\n\
       reverseComplement(sequence.seq, sequence.seq + sequence.length);
     }
   }
-  std::cout << "# Total sequence length: " << totalSequenceLength << "\n";
+  std::cout << "# Total sequence length: " << totSequenceLength << "\n";
 
   return 0;
 }
