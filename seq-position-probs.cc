@@ -30,7 +30,6 @@ struct Profile {  // position-specific (insert, delete, letter) probabilities
 
 struct Sequence {
   size_t nameIdx;
-  char *seq;
   int length;
 };
 
@@ -83,8 +82,6 @@ std::istream &readSequence(std::istream &in, Sequence &sequence,
 
   sequence.length = vec.size() - sequence.nameIdx - word.size() - 1;
   vec.push_back(0);  // the algorithms need one arbitrary letter past the end
-  sequence.seq = &vec[sequence.nameIdx + word.size() + 1];
-
   return in;
 }
 
@@ -484,12 +481,13 @@ options:\n\
   Sequence sequence;
   while (readSequence(in, sequence, charVec, charToNumber)) {
     if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
+    seqIdx = charVec.size() - sequence.length - 1;
     for (int s = 0; s < 2; ++s) {
       if (s != strandOpt) {
 	totSequenceLength += sequence.length;
 	for (size_t j = 0; j < numOfProfiles; ++j) {
 	  double endRatio, begRatio, midRatio;
-	  maxProbabilityRatios(profiles[j], sequence.seq, sequence.length,
+	  maxProbabilityRatios(profiles[j], &charVec[seqIdx], sequence.length,
 			       &scratch[0], endRatio, begRatio, midRatio);
 	  Profile p = profiles[j];
 	  double area = p.length * sequence.length;
@@ -501,9 +499,9 @@ options:\n\
 		    << log2(midRatio) << "\t" << p.midK*area/midRatio << "\n";
 	}
       }
-      reverseComplement(sequence.seq, sequence.seq + sequence.length);
+      reverseComplement(&charVec[seqIdx], &charVec[seqIdx] + sequence.length);
     }
-    charVec.resize(charVec.size() - sequence.length - 1);
+    charVec.resize(seqIdx);
   }
   std::cout << "# Total sequence length: " << totSequenceLength << "\n";
 
