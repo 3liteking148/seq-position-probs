@@ -485,9 +485,6 @@ options:\n\
   std::ifstream file;
   std::istream &in = openFile(file, argv[optind + 3]);
   if (!file) return 1;
-  std::cout << "#seq\tseqLen\tprofile\tproLen\tstrand\t"
-    "EAscore\tE-value\tSAscore\tE-value\tMAscore\tE-value\n";
-  std::cout.precision(3);
   Sequence sequence;
   for (size_t i = 0; readSequence(in, sequence, charVec, charToNumber); ++i) {
     if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
@@ -501,20 +498,28 @@ options:\n\
 			       &scratch[0], endRatio, begRatio, midRatio);
 	  Result r = {i * 2 + s, j, endRatio, begRatio, midRatio};
 	  results.push_back(r);
-	  Profile p = profiles[j];
-	  double area = p.length * sequence.length;
-	  std::cout << &charVec[sequence.nameIdx] << "\t" << sequence.length << "\t"
-		    << &charVec[p.nameIdx] << "\t" << p.length << "\t"
-		    << "+-"[s] << "\t"
-		    << log2(endRatio) << "\t" << p.endK*area/endRatio << "\t"
-		    << log2(begRatio) << "\t" << p.begK*area/begRatio << "\t"
-		    << log2(midRatio) << "\t" << p.midK*area/midRatio << "\n";
 	}
       }
       reverseComplement(&charVec[seqIdx], &charVec[seqIdx] + sequence.length);
     }
     sequences.push_back(sequence);
     charVec.resize(seqIdx);
+  }
+
+  std::cout << "#seq\tseqLen\tprofile\tproLen\tstrand\t"
+    "EAscore\tE-value\tSAscore\tE-value\tMAscore\tE-value\n";
+  std::cout.precision(3);
+  for (size_t i = 0; i < results.size(); ++i) {
+    Result r = results[i];
+    Profile p = profiles[r.profileNum];
+    Sequence s = sequences[r.sequenceNum / 2];
+    double area = p.length * s.length;
+    std::cout << &charVec[s.nameIdx] << "\t" << s.length << "\t"
+	      << &charVec[p.nameIdx] << "\t" << p.length << "\t"
+	      << "+-"[r.sequenceNum % 2] << "\t"
+	      << log2(r.endRatio) << "\t" << p.endK * area / r.endRatio << "\t"
+	      << log2(r.begRatio) << "\t" << p.begK * area / r.begRatio << "\t"
+	      << log2(r.midRatio) << "\t" << p.midK * area / r.midRatio << "\n";
   }
 
   std::cout << "# Total sequence length: " << totSequenceLength << "\n";
