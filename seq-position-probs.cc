@@ -29,7 +29,7 @@ struct Profile {  // position-specific (insert, delete, letter) probabilities
 };
 
 struct Sequence {
-  char *name;
+  size_t nameIdx;
   char *seq;
   int length;
 };
@@ -55,7 +55,7 @@ std::istream &openFile(std::ifstream &file, const char *name) {
 
 std::istream &readSequence(std::istream &in, Sequence &sequence,
 			   std::vector<char> &vec, const char *charToNumber) {
-  vec.clear();
+  sequence.nameIdx = vec.size();
 
   std::string line, word;
   while (getline(in, line)) {
@@ -81,10 +81,9 @@ std::istream &readSequence(std::istream &in, Sequence &sequence,
     c = buf->snextc();
   }
 
-  sequence.length = vec.size() - word.size() - 1;
+  sequence.length = vec.size() - sequence.nameIdx - word.size() - 1;
   vec.push_back(0);  // the algorithms need one arbitrary letter past the end
-  sequence.name = &vec[0];
-  sequence.seq = sequence.name + word.size() + 1;
+  sequence.seq = &vec[sequence.nameIdx + word.size() + 1];
 
   return in;
 }
@@ -480,7 +479,7 @@ options:\n\
   std::cout.precision(3);
   size_t totSequenceLength = 0;
   Sequence sequence;
-  while (readSequence(in, sequence, sequenceData, charToNumber)) {
+  while (readSequence(in, sequence, charVec, charToNumber)) {
     if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
     for (int s = 0; s < 2; ++s) {
       if (s != strandOpt) {
@@ -491,7 +490,7 @@ options:\n\
 			       &scratch[0], endRatio, begRatio, midRatio);
 	  Profile p = profiles[j];
 	  double area = p.length * sequence.length;
-	  std::cout << sequence.name << "\t" << sequence.length << "\t"
+	  std::cout << &charVec[sequence.nameIdx] << "\t" << sequence.length << "\t"
 		    << &charVec[p.nameIdx] << "\t" << p.length << "\t"
 		    << "+-"[s] << "\t"
 		    << log2(endRatio) << "\t" << p.endK*area/endRatio << "\t"
@@ -501,6 +500,7 @@ options:\n\
       }
       reverseComplement(sequence.seq, sequence.seq + sequence.length);
     }
+    charVec.resize(charVec.size() - sequence.length - 1);
   }
   std::cout << "# Total sequence length: " << totSequenceLength << "\n";
 
