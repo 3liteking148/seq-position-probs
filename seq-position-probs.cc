@@ -434,7 +434,8 @@ options:\n\
     maxProfileLength = std::max(maxProfileLength, profiles[i].length);
   }
 
-  std::vector<char> sequenceData(sequenceLength+1);
+  size_t seqIdx = charVec.size();
+  charVec.resize(seqIdx + sequenceLength + 1);
   std::vector<Float> scratch;
   if (!resizeMem(scratch, maxProfileLength, sequenceLength)) return 1;
 
@@ -448,7 +449,7 @@ options:\n\
     std::cout << "# Background letter probabilities:";
     for (int j = 4; j < p.width; ++j) std::cout << " " << profileEnd[j];
     std::cout << "\n";
-    estimateK(p, profileEnd+4, &sequenceData[0], sequenceLength,
+    estimateK(p, profileEnd+4, &charVec[seqIdx], sequenceLength,
 	      numOfSequences, &scratch[0]);
   }
 
@@ -470,6 +471,8 @@ options:\n\
     std::cerr << "the profiles should be all protein, or all nucleotide\n";
     return 1;
   }
+
+  charVec.resize(seqIdx);
 
   std::ifstream file;
   std::istream &in = openFile(file, argv[optind + 3]);
