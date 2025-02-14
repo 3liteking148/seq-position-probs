@@ -33,6 +33,14 @@ struct Sequence {
   int length;
 };
 
+struct Result {
+  size_t sequenceNum;  // which sequence
+  size_t profileNum;  // which profile
+  double endRatio;  // end-anchored sum of alignment probability ratios
+  double begRatio;  // start-anchored sum of alignment probability ratios
+  double midRatio;  // mid-anchored sum of alignment probability ratios
+};
+
 void reverseComplement(char *beg, char *end) {
   while (beg < end) {
     char c = *--end;
@@ -471,6 +479,7 @@ options:\n\
 
   charVec.resize(seqIdx);
   std::vector<Sequence> sequences;
+  std::vector<Result> results;
   size_t totSequenceLength = 0;
 
   std::ifstream file;
@@ -480,7 +489,7 @@ options:\n\
     "EAscore\tE-value\tSAscore\tE-value\tMAscore\tE-value\n";
   std::cout.precision(3);
   Sequence sequence;
-  while (readSequence(in, sequence, charVec, charToNumber)) {
+  for (size_t i = 0; readSequence(in, sequence, charVec, charToNumber); ++i) {
     if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
     seqIdx = charVec.size() - sequence.length - 1;
     for (int s = 0; s < 2; ++s) {
@@ -490,6 +499,8 @@ options:\n\
 	  double endRatio, begRatio, midRatio;
 	  maxProbabilityRatios(profiles[j], &charVec[seqIdx], sequence.length,
 			       &scratch[0], endRatio, begRatio, midRatio);
+	  Result r = {i * 2 + s, j, endRatio, begRatio, midRatio};
+	  results.push_back(r);
 	  Profile p = profiles[j];
 	  double area = p.length * sequence.length;
 	  std::cout << &charVec[sequence.nameIdx] << "\t" << sequence.length << "\t"
