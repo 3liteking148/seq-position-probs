@@ -1,8 +1,8 @@
-# Sequence length: 200
+# Length of random sequence: 200
 # Profile name: MIR
 # Profile length: 262
 # Background letter probabilities: 0.293416 0.189391 0.202994 0.314198
-#trial	end-	start-	mid-anchored
+#trial	end-	start-	mid-anchored bit-score
 1	13.7482	13.1256	15.5798
 2	15.0937	14.5685	17.7897
 3	16.0879	17.2786	20.0271
@@ -17,7 +17,7 @@
 # Profile name: U7
 # Profile length: 63
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
-#trial	end-	start-	mid-anchored
+#trial	end-	start-	mid-anchored bit-score
 1	14.354	13.5443	15.892
 2	11.8786	12.2472	13.3491
 3	12.494	12.5101	14.1282
@@ -30,11 +30,11 @@
 10	13.7665	13.726	15.5872
 #K	0.517	0.495	1.45
 # Total profile length: 325
-# Sequence length: 500
+# Length of random sequence: 500
 # Profile name: MIR
 # Profile length: 262
 # Background letter probabilities: 0.293416 0.189391 0.202994 0.314198
-#trial	end-	start-	mid-anchored
+#trial	end-	start-	mid-anchored bit-score
 1	15.1211	14.5698	17.8183
 2	16.0468	17.3287	20.0361
 3	18.3124	18.7726	21.0328
@@ -89,7 +89,7 @@
 # Profile name: U7
 # Profile length: 63
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
-#trial	end-	start-	mid-anchored
+#trial	end-	start-	mid-anchored bit-score
 1	14.354	13.5443	15.892
 2	12.494	12.5102	14.3847
 3	13.9861	14.1356	15.4033
@@ -148,11 +148,11 @@ hg38_dna	650	MIR	262	+	81.5	5.98e-20	81.6	4.72e-20	84.9	3.28e-20
 hg38_dna	650	U7	63	+	21.2	0.0621	20.5	0.11	22.5	0.0979
 hg38_dna	500	MIR	262	+	33.9	1.24e-05	33.8	1.15e-05	36.7	1.02e-05
 hg38_dna	500	U7	63	+	78.1	4.52e-19	78.3	4.27e-19	79	9.69e-19
-# Sequence length: 500
+# Length of random sequence: 500
 # Profile name: MIR
 # Profile length: 262
 # Background letter probabilities: 0.293416 0.189391 0.202994 0.314198
-#trial	end-	start-	mid-anchored
+#trial	end-	start-	mid-anchored bit-score
 1	15.1211	14.5698	17.8183
 2	16.0468	17.3287	20.0361
 3	18.3124	18.7726	21.0328
@@ -207,7 +207,7 @@ hg38_dna	500	U7	63	+	78.1	4.52e-19	78.3	4.27e-19	79	9.69e-19
 # Profile name: U7
 # Profile length: 63
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
-#trial	end-	start-	mid-anchored
+#trial	end-	start-	mid-anchored bit-score
 1	14.354	13.5443	15.892
 2	12.494	12.5102	14.3847
 3	13.9861	14.1356	15.4033
@@ -270,11 +270,11 @@ hg38_dna	500	MIR	262	+	33.9	2.49e-05	33.8	2.3e-05	36.7	2.05e-05
 hg38_dna	500	U7	63	+	78.1	9.04e-19	78.3	8.53e-19	79	1.94e-18
 hg38_dna	500	MIR	262	-	19.5	0.545	19.8	0.383	22.3	0.459
 hg38_dna	500	U7	63	-	21.5	0.0989	21.6	0.0994	22.7	0.166
-# Sequence length: 500
+# Length of random sequence: 500
 # Profile name: MIR
 # Profile length: 262
 # Background letter probabilities: 0.293416 0.189391 0.202994 0.314198
-#trial	end-	start-	mid-anchored
+#trial	end-	start-	mid-anchored bit-score
 1	15.1211	14.5698	17.8183
 2	16.0468	17.3287	20.0361
 3	18.3124	18.7726	21.0328
@@ -329,7 +329,7 @@ hg38_dna	500	U7	63	-	21.5	0.0989	21.6	0.0994	22.7	0.166
 # Profile name: U7
 # Profile length: 63
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
-#trial	end-	start-	mid-anchored
+#trial	end-	start-	mid-anchored bit-score
 1	14.354	13.5443	15.892
 2	12.494	12.5102	14.3847
 3	13.9861	14.1356	15.4033

@@ -173,7 +173,7 @@ void estimateK(Profile &profile, const Float *letterFreqs,
   double begSum = 0;
   double midSum = 0;
 
-  std::cout << "#trial\tend-\tstart-\tmid-anchored" << std::endl;
+  std::cout << "#trial\tend-\tstart-\tmid-anchored bit-score" << std::endl;
 
   for (int i = 0; i < numOfSequences; ++i) {
     for (int j = 0; j <= sequenceLength; ++j) sequence[j] = dist(randGen);
@@ -360,6 +360,9 @@ int main(int argc, char* argv[]) {
   const char help[] = "\
 usage: seq-position-probs profile.hmm randomTrials randomLength [sequences.fa]\n\
 \n\
+Get similarity scores between profiles and random sequences, estimate Gumbel K\n\
+parameters, and optionally get scores and E-values for real sequences.\n\
+\n\
 options:\n\
   -h, --help        show this help message and exit\n\
   -s S, --strand S  strand: 0=reverse, 1=forward, 2=both, ignored for protein\n\
@@ -439,7 +442,7 @@ options:\n\
   std::vector<Float> scratch;
   if (!resizeMem(scratch, maxProfileLength, sequenceLength)) return 1;
 
-  std::cout << "# Sequence length: " << sequenceLength << "\n";
+  std::cout << "# Length of random sequence: " << sequenceLength << "\n";
 
   for (size_t i = 0; i < numOfProfiles; ++i) {
     Profile &p = profiles[i];
