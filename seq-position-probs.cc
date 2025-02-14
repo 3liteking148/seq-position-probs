@@ -470,6 +470,8 @@ options:\n\
   }
 
   charVec.resize(seqIdx);
+  std::vector<Sequence> sequences;
+  size_t totSequenceLength = 0;
 
   std::ifstream file;
   std::istream &in = openFile(file, argv[optind + 3]);
@@ -477,7 +479,6 @@ options:\n\
   std::cout << "#seq\tseqLen\tprofile\tproLen\tstrand\t"
     "EAscore\tE-value\tSAscore\tE-value\tMAscore\tE-value\n";
   std::cout.precision(3);
-  size_t totSequenceLength = 0;
   Sequence sequence;
   while (readSequence(in, sequence, charVec, charToNumber)) {
     if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
@@ -501,8 +502,10 @@ options:\n\
       }
       reverseComplement(&charVec[seqIdx], &charVec[seqIdx] + sequence.length);
     }
+    sequences.push_back(sequence);
     charVec.resize(seqIdx);
   }
+
   std::cout << "# Total sequence length: " << totSequenceLength << "\n";
 
   return 0;
