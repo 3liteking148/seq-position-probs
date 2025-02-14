@@ -91,11 +91,8 @@ std::istream &readSequence(std::istream &in, Sequence &sequence,
   return in;
 }
 
-void maxProbabilityRatios(Profile profile,
-			  const char *sequence, int sequenceLength,
-			  Float *scratch,
-			  double &maxEndRatio, double &maxBegRatio,
-			  double &maxMidRatio) {
+Result maxProbabilityRatios(Profile profile, const char *sequence,
+			    int sequenceLength, Float *scratch) {
   // scratch has space for (sequenceLength + 1) * (profile.length + 2) values
   Float *Y = scratch + (sequenceLength + 1) * (profile.length + 1);
 
@@ -161,9 +158,8 @@ void maxProbabilityRatios(Profile profile,
     }
   }
 
-  maxEndRatio = maxEnd;
-  maxBegRatio = maxBeg;
-  maxMidRatio = maxMid;
+  Result result = {maxEnd, maxBeg, maxMid};
+  return result;
 }
 
 void estimateK(Profile &profile, const Float *letterFreqs,
@@ -181,14 +177,13 @@ void estimateK(Profile &profile, const Float *letterFreqs,
 
   for (int i = 0; i < numOfSequences; ++i) {
     for (int j = 0; j <= sequenceLength; ++j) sequence[j] = dist(randGen);
-    double maxEndRatio, maxBegRatio, maxMidRatio;
-    maxProbabilityRatios(profile, sequence, sequenceLength, scratch,
-			 maxEndRatio, maxBegRatio, maxMidRatio);
-    endSum += 1 / maxEndRatio;
-    begSum += 1 / maxBegRatio;
-    midSum += 1 / maxMidRatio;
-    std::cout << (i+1) << "\t" << log2(maxEndRatio) << "\t"
-	      << log2(maxBegRatio) << "\t" << log2(maxMidRatio) << std::endl;
+    Result r = maxProbabilityRatios(profile, sequence, sequenceLength,
+				    scratch);
+    endSum += 1 / r.endRatio;
+    begSum += 1 / r.begRatio;
+    midSum += 1 / r.midRatio;
+    std::cout << (i+1) << "\t" << log2(r.endRatio) << "\t"
+	      << log2(r.begRatio) << "\t" << log2(r.midRatio) << std::endl;
   }
 
   profile.endK = numOfSequences / (profile.length * sequenceLength * endSum);
@@ -495,11 +490,9 @@ options:\n\
       if (s != strandOpt) {
 	totSequenceLength += sequence.length;
 	for (size_t j = 0; j < numOfProfiles; ++j) {
-	  double endRatio, begRatio, midRatio;
-	  maxProbabilityRatios(profiles[j], &charVec[seqIdx], sequence.length,
-			       &scratch[0], endRatio, begRatio, midRatio);
-	  Result r = {endRatio, begRatio, midRatio};
-	  results.push_back(r);
+	  results.push_back(maxProbabilityRatios(profiles[j], &charVec[seqIdx],
+						 sequence.length,
+						 &scratch[0]));
 	}
       }
       reverseComplement(&charVec[seqIdx], &charVec[seqIdx] + sequence.length);
