@@ -34,8 +34,6 @@ struct Sequence {
 };
 
 struct Result {
-  size_t sequenceNum;  // which sequence
-  size_t profileNum;  // which profile
   double endRatio;  // end-anchored sum of alignment probability ratios
   double begRatio;  // start-anchored sum of alignment probability ratios
   double midRatio;  // mid-anchored sum of alignment probability ratios
@@ -490,7 +488,7 @@ options:\n\
   std::istream &in = openFile(file, argv[optind + 3]);
   if (!file) return 1;
   Sequence sequence;
-  for (size_t i = 0; readSequence(in, sequence, charVec, charToNumber); ++i) {
+  while (readSequence(in, sequence, charVec, charToNumber)) {
     if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
     seqIdx = charVec.size() - sequence.length - 1;
     for (int s = 0; s < 2; ++s) {
@@ -500,7 +498,7 @@ options:\n\
 	  double endRatio, begRatio, midRatio;
 	  maxProbabilityRatios(profiles[j], &charVec[seqIdx], sequence.length,
 			       &scratch[0], endRatio, begRatio, midRatio);
-	  Result r = {i * 2 + s, j, endRatio, begRatio, midRatio};
+	  Result r = {endRatio, begRatio, midRatio};
 	  results.push_back(r);
 	}
       }
@@ -516,16 +514,25 @@ options:\n\
   std::cout << "#seq\tseqLen\tprofile\tproLen\tstrand\t"
     "EAscore\tE-value\tSAscore\tE-value\tMAscore\tE-value\n";
   std::cout.precision(3);
-  for (size_t i = 0; i < results.size(); ++i) {
-    Result r = results[i];
-    Profile p = profiles[r.profileNum];
-    Sequence s = sequences[r.sequenceNum / 2];
-    std::cout << &charVec[s.nameIdx] << "\t" << s.length << "\t"
-	      << &charVec[p.nameIdx] << "\t" << p.length << "\t"
-	      << "+-"[r.sequenceNum % 2] << "\t"
-	      << log2(r.endRatio) << "\t" << p.endK * area / r.endRatio << "\t"
-	      << log2(r.begRatio) << "\t" << p.begK * area / r.begRatio << "\t"
-	      << log2(r.midRatio) << "\t" << p.midK * area / r.midRatio << "\n";
+  const Result *r = results.empty() ? 0 : &results[0];
+  for (size_t i = 0; i < sequences.size(); ++i) {
+    Sequence s = sequences[i];
+    for (int k = 0; k < 2; ++k) {
+      if (k == strandOpt) continue;
+      for (size_t j = 0; j < numOfProfiles; ++j) {
+	Profile p = profiles[j];
+	double endKMN = p.endK * area;
+	double begKMN = p.begK * area;
+	double midKMN = p.midK * area;
+	std::cout << &charVec[s.nameIdx] << "\t" << s.length << "\t"
+		  << &charVec[p.nameIdx] << "\t" << p.length << "\t"
+		  << "+-"[k] << "\t"
+		  << log2(r->endRatio) << "\t" << endKMN / r->endRatio << "\t"
+		  << log2(r->begRatio) << "\t" << begKMN / r->begRatio << "\t"
+		  << log2(r->midRatio) << "\t" << midKMN / r->midRatio << "\n";
+	++r;
+      }
+    }
   }
 
   return 0;
