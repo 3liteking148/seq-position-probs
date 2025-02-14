@@ -435,8 +435,10 @@ options:\n\
   size_t numOfProfiles = profiles.size();
 
   int maxProfileLength = 0;
+  size_t totProfileLength = 0;
   for (size_t i = 0; i < numOfProfiles; ++i) {
     maxProfileLength = std::max(maxProfileLength, profiles[i].length);
+    totProfileLength += profiles[i].length;
   }
 
   size_t seqIdx = charVec.size();
@@ -457,6 +459,8 @@ options:\n\
     estimateK(p, profileEnd+4, &charVec[seqIdx], sequenceLength,
 	      numOfSequences, &scratch[0]);
   }
+
+  std::cout << "# Total profile length: " << totProfileLength << "\n";
 
   if (argc - optind < 4 || numOfProfiles < 1) return 0;
 
@@ -506,6 +510,9 @@ options:\n\
     charVec.resize(seqIdx);
   }
 
+  std::cout << "# Total sequence length: " << totSequenceLength << "\n";
+  double area = totProfileLength * totSequenceLength;
+
   std::cout << "#seq\tseqLen\tprofile\tproLen\tstrand\t"
     "EAscore\tE-value\tSAscore\tE-value\tMAscore\tE-value\n";
   std::cout.precision(3);
@@ -513,7 +520,6 @@ options:\n\
     Result r = results[i];
     Profile p = profiles[r.profileNum];
     Sequence s = sequences[r.sequenceNum / 2];
-    double area = p.length * s.length;
     std::cout << &charVec[s.nameIdx] << "\t" << s.length << "\t"
 	      << &charVec[p.nameIdx] << "\t" << p.length << "\t"
 	      << "+-"[r.sequenceNum % 2] << "\t"
@@ -521,8 +527,6 @@ options:\n\
 	      << log2(r.begRatio) << "\t" << p.begK * area / r.begRatio << "\t"
 	      << log2(r.midRatio) << "\t" << p.midK * area / r.midRatio << "\n";
   }
-
-  std::cout << "# Total sequence length: " << totSequenceLength << "\n";
 
   return 0;
 }
