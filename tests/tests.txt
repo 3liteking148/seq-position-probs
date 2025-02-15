@@ -2,7 +2,7 @@
 # Profile name: MIR
 # Profile length: 262
 # Background letter probabilities: 0.293416 0.189391 0.202994 0.314198
-#trial	end-	start-	mid-anchored bit-score
+#trial	end-	start-	mid-anchored score
 1	13.7482	13.1256	15.5798
 2	15.0937	14.5685	17.7897
 3	16.0879	17.2786	20.0271
@@ -17,7 +17,7 @@
 # Profile name: U7
 # Profile length: 63
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
-#trial	end-	start-	mid-anchored bit-score
+#trial	end-	start-	mid-anchored score
 1	14.354	13.5443	15.892
 2	11.8786	12.2472	13.3491
 3	12.494	12.5101	14.1282
@@ -34,7 +34,7 @@
 # Profile name: MIR
 # Profile length: 262
 # Background letter probabilities: 0.293416 0.189391 0.202994 0.314198
-#trial	end-	start-	mid-anchored bit-score
+#trial	end-	start-	mid-anchored score
 1	15.1211	14.5698	17.8183
 2	16.0468	17.3287	20.0361
 3	18.3124	18.7726	21.0328
@@ -89,7 +89,7 @@
 # Profile name: U7
 # Profile length: 63
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
-#trial	end-	start-	mid-anchored bit-score
+#trial	end-	start-	mid-anchored score
 1	14.354	13.5443	15.892
 2	12.494	12.5102	14.3847
 3	13.9861	14.1356	15.4033
@@ -152,7 +152,7 @@ hg38_dna	500	U7	63	+	78.1	4.52e-19	78.3	4.27e-19	79	9.69e-19
 # Profile name: MIR
 # Profile length: 262
 # Background letter probabilities: 0.293416 0.189391 0.202994 0.314198
-#trial	end-	start-	mid-anchored bit-score
+#trial	end-	start-	mid-anchored score
 1	15.1211	14.5698	17.8183
 2	16.0468	17.3287	20.0361
 3	18.3124	18.7726	21.0328
@@ -207,7 +207,7 @@ hg38_dna	500	U7	63	+	78.1	4.52e-19	78.3	4.27e-19	79	9.69e-19
 # Profile name: U7
 # Profile length: 63
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
-#trial	end-	start-	mid-anchored bit-score
+#trial	end-	start-	mid-anchored score
 1	14.354	13.5443	15.892
 2	12.494	12.5102	14.3847
 3	13.9861	14.1356	15.4033
@@ -274,7 +274,7 @@ hg38_dna	500	U7	63	-	21.5	0.0989	21.6	0.0994	22.7	0.166
 # Profile name: MIR
 # Profile length: 262
 # Background letter probabilities: 0.293416 0.189391 0.202994 0.314198
-#trial	end-	start-	mid-anchored bit-score
+#trial	end-	start-	mid-anchored score
 1	15.1211	14.5698	17.8183
 2	16.0468	17.3287	20.0361
 3	18.3124	18.7726	21.0328
@@ -329,7 +329,7 @@ hg38_dna	500	U7	63	-	21.5	0.0989	21.6	0.0994	22.7	0.166
 # Profile name: U7
 # Profile length: 63
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
-#trial	end-	start-	mid-anchored bit-score
+#trial	end-	start-	mid-anchored score
 1	14.354	13.5443	15.892
 2	12.494	12.5102	14.3847
 3	13.9861	14.1356	15.4033

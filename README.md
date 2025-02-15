@@ -49,5 +49,7 @@ For nucleotide profiles, it will search both strands of
   mean of its position-specific letter probabilities ([Barrett et
   al. 1997](https://doi.org/10.1093/bioinformatics/13.2.191)).
 
+* A score is: log<sub>2</sub>[probability ratio].
+
 * An *E*-value is: `K M N / 2^score`, where M is the sum of profile
   lengths and N is the sum of sequence lengths.

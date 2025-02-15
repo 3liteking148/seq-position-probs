@@ -173,7 +173,7 @@ void estimateK(Profile &profile, const Float *letterFreqs,
   double begSum = 0;
   double midSum = 0;
 
-  std::cout << "#trial\tend-\tstart-\tmid-anchored bit-score" << std::endl;
+  std::cout << "#trial\tend-\tstart-\tmid-anchored score" << std::endl;
 
   for (int i = 0; i < numOfSequences; ++i) {
     for (int j = 0; j <= sequenceLength; ++j) sequence[j] = dist(randGen);
