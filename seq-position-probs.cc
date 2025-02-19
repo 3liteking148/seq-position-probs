@@ -88,16 +88,17 @@ std::istream &readSequence(std::istream &in, Sequence &sequence,
 
 Result maxProbabilityRatios(Profile profile, const char *sequence,
 			    int sequenceLength, Float *scratch) {
+  long rowSize = sequenceLength + 1;
   // scratch has space for (sequenceLength + 1) * (profile.length + 2) values
-  Float *Y = scratch + (sequenceLength + 1) * (profile.length + 1);
+  Float *Y = scratch + rowSize * (profile.length + 1);
 
   // Backward algorithm:
 
   for (int j = 0; j <= sequenceLength; ++j) Y[j] = 0;
 
   for (int i = profile.length; i >= 0; --i) {
-    Float *W = scratch + i * (sequenceLength + 1);
-    const Float *Wfrom = W + (sequenceLength + 1);
+    Float *W = scratch + i * rowSize;
+    const Float *Wfrom = W + rowSize;
     Float a = profile.values[i * profile.width + 0];
     Float b = profile.values[i * profile.width + 1];
     Float d = profile.values[i * profile.width + 2];
@@ -126,8 +127,8 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
   for (int j = 0; j <= sequenceLength; ++j) Y[j] = 0;
 
   for (int i = 0; i <= profile.length; ++i) {
-    Float *W = scratch + i * (sequenceLength + 1);
-    const Float *X = i ? W - (sequenceLength + 1) : Y;
+    Float *W = scratch + i * rowSize;
+    const Float *X = i ? W - rowSize : Y;
     Float a = profile.values[i * profile.width + 0];
     Float b = profile.values[i * profile.width + 1];
     Float d = profile.values[i * profile.width + 2];
@@ -342,11 +343,12 @@ void setCharToNumber(char *charToNumber, const char *alphabet) {
 }
 
 int resizeMem(std::vector<Float> &v, int profileLength, int sequenceLength) {
-  if (sequenceLength+1 > INT_MAX / (profileLength+2)) {
+  long rowSize = sequenceLength + 1;
+  if (rowSize > LONG_MAX / (profileLength+2)) {
     std::cerr << "too big combination of sequence and profile\n";
     return 0;
   }
-  v.resize((sequenceLength+1) * (profileLength+2));
+  v.resize(rowSize * (profileLength+2));
   return 1;
 }
 
