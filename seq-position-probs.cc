@@ -20,7 +20,7 @@ typedef double Float;
 
 struct Profile {  // position-specific (insert, delete, letter) probabilities
   Float *values;  // probabilities or probability ratios
-  int width;  // values per position: 4 + alphabetSize
+  int width;  // values per position: 4 + alphabetSize + 1
   int length;  // number of positions
   size_t nameIdx;
   double endK;  // Gumbel K for end-anchored sum of alignment probabilities
@@ -76,13 +76,8 @@ std::istream &readSequence(std::istream &in, Sequence &sequence,
 
   std::streambuf *buf = in.rdbuf();
   int c = buf->sgetc();
-  while (c != std::streambuf::traits_type::eof()) {
-    if (c > ' ') {
-      if (c == '>') break;
-      char n = charToNumber[c];
-      if (n == 127) in.setstate(std::ios::failbit);
-      vec.push_back(n);
-    }
+  while (c != std::streambuf::traits_type::eof() && c != '>') {
+    if (c > ' ') vec.push_back(charToNumber[c]);
     c = buf->snextc();
   }
 
@@ -166,7 +161,7 @@ void estimateK(Profile &profile, const Float *letterFreqs,
 	       char *sequence, int sequenceLength, int numOfSequences,
 	       Float *scratch) {
   std::mt19937_64 randGen;
-  int alphabetSize = profile.width - 4;
+  int alphabetSize = profile.width - 5;
   std::discrete_distribution<> dist(letterFreqs, letterFreqs + alphabetSize);
 
   double endSum = 0;
@@ -228,13 +223,13 @@ int finalizeProfile(Profile p) {
   // set the background letter probabilities proportional to the
   // geometric mean of the foreground letter probabilities
   double sum = 0;
-  for (int k = 4; k < p.width; ++k) {
+  for (int k = 4; k < p.width - 1; ++k) {
     double m = geometricMean(p.values + k, p.length, p.width);
     if (m <= 0) return 0;
     end[k] = m;
     sum += m;
   }
-  for (int k = 4; k < p.width; ++k) end[k] /= sum;
+  for (int k = 4; k < p.width - 1; ++k) end[k] /= sum;
 
   for (int i = 0; ; ++i) {
     Float *probs = p.values + i * p.width;
@@ -251,7 +246,7 @@ int finalizeProfile(Profile p) {
     if (epsilon >= 1) return 0;
     probs[2] = delta * (1 - epsilon1);
     probs[3] = epsilon * (1 - epsilon1) / (1 - epsilon);
-    for (int k = 4; k < p.width; ++k) {
+    for (int k = 4; k < p.width - 1; ++k) {
       probs[k] = c * probs[k] / end[k];
     }
   }
@@ -311,14 +306,15 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
 	profile.width = profile.length = 0;
 	state = 0;
       } else {
-	int k = 4;
+	int k = 5;
 	while (iss >> word && strchr(word.c_str(), '.')) {  // xxx "*"?
 	  double prob = probFromText(word.c_str());
 	  if (prob > 1) return 0;
 	  values.push_back(prob);
 	  ++k;
 	}
-	if (k == 4) return 0;
+	values.push_back(0);
+	if (k == 5) return 0;
 	if (profile.width > 0 && k != profile.width) return 0;
 	profile.width = k;
 	profile.length += 1;
@@ -450,7 +446,7 @@ options:\n\
     std::cout << "# Profile name: " << &charVec[p.nameIdx] << "\n";
     std::cout << "# Profile length: " << p.length << "\n";
     std::cout << "# Background letter probabilities:";
-    for (int j = 4; j < p.width; ++j) std::cout << " " << profileEnd[j];
+    for (int j = 4; j < p.width - 1; ++j) std::cout << " " << profileEnd[j];
     std::cout << "\n";
     estimateK(p, profileEnd+4, &charVec[seqIdx], sequenceLength,
 	      numOfSequences, &scratch[0]);
@@ -465,11 +461,11 @@ options:\n\
     if (profiles[i].width != width) width = 0;
   }
   char charToNumber[256];
-  memset(charToNumber, 127, 256);
-  if (width == 8) {
+  memset(charToNumber, width - 5, 256);
+  if (width == 9) {
     setCharToNumber(charToNumber, "ACGT");
     setCharToNumber(charToNumber, "ACGU");
-  } else if (width == 24) {
+  } else if (width == 25) {
     setCharToNumber(charToNumber, "ACDEFGHIKLMNPQRSTVWY");
     strandOpt = 1;
   } else {
