@@ -182,9 +182,9 @@ void estimateK(Profile &profile, const Float *letterFreqs,
 	      << log2(r.begRatio) << "\t" << log2(r.midRatio) << std::endl;
   }
 
-  profile.endK = numOfSequences / (profile.length * sequenceLength * endSum);
-  profile.begK = numOfSequences / (profile.length * sequenceLength * begSum);
-  profile.midK = numOfSequences / (profile.length * sequenceLength * midSum);
+  profile.endK = numOfSequences / (sequenceLength * endSum);
+  profile.begK = numOfSequences / (sequenceLength * begSum);
+  profile.midK = numOfSequences / (sequenceLength * midSum);
   std::cout.precision(3);
   std::cout << "#K\t" << profile.endK << "\t" << profile.begK << "\t"
 	    << profile.midK << "\n";
@@ -429,10 +429,8 @@ options:\n\
   size_t numOfProfiles = profiles.size();
 
   int maxProfileLength = 0;
-  size_t totProfileLength = 0;
   for (size_t i = 0; i < numOfProfiles; ++i) {
     maxProfileLength = std::max(maxProfileLength, profiles[i].length);
-    totProfileLength += profiles[i].length;
   }
 
   size_t seqIdx = charVec.size();
@@ -441,6 +439,10 @@ options:\n\
   if (!resizeMem(scratch, maxProfileLength, sequenceLength)) return 1;
 
   std::cout << "# Length of random sequence: " << sequenceLength << "\n";
+
+  double totEndK = 0;
+  double totBegK = 0;
+  double totMidK = 0;
 
   for (size_t i = 0; i < numOfProfiles; ++i) {
     Profile &p = profiles[i];
@@ -452,9 +454,10 @@ options:\n\
     std::cout << "\n";
     estimateK(p, profileEnd+4, &charVec[seqIdx], sequenceLength,
 	      numOfSequences, &scratch[0]);
+    totEndK += p.endK;
+    totBegK += p.begK;
+    totMidK += p.midK;
   }
-
-  std::cout << "# Total profile length: " << totProfileLength << "\n";
 
   if (argc - optind < 4 || numOfProfiles < 1) return 0;
 
@@ -503,7 +506,10 @@ options:\n\
   }
 
   std::cout << "# Total sequence length: " << totSequenceLength << "\n";
-  double area = totProfileLength * totSequenceLength;
+
+  double endKMN = totEndK * totSequenceLength;
+  double begKMN = totBegK * totSequenceLength;
+  double midKMN = totMidK * totSequenceLength;
 
   std::cout << "#seq\tseqLen\tprofile\tproLen\tstrand\t"
     "EAscore\tE-value\tSAscore\tE-value\tMAscore\tE-value\n";
@@ -515,9 +521,6 @@ options:\n\
       if (k == strandOpt) continue;
       for (size_t j = 0; j < numOfProfiles; ++j) {
 	Profile p = profiles[j];
-	double endKMN = p.endK * area;
-	double begKMN = p.begK * area;
-	double midKMN = p.midK * area;
 	std::cout << &charVec[s.nameIdx] << "\t" << s.length << "\t"
 		  << &charVec[p.nameIdx] << "\t" << p.length << "\t"
 		  << "+-"[k] << "\t"
