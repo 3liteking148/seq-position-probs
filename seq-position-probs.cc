@@ -34,9 +34,9 @@ struct Sequence {
 };
 
 struct Result {
-  double endRatio;  // end-anchored sum of alignment probability ratios
-  double begRatio;  // start-anchored sum of alignment probability ratios
-  double midRatio;  // mid-anchored sum of alignment probability ratios
+  double endAnchored;
+  double begAnchored;
+  double midAnchored;
 };
 
 void reverseComplement(char *beg, char *end) {
@@ -175,11 +175,12 @@ void estimateK(Profile &profile, const Float *letterFreqs,
     for (int j = 0; j <= sequenceLength; ++j) sequence[j] = dist(randGen);
     Result r = maxProbabilityRatios(profile, sequence, sequenceLength,
 				    scratch);
-    endSum += 1 / r.endRatio;
-    begSum += 1 / r.begRatio;
-    midSum += 1 / r.midRatio;
-    std::cout << (i+1) << "\t" << log2(r.endRatio) << "\t"
-	      << log2(r.begRatio) << "\t" << log2(r.midRatio) << std::endl;
+    endSum += 1 / r.endAnchored;
+    begSum += 1 / r.begAnchored;
+    midSum += 1 / r.midAnchored;
+    std::cout << (i+1) << "\t" << log2(r.endAnchored) << "\t"
+	      << log2(r.begAnchored) << "\t"
+	      << log2(r.midAnchored) << std::endl;
   }
 
   profile.endK = numOfSequences / (sequenceLength * endSum);
@@ -524,9 +525,12 @@ options:\n\
 	std::cout << &charVec[s.nameIdx] << "\t" << s.length << "\t"
 		  << &charVec[p.nameIdx] << "\t" << p.length << "\t"
 		  << "+-"[k] << "\t"
-		  << log2(r->endRatio) << "\t" << endKMN / r->endRatio << "\t"
-		  << log2(r->begRatio) << "\t" << begKMN / r->begRatio << "\t"
-		  << log2(r->midRatio) << "\t" << midKMN / r->midRatio << "\n";
+		  << log2(r->endAnchored) << "\t"
+		  << endKMN / r->endAnchored << "\t"
+		  << log2(r->begAnchored) << "\t"
+		  << begKMN / r->begAnchored << "\t"
+		  << log2(r->midAnchored) << "\t"
+		  << midKMN / r->midAnchored << "\n";
 	++r;
       }
     }
