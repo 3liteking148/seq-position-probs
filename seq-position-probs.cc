@@ -184,10 +184,8 @@ Result estimateK(Profile profile, const Float *letterFreqs,
 	      numOfSequences / (sequenceLength * harmBeg),
 	      numOfSequences / (sequenceLength * harmMid)};
 
-  std::cout.precision(3);
   std::cout << "#K\t" << h.endAnchored << "\t" << h.begAnchored << "\t"
 	    << h.midAnchored << "\n";
-  std::cout.precision(6);
 
   return h;
 }
