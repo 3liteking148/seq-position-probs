@@ -23,9 +23,6 @@ struct Profile {  // position-specific (insert, delete, letter) probabilities
   int width;  // values per position: 4 + alphabetSize + 1
   int length;  // number of positions
   size_t nameIdx;
-  double endK;  // Gumbel K for end-anchored sum of alignment probabilities
-  double begK;  // Gumbel K for start-anchored sum of alignment probabilities
-  double midK;  // Gumbel K for mid-anchored sum of alignment probabilities
 };
 
 struct Sequence {
@@ -158,9 +155,9 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
   return result;
 }
 
-void estimateK(Profile &profile, const Float *letterFreqs,
-	       char *sequence, int sequenceLength, int numOfSequences,
-	       Float *scratch) {
+Result estimateK(Profile profile, const Float *letterFreqs,
+		 char *sequence, int sequenceLength, int numOfSequences,
+		 Float *scratch) {
   std::mt19937_64 randGen;
   int alphabetSize = profile.width - 5;
   std::discrete_distribution<> dist(letterFreqs, letterFreqs + alphabetSize);
@@ -183,13 +180,16 @@ void estimateK(Profile &profile, const Float *letterFreqs,
 	      << log2(r.midAnchored) << std::endl;
   }
 
-  profile.endK = numOfSequences / (sequenceLength * harmEnd);
-  profile.begK = numOfSequences / (sequenceLength * harmBeg);
-  profile.midK = numOfSequences / (sequenceLength * harmMid);
+  Result h = {numOfSequences / (sequenceLength * harmEnd),
+	      numOfSequences / (sequenceLength * harmBeg),
+	      numOfSequences / (sequenceLength * harmMid)};
+
   std::cout.precision(3);
-  std::cout << "#K\t" << profile.endK << "\t" << profile.begK << "\t"
-	    << profile.midK << "\n";
+  std::cout << "#K\t" << h.endAnchored << "\t" << h.begAnchored << "\t"
+	    << h.midAnchored << "\n";
   std::cout.precision(6);
+
+  return h;
 }
 
 int intFromText(const char *text) {
@@ -446,18 +446,18 @@ options:\n\
   double totMidK = 0;
 
   for (size_t i = 0; i < numOfProfiles; ++i) {
-    Profile &p = profiles[i];
+    Profile p = profiles[i];
     const Float *profileEnd = p.values + p.width * p.length;
     std::cout << "# Profile name: " << &charVec[p.nameIdx] << "\n";
     std::cout << "# Profile length: " << p.length << "\n";
     std::cout << "# Background letter probabilities:";
     for (int j = 4; j < p.width - 1; ++j) std::cout << " " << profileEnd[j];
     std::cout << "\n";
-    estimateK(p, profileEnd+4, &charVec[seqIdx], sequenceLength,
-	      numOfSequences, &scratch[0]);
-    totEndK += p.endK;
-    totBegK += p.begK;
-    totMidK += p.midK;
+    Result r = estimateK(p, profileEnd+4, &charVec[seqIdx], sequenceLength,
+			 numOfSequences, &scratch[0]);
+    totEndK += r.endAnchored;
+    totBegK += r.begAnchored;
+    totMidK += r.midAnchored;
   }
 
   if (argc - optind < 4 || numOfProfiles < 1) return 0;
