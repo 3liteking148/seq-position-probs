@@ -165,9 +165,9 @@ void estimateK(Profile &profile, const Float *letterFreqs,
   int alphabetSize = profile.width - 5;
   std::discrete_distribution<> dist(letterFreqs, letterFreqs + alphabetSize);
 
-  double endSum = 0;
-  double begSum = 0;
-  double midSum = 0;
+  double harmEnd = 0;
+  double harmBeg = 0;
+  double harmMid = 0;
 
   std::cout << "#trial\tend-\tstart-\tmid-anchored score" << std::endl;
 
@@ -175,17 +175,17 @@ void estimateK(Profile &profile, const Float *letterFreqs,
     for (int j = 0; j <= sequenceLength; ++j) sequence[j] = dist(randGen);
     Result r = maxProbabilityRatios(profile, sequence, sequenceLength,
 				    scratch);
-    endSum += 1 / r.endAnchored;
-    begSum += 1 / r.begAnchored;
-    midSum += 1 / r.midAnchored;
+    harmEnd += 1 / r.endAnchored;
+    harmBeg += 1 / r.begAnchored;
+    harmMid += 1 / r.midAnchored;
     std::cout << (i+1) << "\t" << log2(r.endAnchored) << "\t"
 	      << log2(r.begAnchored) << "\t"
 	      << log2(r.midAnchored) << std::endl;
   }
 
-  profile.endK = numOfSequences / (sequenceLength * endSum);
-  profile.begK = numOfSequences / (sequenceLength * begSum);
-  profile.midK = numOfSequences / (sequenceLength * midSum);
+  profile.endK = numOfSequences / (sequenceLength * harmEnd);
+  profile.begK = numOfSequences / (sequenceLength * harmBeg);
+  profile.midK = numOfSequences / (sequenceLength * harmMid);
   std::cout.precision(3);
   std::cout << "#K\t" << profile.endK << "\t" << profile.begK << "\t"
 	    << profile.midK << "\n";
