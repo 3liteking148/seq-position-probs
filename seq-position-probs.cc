@@ -165,6 +165,9 @@ Result estimateK(Profile profile, const Float *letterFreqs,
   double harmEnd = 0;
   double harmBeg = 0;
   double harmMid = 0;
+  double geomEnd = 0;
+  double geomBeg = 0;
+  double geomMid = 0;
 
   std::cout << "#trial\tend-\tstart-\tmid-anchored score" << std::endl;
 
@@ -175,17 +178,28 @@ Result estimateK(Profile profile, const Float *letterFreqs,
     harmEnd += 1 / r.endAnchored;
     harmBeg += 1 / r.begAnchored;
     harmMid += 1 / r.midAnchored;
+    geomEnd += log(r.endAnchored);
+    geomBeg += log(r.begAnchored);
+    geomMid += log(r.midAnchored);
     std::cout << (i+1) << "\t" << log2(r.endAnchored) << "\t"
 	      << log2(r.begAnchored) << "\t"
 	      << log2(r.midAnchored) << std::endl;
   }
 
+  double euler = 0.57721566490153286;
+
   Result h = {numOfSequences / (sequenceLength * harmEnd),
 	      numOfSequences / (sequenceLength * harmBeg),
 	      numOfSequences / (sequenceLength * harmMid)};
 
-  std::cout << "#K\t" << h.endAnchored << "\t" << h.begAnchored << "\t"
+  Result g = {exp(geomEnd / numOfSequences - euler) / sequenceLength,
+	      exp(geomBeg / numOfSequences - euler) / sequenceLength,
+	      exp(geomMid / numOfSequences - euler) / sequenceLength};
+
+  std::cout << "#Kharm\t" << h.endAnchored << "\t" << h.begAnchored << "\t"
 	    << h.midAnchored << "\n";
+  std::cout << "#Kgeom\t" << g.endAnchored << "\t" << g.begAnchored << "\t"
+	    << g.midAnchored << "\n";
 
   return h;
 }
