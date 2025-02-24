@@ -8,6 +8,12 @@ This isn't very useful: it's a proof-of-principle for the paper "A
 simple way to find related sequences with position-specific
 probabilities".
 
+**To anyone reading the paper:** the definitions of *K* and *E*-value
+here are different than in the paper.  The definitions here are the
+latest ones: the paper will be updated to match them.  (The main
+change is to absorb the profile length *m* into the definition of
+*K*.)
+
 To compile it, just do `make`.
 
 ## Similarity scores between profiles and random sequences
@@ -40,7 +46,7 @@ sequenceLength.
 This prints the maximum end-, start-, and mid-anchored score, for each
 profile versus each sequence.  It also shows an *E*-value for each
 score.  This *E*-value means: the expected number of distinct
-similarities with equal or higher score, if we compared *all* the
+sequence regions with equal or higher score, if we compared *all* the
 profiles to random sequences with the same length as *all* of
 `realSeqs.fasta`.
 
