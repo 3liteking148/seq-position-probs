@@ -18,6 +18,10 @@
 
 typedef double Float;
 
+// down-scale probabilities by this amount, to delay overflow:
+const Float scale = 1.0 / (1<<30) / (1<<30) / (1<<3); // sqrt[min normal float]
+const int shift = 63;  // add this to scores, to undo the scaling
+
 struct Profile {  // position-specific (insert, delete, letter) probabilities
   Float *values;  // probabilities or probability ratios
   int width;  // values per position: 4 + alphabetSize + 1
@@ -107,7 +111,7 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
     for (int j = sequenceLength; j >= 0; --j) {
       Float x = S[sequence[j]] * wOld;
       Float y = Y[j];
-      Float w = x + d * y + a * z + 1;
+      Float w = x + d * y + a * z + scale;
       wOld = Wfrom[j];
       W[j] = w;
       Y[j] = w + e * y;
@@ -136,7 +140,7 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
     Float z = 0;
     for (int j = 0; j <= sequenceLength; ++j) {
       Float y = Y[j];
-      Float w = x + y + z + 1;
+      Float w = x + y + z + scale;
 
       Float wBeg = W[j];
       Float wMid = w * wBeg;
@@ -181,9 +185,9 @@ Result estimateK(Profile profile, const Float *letterFreqs,
     geomEnd += log(r.endAnchored);
     geomBeg += log(r.begAnchored);
     geomMid += log(r.midAnchored);
-    std::cout << (i+1) << "\t" << log2(r.endAnchored) << "\t"
-	      << log2(r.begAnchored) << "\t"
-	      << log2(r.midAnchored) << std::endl;
+    std::cout << (i+1) << "\t" << log2(r.endAnchored)+shift << "\t"
+	      << log2(r.begAnchored)+shift << "\t"
+	      << log2(r.midAnchored)+shift*2 << std::endl;
   }
 
   double euler = 0.57721566490153286;
@@ -196,10 +200,12 @@ Result estimateK(Profile profile, const Float *letterFreqs,
 	      exp(geomBeg / numOfSequences - euler) / sequenceLength,
 	      exp(geomMid / numOfSequences - euler) / sequenceLength};
 
-  std::cout << "#Kharm\t" << h.endAnchored << "\t" << h.begAnchored << "\t"
-	    << h.midAnchored << "\n";
-  std::cout << "#Kgeom\t" << g.endAnchored << "\t" << g.begAnchored << "\t"
-	    << g.midAnchored << "\n";
+  std::cout << "#Kharm\t" << h.endAnchored/scale << "\t"
+	    << h.begAnchored/scale << "\t"
+	    << h.midAnchored/(scale*scale) << "\n";
+  std::cout << "#Kgeom\t" << g.endAnchored/scale << "\t"
+	    << g.begAnchored/scale << "\t"
+	    << g.midAnchored/(scale*scale) << "\n";
 
   return h;
 }
@@ -537,11 +543,11 @@ options:\n\
 	std::cout << &charVec[s.nameIdx] << "\t" << s.length << "\t"
 		  << &charVec[p.nameIdx] << "\t" << p.length << "\t"
 		  << "+-"[k] << "\t"
-		  << log2(r->endAnchored) << "\t"
+		  << log2(r->endAnchored)+shift << "\t"
 		  << endKMN / r->endAnchored << "\t"
-		  << log2(r->begAnchored) << "\t"
+		  << log2(r->begAnchored)+shift << "\t"
 		  << begKMN / r->begAnchored << "\t"
-		  << log2(r->midAnchored) << "\t"
+		  << log2(r->midAnchored)+shift*2 << "\t"
 		  << midKMN / r->midAnchored << "\n";
 	++r;
       }
