@@ -4,15 +4,9 @@ This software finds similarities between genetic sequences and
 "profiles".  A profile is a set of position-specific letter, deletion,
 and insertion probabilities.
 
-This isn't very useful: it's a proof-of-principle for the paper "A
+This isn't very useful: it's a proof-of-principle for the paper [A
 simple way to find related sequences with position-specific
-probabilities".
-
-**To anyone reading the paper:** the definitions of *K* and *E*-value
-here are different than in the paper.  The definitions here are the
-latest ones: the paper will be updated to match them.  (The main
-change is to absorb the profile length *m* into the definition of
-*K*.)
+probabilities](https://doi.org/10.1101/2025.03.14.643233).
 
 To compile it, just do `make`.
 
@@ -20,12 +14,16 @@ To compile it, just do `make`.
 
     seq-position-probs profile.hmm numOfSequences sequenceLength
 
-where `profile.hmm` has profile(s) in HMMER3/f format.  It calculates
-three kinds of score:
+where `profile.hmm` has profile(s) in HMMER3/f format.  For each
+profile versus each sequence, it shows three kinds of score:
 
 * The maximum end-anchored score
 * The maximum start-anchored score
 * The maximum mid-anchored score
+
+Here, an "anchor" means a pair of coordinates (*i*,*j*) in the profile
+and the sequence.  It gets each kind of score for all possible
+anchors, and shows the maximum.
 
 It then estimates a Gumbel *K* parameter for each kind of score.  This
 becomes more accurate if you increase numOfSequences and
