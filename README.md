@@ -25,17 +25,15 @@ Here, an "anchor" means a pair of coordinates (*i*,*j*) in the profile
 and the sequence.  It gets each kind of score for all possible
 anchors, and shows the maximum.
 
-It then estimates a Gumbel *K* parameter for each kind of score.  This
-becomes more accurate if you increase numOfSequences and
-sequenceLength.
+It then estimates Gumbel parameters &lambda; and *K* for each kind of
+score, assuming the scores are Gumbel-distributed.
 
-* `Kharm` is the maximum-likelihood estimate, which uses the harmonic
-  mean of exponentiated scores ([Frith
-  2024](https://pubmed.ncbi.nlm.nih.gov/39152037/)).
-
-* `Kgeom` is the method-of-moments estimate, which uses the geometric
-  mean of exponentiated scores ([Yu et
-  al. 2002](https://doi.org/10.1093/bioinformatics/18.6.864)).
+* `lamMM` is &lambda; estimated by method-of-moments.
+* `kMM` is *K* estimated by method-of-moments.
+* `kMM1` is *K* estimated by method-of-moments assuming &lambda; = 1.
+* `lamML` is &lambda; estimated by maximum-likelihood.
+* `kML` is *K* estimated by maximum-likelihood.
+* `kML1` is *K* estimated by maximum-likelihood assuming &lambda; = 1.
 
 ## Searching profiles against real sequences
 
@@ -64,5 +62,5 @@ For nucleotide profiles, it will search both strands of
 * A score is: log<sub>2</sub>[probability ratio].
 
 * An *E*-value is: *K*<sub>tot</sub> *N* / 2^score, where
-  *K*<sub>tot</sub> is the sum over profiles of `Kharm`, and *N* is
+  *K*<sub>tot</sub> is the sum over profiles of `kML1`, and *N* is
   the sum of sequence lengths.

@@ -40,6 +40,12 @@ struct Result {
   double midAnchored;
 };
 
+double mean(const double *x, int n) {
+  double s = 0;
+  for (int i = 0; i < n; ++i) s += x[i];
+  return s / n;
+}
+
 void reverseComplement(char *beg, char *end) {
   while (beg < end) {
     char c = *--end;
@@ -159,6 +165,84 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
   return result;
 }
 
+double methodOfMomentsLambda(const double *scores, int n, double meanScore) {
+  double pi = 3.1415926535897932;
+  double s = 0;
+  for (int i = 0; i < n; ++i) {
+    s += (scores[i] - meanScore) * (scores[i] - meanScore);
+  }
+  double variance = s / n;  // apparently, method of moments doesn't use n-1
+  return pi / sqrt(6 * variance);
+}
+
+double methodOfMomentsK(double meanScore, double lambda, double seqLength) {
+  double euler = 0.57721566490153286;
+  return exp(lambda * meanScore - euler) / seqLength;
+}
+
+double shouldBe0(const double *scores, int scoreCount, double lambda) {
+  double x = 0;
+  double y = 0;
+  double z = 0;
+  for (int i = 0; i < scoreCount; ++i) {
+    x += scores[i];
+    y += exp(-lambda * scores[i]);
+    z += scores[i] * exp(-lambda * scores[i]);
+  }
+  return 1 / lambda - x / scoreCount + z / y;
+}
+
+double maximumLikelihoodLambda(const double *scores, int n) {
+  double lo = 1;
+  double hi = 1;
+  double x, y;
+  do {
+    lo /= 2;
+    hi *= 2;
+    x = shouldBe0(scores, n, lo);
+    y = shouldBe0(scores, n, hi);
+  } while ((x < 0 && y < 0) || (x > 0 && y > 0));
+  double gap = hi - lo;
+  while (1) {  // bisection method to find lambda that makes shouldBe0 = 0
+    gap /= 2;
+    double mid = lo + gap;
+    if (mid <= lo) return lo;
+    double z = shouldBe0(scores, n, mid);
+    if ((x < 0 && z <= 0) || (x > 0 && z >= 0)) lo = mid;
+  }
+}
+
+double maximumLikelihoodK(const double *scores, int n, double lambda,
+			  double seqLength) {
+  double s = 0;
+  for (int i = 0; i < n; ++i) {
+    s += exp(-lambda * scores[i]);
+  }
+  return n / (s * seqLength);
+}
+
+void methodOfMomentsGumbel(double &lambda, double &k, double &kSimple,
+			   const double *scores, int n, double seqLength) {
+  double meanScore = mean(scores, n);
+  lambda = methodOfMomentsLambda(scores, n, meanScore);
+  k = methodOfMomentsK(meanScore, lambda, seqLength);
+  kSimple = methodOfMomentsK(meanScore, 1, seqLength);
+}
+
+void maximumLikelihoodGumbel(double &lambda, double &k, double &kSimple,
+			     const double *scores, int n, double seqLength) {
+  lambda = maximumLikelihoodLambda(scores, n);
+  k = maximumLikelihoodK(scores, n, lambda, seqLength);
+  kSimple = maximumLikelihoodK(scores, n, 1, seqLength);
+}
+
+void estimateGumbel(double &mmLambda, double &mmK, double &mmKsimple,
+		    double &mlLambda, double &mlK, double &mlKsimple,
+		    const double *scores, int n, double seqLength) {
+  methodOfMomentsGumbel(mmLambda, mmK, mmKsimple, scores, n, seqLength);
+  maximumLikelihoodGumbel(mlLambda, mlK, mlKsimple, scores, n, seqLength);
+}
+
 Result estimateK(Profile profile, const Float *letterFreqs,
 		 char *sequence, int sequenceLength, int numOfSequences,
 		 Float *scratch) {
@@ -166,12 +250,10 @@ Result estimateK(Profile profile, const Float *letterFreqs,
   int alphabetSize = profile.width - 5;
   std::discrete_distribution<> dist(letterFreqs, letterFreqs + alphabetSize);
 
-  double harmEnd = 0;
-  double harmBeg = 0;
-  double harmMid = 0;
-  double geomEnd = 0;
-  double geomBeg = 0;
-  double geomMid = 0;
+  std::vector<double> scores(numOfSequences * 3);
+  double *endScores = scores.data();
+  double *begScores = endScores + numOfSequences;
+  double *midScores = begScores + numOfSequences;
 
   std::cout << "#trial\tend-\tstart-\tmid-anchored score" << std::endl;
 
@@ -179,34 +261,43 @@ Result estimateK(Profile profile, const Float *letterFreqs,
     for (int j = 0; j <= sequenceLength; ++j) sequence[j] = dist(randGen);
     Result r = maxProbabilityRatios(profile, sequence, sequenceLength,
 				    scratch);
-    harmEnd += 1 / r.endAnchored;
-    harmBeg += 1 / r.begAnchored;
-    harmMid += 1 / r.midAnchored;
-    geomEnd += log(r.endAnchored);
-    geomBeg += log(r.begAnchored);
-    geomMid += log(r.midAnchored);
+    endScores[i] = log(r.endAnchored);
+    begScores[i] = log(r.begAnchored);
+    midScores[i] = log(r.midAnchored);
     std::cout << (i+1) << "\t" << log2(r.endAnchored)+shift << "\t"
 	      << log2(r.begAnchored)+shift << "\t"
 	      << log2(r.midAnchored)+shift*2 << std::endl;
   }
 
-  double euler = 0.57721566490153286;
+  double MMendL, MMendK, MMendKsimple, MLendL, MLendK, MLendKsimple;
+  estimateGumbel(MMendL, MMendK, MMendKsimple, MLendL, MLendK, MLendKsimple,
+		 endScores, numOfSequences, sequenceLength);
 
-  Result h = {numOfSequences / (sequenceLength * harmEnd),
-	      numOfSequences / (sequenceLength * harmBeg),
-	      numOfSequences / (sequenceLength * harmMid)};
+  double MMbegL, MMbegK, MMbegKsimple, MLbegL, MLbegK, MLbegKsimple;
+  estimateGumbel(MMbegL, MMbegK, MMbegKsimple, MLbegL, MLbegK, MLbegKsimple,
+		 begScores, numOfSequences, sequenceLength);
 
-  Result g = {exp(geomEnd / numOfSequences - euler) / sequenceLength,
-	      exp(geomBeg / numOfSequences - euler) / sequenceLength,
-	      exp(geomMid / numOfSequences - euler) / sequenceLength};
+  double MMmidL, MMmidK, MMmidKsimple, MLmidL, MLmidK, MLmidKsimple;
+  estimateGumbel(MMmidL, MMmidK, MMmidKsimple, MLmidL, MLmidK, MLmidKsimple,
+		 midScores, numOfSequences, sequenceLength);
 
-  std::cout << "#Kharm\t" << h.endAnchored/scale << "\t"
-	    << h.begAnchored/scale << "\t"
-	    << h.midAnchored/(scale*scale) << "\n";
-  std::cout << "#Kgeom\t" << g.endAnchored/scale << "\t"
-	    << g.begAnchored/scale << "\t"
-	    << g.midAnchored/(scale*scale) << "\n";
+  std::cout << "#lamMM\t" << MMendL << "\t" << MMbegL << "\t" << MMmidL << "\n"
 
+	    << "#kMM\t" << MMendK/scale << "\t" << MMbegK/scale << "\t"
+	    << MMmidK/(scale*scale) << "\n"
+
+	    << "#kMM1\t" << MMendKsimple/scale << "\t" << MMbegKsimple/scale
+	    << "\t" << MMmidKsimple/(scale*scale) << "\n";
+
+  std::cout << "#lamML\t" << MLendL << "\t" << MLbegL << "\t" << MLmidL << "\n"
+
+	    << "#kML\t" << MLendK/scale << "\t" << MLbegK/scale << "\t"
+	    << MLmidK/(scale*scale) << "\n"
+
+	    << "#kML1\t" << MLendKsimple/scale << "\t" << MLbegKsimple/scale
+	    << "\t" << MLmidKsimple/(scale*scale) << "\n";
+
+  Result h = {MLendKsimple, MLbegKsimple, MLmidKsimple};
   return h;
 }
 
