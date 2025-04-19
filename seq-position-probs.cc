@@ -244,8 +244,8 @@ void estimateGumbel(double &mmLambda, double &mmK, double &mmKsimple,
 }
 
 Result estimateK(Profile profile, const Float *letterFreqs,
-		 char *sequence, int sequenceLength, int numOfSequences,
-		 Float *scratch) {
+		 char *sequence, int sequenceLength, int border,
+		 int numOfSequences, Float *scratch) {
   std::mt19937_64 randGen;
   int alphabetSize = profile.width - 5;
   std::discrete_distribution<> dist(letterFreqs, letterFreqs + alphabetSize);
@@ -258,8 +258,10 @@ Result estimateK(Profile profile, const Float *letterFreqs,
   std::cout << "#trial\tend-\tstart-\tmid-anchored score" << std::endl;
 
   for (int i = 0; i < numOfSequences; ++i) {
-    for (int j = 0; j <= sequenceLength; ++j) sequence[j] = dist(randGen);
-    Result r = maxProbabilityRatios(profile, sequence, sequenceLength,
+    for (int j = 0; j < sequenceLength; ++j) sequence[j] = dist(randGen);
+    for (int j = 0; j < border; ++j) sequence[sequenceLength+j] = sequence[j];
+    sequence[sequenceLength + border] = dist(randGen);  // arbitrary letter
+    Result r = maxProbabilityRatios(profile, sequence, sequenceLength + border,
 				    scratch);
     endScores[i] = log(r.endAnchored);
     begScores[i] = log(r.begAnchored);
@@ -463,6 +465,7 @@ int resizeMem(std::vector<Float> &v, int profileLength, int sequenceLength) {
 }
 
 int main(int argc, char* argv[]) {
+  int border = 0;
   int strandOpt = 2;
 
   const char help[] = "\
@@ -473,14 +476,16 @@ parameters, and optionally get scores and E-values for real sequences.\n\
 \n\
 options:\n\
   -h, --help        show this help message and exit\n\
+  -b B, --border B  add a border of this length to each random sequence\n\
   -s S, --strand S  strand: 0=reverse, 1=forward, 2=both, ignored for protein\n\
                     (default: 2)\n\
 ";
 
-  const char sOpts[] = "hs:";
+  const char sOpts[] = "hb:s:";
 
   static struct option lOpts[] = {
     {"help",   no_argument,       0, 'h'},
+    {"border", required_argument, 0, 'b'},
     {"strand", required_argument, 0, 's'},
     {0, 0, 0, 0}
   };
@@ -491,6 +496,13 @@ options:\n\
     case 'h':
       std::cout << help;
       return 0;
+    case 'b':
+      border = intFromText(optarg);
+      if (border < 0) {
+	std::cerr << help;
+	return 1;
+      }
+      break;
     case 's':
       strandOpt = intFromText(optarg);
       if (strandOpt < 0 || strandOpt > 2) {
@@ -522,6 +534,11 @@ options:\n\
     return 1;
   }
 
+  if (INT_MAX - border <= sequenceLength) {
+    std::cerr << "sequence + border is too big\n";
+    return 1;
+  }
+
   std::vector<char> charVec;
   std::vector<Float> profileValues;
   std::vector<Profile> profiles;
@@ -544,9 +561,9 @@ options:\n\
   }
 
   size_t seqIdx = charVec.size();
-  charVec.resize(seqIdx + sequenceLength + 1);
+  charVec.resize(seqIdx + sequenceLength + border + 1);
   std::vector<Float> scratch;
-  if (!resizeMem(scratch, maxProfileLength, sequenceLength)) return 1;
+  if (!resizeMem(scratch, maxProfileLength, sequenceLength + border)) return 1;
 
   std::cout << "# Length of random sequence: " << sequenceLength << "\n";
 
@@ -563,7 +580,7 @@ options:\n\
     for (int j = 4; j < p.width - 1; ++j) std::cout << " " << profileEnd[j];
     std::cout << "\n";
     Result r = estimateK(p, profileEnd+4, &charVec[seqIdx], sequenceLength,
-			 numOfSequences, &scratch[0]);
+			 border, numOfSequences, &scratch[0]);
     totEndK += r.endAnchored;
     totBegK += r.begAnchored;
     totMidK += r.midAnchored;

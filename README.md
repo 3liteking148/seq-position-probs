@@ -35,6 +35,14 @@ score, assuming the scores are Gumbel-distributed.
 * `kML` is *K* estimated by maximum-likelihood.
 * `kML1` is *K* estimated by maximum-likelihood assuming &lambda; = 1.
 
+### Border
+
+The `-b` option adds a "border" to each random sequence.  For example,
+`-b100` adds a border of length 100.  If the sequence length is L and
+border length is B, it first generates a random sequence of length L,
+then appends B/L copies of this sequence to itself.  This aims to
+avoid [edge effects][] on the distribution of scores.
+
 ## Searching profiles against real sequences
 
     seq-position-probs profile.hmm randomSeqNum randomSeqLength realSeqs.fasta
@@ -64,3 +72,5 @@ For nucleotide profiles, it will search both strands of
 * An *E*-value is: *K*<sub>tot</sub> *N* / 2^score, where
   *K*<sub>tot</sub> is the sum over profiles of `kML1`, and *N* is
   the sum of sequence lengths.
+
+[edge effects]: https://doi.org/10.1093/nar/29.2.351
