@@ -283,18 +283,22 @@ Result estimateK(Profile profile, const Float *letterFreqs,
   estimateGumbel(MMmidL, MMmidK, MMmidKsimple, MLmidL, MLmidK, MLmidKsimple,
 		 midScores, numOfSequences, sequenceLength);
 
+  double s = scale;
+
   std::cout << "#lamMM\t" << MMendL << "\t" << MMbegL << "\t" << MMmidL << "\n"
 
-	    << "#kMM\t" << MMendK/scale << "\t" << MMbegK/scale << "\t"
-	    << MMmidK/(scale*scale) << "\n"
+	    << "#kMM\t" << MMendK / pow(s, MMendL) << "\t"
+	    << MMbegK / pow(s, MMbegL) << "\t"
+	    << MMmidK / pow(s*s, MMmidL) << "\n"
 
 	    << "#kMM1\t" << MMendKsimple/scale << "\t" << MMbegKsimple/scale
 	    << "\t" << MMmidKsimple/(scale*scale) << "\n";
 
   std::cout << "#lamML\t" << MLendL << "\t" << MLbegL << "\t" << MLmidL << "\n"
 
-	    << "#kML\t" << MLendK/scale << "\t" << MLbegK/scale << "\t"
-	    << MLmidK/(scale*scale) << "\n"
+	    << "#kML\t" << MLendK / pow(s, MLendL) << "\t"
+	    << MLbegK / pow(s, MLbegL) << "\t"
+	    << MLmidK / pow(s*s, MLmidL) << "\n"
 
 	    << "#kML1\t" << MLendKsimple/scale << "\t" << MLbegKsimple/scale
 	    << "\t" << MLmidKsimple/(scale*scale) << "\n";
