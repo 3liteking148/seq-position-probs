@@ -28,12 +28,16 @@ anchors, and shows the maximum.
 It then estimates Gumbel parameters &lambda; and *K* for each kind of
 score, assuming the scores are Gumbel-distributed.
 
-* `lamMM` is &lambda; estimated by method-of-moments.
-* `kMM` is *K* estimated by method-of-moments.
-* `kMM1` is *K* estimated by method-of-moments assuming &lambda; = 1.
+* `lamMM` is &lambda; estimated by the method of moments.
+* `kMM` is *K* estimated by the method of moments.
+* `kMM1` is *K* estimated by the method of moments assuming &lambda; = 1.
 * `lamML` is &lambda; estimated by maximum-likelihood.
 * `kML` is *K* estimated by maximum-likelihood.
 * `kML1` is *K* estimated by maximum-likelihood assuming &lambda; = 1.
+* `lamLM` is &lambda; estimated by the method of L-moments.
+* `kLM` is *K* estimated by the the method of L-moments.
+
+(`kLM1` isn't shown, because it's identical to `kMM1`.)
 
 ### Border
 

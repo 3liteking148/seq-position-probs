@@ -180,6 +180,16 @@ double methodOfMomentsK(double meanScore, double lambda, double seqLength) {
   return exp(lambda * meanScore - euler) / seqLength;
 }
 
+double methodOfLmomentsLambda(const double *sortedScores, int n,
+			      double meanScore) {
+  double s = 0;
+  for (int i = 0; i < n; ++i) {
+    s += i * sortedScores[i];
+  }
+  double d = 0.5 * n * (n-1);  // !!! avoids int overflow
+  return log(2.0) / (s / d - meanScore);
+}
+
 double shouldBe0(const double *scores, int scoreCount, double lambda) {
   double x = 0;
   double y = 0;
@@ -229,6 +239,13 @@ void methodOfMomentsGumbel(double &lambda, double &k, double &kSimple,
   kSimple = methodOfMomentsK(meanScore, 1, seqLength);
 }
 
+void methodOfLmomentsGumbel(double &lambda, double &k,
+			    const double *scores, int n, double seqLength) {
+  double meanScore = mean(scores, n);
+  lambda = methodOfLmomentsLambda(scores, n, meanScore);
+  k = methodOfMomentsK(meanScore, lambda, seqLength);
+}
+
 void maximumLikelihoodGumbel(double &lambda, double &k, double &kSimple,
 			     const double *scores, int n, double seqLength) {
   lambda = maximumLikelihoodLambda(scores, n);
@@ -238,9 +255,12 @@ void maximumLikelihoodGumbel(double &lambda, double &k, double &kSimple,
 
 void estimateGumbel(double &mmLambda, double &mmK, double &mmKsimple,
 		    double &mlLambda, double &mlK, double &mlKsimple,
-		    const double *scores, int n, double seqLength) {
+		    double &lmLambda, double &lmK,
+		    double *scores, int n, double seqLength) {
+  std::sort(scores, scores + n);
   methodOfMomentsGumbel(mmLambda, mmK, mmKsimple, scores, n, seqLength);
   maximumLikelihoodGumbel(mlLambda, mlK, mlKsimple, scores, n, seqLength);
+  methodOfLmomentsGumbel(lmLambda, lmK, scores, n, seqLength);
 }
 
 Result estimateK(Profile profile, const Float *letterFreqs,
@@ -272,16 +292,19 @@ Result estimateK(Profile profile, const Float *letterFreqs,
   }
 
   double MMendL, MMendK, MMendKsimple, MLendL, MLendK, MLendKsimple;
+  double LMendL, LMendK;
   estimateGumbel(MMendL, MMendK, MMendKsimple, MLendL, MLendK, MLendKsimple,
-		 endScores, numOfSequences, sequenceLength);
+		 LMendL, LMendK, endScores, numOfSequences, sequenceLength);
 
   double MMbegL, MMbegK, MMbegKsimple, MLbegL, MLbegK, MLbegKsimple;
+  double LMbegL, LMbegK;
   estimateGumbel(MMbegL, MMbegK, MMbegKsimple, MLbegL, MLbegK, MLbegKsimple,
-		 begScores, numOfSequences, sequenceLength);
+		 LMbegL, LMbegK, begScores, numOfSequences, sequenceLength);
 
   double MMmidL, MMmidK, MMmidKsimple, MLmidL, MLmidK, MLmidKsimple;
+  double LMmidL, LMmidK;
   estimateGumbel(MMmidL, MMmidK, MMmidKsimple, MLmidL, MLmidK, MLmidKsimple,
-		 midScores, numOfSequences, sequenceLength);
+		 LMmidL, LMmidK, midScores, numOfSequences, sequenceLength);
 
   double s = scale;
 
@@ -302,6 +325,12 @@ Result estimateK(Profile profile, const Float *letterFreqs,
 
 	    << "#kML1\t" << MLendKsimple/scale << "\t" << MLbegKsimple/scale
 	    << "\t" << MLmidKsimple/(scale*scale) << "\n";
+
+  std::cout << "#lamLM\t" << LMendL << "\t" << LMbegL << "\t" << LMmidL << "\n"
+
+	    << "#kLM\t" << LMendK / pow(s, LMendL) << "\t"
+	    << LMbegK / pow(s, LMbegL) << "\t"
+	    << LMmidK / pow(s*s, LMmidL) << "\n";
 
   Result h = {MLendKsimple, MLbegKsimple, MLmidKsimple};
   return h;

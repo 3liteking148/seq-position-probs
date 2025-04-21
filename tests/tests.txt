@@ -19,6 +19,8 @@
 #lamML	1.1098	0.796274	0.849899
 #kML	621.505	18.1802	174.28
 #kML1	203.125	128.146	1000.1
+#lamLM	1.14957	0.855411	1.00048
+#kLM	924.955	32.9959	1132.31
 # Profile name: U7
 # Profile length: 63
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
@@ -39,6 +41,8 @@
 #lamML	1.39735	1.23996	1.21601
 #kML	932.231	230.774	697.08
 #kML1	32.5835	31.1961	91.3128
+#lamLM	1.3484	1.37386	1.32296
+#kLM	587.808	736.159	1966.74
 # Length of random sequence: 500
 # Profile name: MIR
 # Profile length: 262
@@ -100,6 +104,8 @@
 #lamML	1.04814	0.997858	0.993416
 #kML	240.253	117.099	747.974
 #kML1	142.973	119.783	812.056
+#lamLM	0.99819	0.990693	0.994033
+#kLM	135.754	107.826	750.403
 # Profile name: U7
 # Profile length: 63
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
@@ -160,6 +166,8 @@
 #lamML	1.1582	1.20222	1.20835
 #kML	106.552	174.886	855.285
 #kML1	25.4376	27.4407	97.4262
+#lamLM	1.20617	1.17969	1.18662
+#kLM	167.471	139.998	670.949
 # Total sequence length: 1150
 #seq	seqLen	profile	proLen	strand	EAscore	E-value	SAscore	E-value	MAscore	E-value
 hg38_dna	650	MIR	262	+	81.5	5.68e-20	81.6	4.68e-20	84.9	2.96e-20
@@ -227,6 +235,8 @@ hg38_dna	500	U7	63	+	78.1	5.8e-19	78.3	4.44e-19	79	1.75e-18
 #lamML	1.04814	0.997858	0.993416
 #kML	240.253	117.099	747.974
 #kML1	142.973	119.783	812.056
+#lamLM	0.99819	0.990693	0.994033
+#kLM	135.754	107.826	750.403
 # Profile name: U7
 # Profile length: 63
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
@@ -287,6 +297,8 @@ hg38_dna	500	U7	63	+	78.1	5.8e-19	78.3	4.44e-19	79	1.75e-18
 #lamML	1.1582	1.20222	1.20835
 #kML	106.552	174.886	855.285
 #kML1	25.4376	27.4407	97.4262
+#lamLM	1.20617	1.17969	1.18662
+#kLM	167.471	139.998	670.949
 # Total sequence length: 2300
 #seq	seqLen	profile	proLen	strand	EAscore	E-value	SAscore	E-value	MAscore	E-value
 hg38_dna	650	MIR	262	+	81.5	1.14e-19	81.6	9.36e-20	84.9	5.92e-20
@@ -358,6 +370,8 @@ hg38_dna	500	U7	63	-	21.5	0.127	21.6	0.103	22.7	0.3
 #lamML	1.04814	0.997858	0.993416
 #kML	240.253	117.099	747.974
 #kML1	142.973	119.783	812.056
+#lamLM	0.99819	0.990693	0.994033
+#kLM	135.754	107.826	750.403
 # Profile name: U7
 # Profile length: 63
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
@@ -418,6 +432,8 @@ hg38_dna	500	U7	63	-	21.5	0.127	21.6	0.103	22.7	0.3
 #lamML	1.1582	1.20222	1.20835
 #kML	106.552	174.886	855.285
 #kML1	25.4376	27.4407	97.4262
+#lamLM	1.20617	1.17969	1.18662
+#kLM	167.471	139.998	670.949
 # Total sequence length: 1150
 #seq	seqLen	profile	proLen	strand	EAscore	E-value	SAscore	E-value	MAscore	E-value
 hg38_dna	650	MIR	262	-	18.9	0.403	18.3	0.515	22.6	0.167
@@ -485,6 +501,8 @@ hg38_dna	500	U7	63	-	21.5	0.0635	21.6	0.0517	22.7	0.15
 #lamML	1.04814	0.997858	0.993416
 #kML	240.253	117.099	747.974
 #kML1	142.973	119.783	812.056
+#lamLM	0.99819	0.990693	0.994033
+#kLM	135.754	107.826	750.403
 # Profile name: U7
 # Profile length: 63
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
@@ -545,6 +563,8 @@ hg38_dna	500	U7	63	-	21.5	0.0635	21.6	0.0517	22.7	0.15
 #lamML	1.1582	1.20222	1.20835
 #kML	106.552	174.886	855.285
 #kML1	25.4376	27.4407	97.4262
+#lamLM	1.20617	1.17969	1.18662
+#kLM	167.471	139.998	670.949
 # Total sequence length: 1151
 #seq	seqLen	profile	proLen	strand	EAscore	E-value	SAscore	E-value	MAscore	E-value
 hg38_dna	651	MIR	262	+	81.5	5.69e-20	81.6	4.68e-20	84.9	2.96e-20
