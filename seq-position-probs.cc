@@ -101,6 +101,8 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
 
   // Backward algorithm:
 
+  Float maxBeg = 0;
+
   for (int j = 0; j <= sequenceLength; ++j) Y[j] = 0;
 
   for (int i = profile.length; i >= 0; --i) {
@@ -118,6 +120,9 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
       Float x = S[sequence[j]] * wOld;
       Float y = Y[j];
       Float w = x + d * y + a * z + scale;
+      if (w > maxBeg) {
+	maxBeg = w;
+      }
       wOld = Wfrom[j];
       W[j] = w;
       Y[j] = w + e * y;
@@ -128,7 +133,6 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
   // Forward algorithm:
 
   Float maxEnd = 0;
-  Float maxBeg = 0;
   Float maxMid = 0;
 
   for (int j = 0; j <= sequenceLength; ++j) Y[j] = 0;
@@ -147,13 +151,13 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
     for (int j = 0; j <= sequenceLength; ++j) {
       Float y = Y[j];
       Float w = x + y + z + scale;
-
-      Float wBeg = W[j];
-      Float wMid = w * wBeg;
-      if (w > maxEnd) maxEnd = w;
-      if (wBeg > maxBeg) maxBeg = wBeg;
-      if (wMid > maxMid) maxMid = wMid;
-
+      if (w > maxEnd) {
+	maxEnd = w;
+      }
+      Float wMid = w * W[j];
+      if (wMid > maxMid) {
+	maxMid = wMid;
+      }
       x = X[j];
       W[j] = S[sequence[j]] * w;
       Y[j] = d * w + e * y;
