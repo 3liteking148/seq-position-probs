@@ -161,7 +161,7 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
     }
   }
 
-  Result result = {maxEnd, maxBeg, maxMid};
+  Result result = {maxEnd, maxBeg, maxMid / scale};
   return result;
 }
 
@@ -288,7 +288,7 @@ Result estimateK(Profile profile, const Float *letterFreqs,
     midScores[i] = log(r.midAnchored);
     std::cout << (i+1) << "\t" << log2(r.endAnchored)+shift << "\t"
 	      << log2(r.begAnchored)+shift << "\t"
-	      << log2(r.midAnchored)+shift*2 << std::endl;
+	      << log2(r.midAnchored)+shift << std::endl;
   }
 
   double MMendL, MMendK, MMendKsimple, MLendL, MLendK, MLendKsimple;
@@ -312,25 +312,25 @@ Result estimateK(Profile profile, const Float *letterFreqs,
 
 	    << "#kMM\t" << MMendK / pow(s, MMendL) << "\t"
 	    << MMbegK / pow(s, MMbegL) << "\t"
-	    << MMmidK / pow(s*s, MMmidL) << "\n"
+	    << MMmidK / pow(s, MMmidL) << "\n"
 
 	    << "#kMM1\t" << MMendKsimple/scale << "\t" << MMbegKsimple/scale
-	    << "\t" << MMmidKsimple/(scale*scale) << "\n";
+	    << "\t" << MMmidKsimple/scale << "\n";
 
   std::cout << "#lamML\t" << MLendL << "\t" << MLbegL << "\t" << MLmidL << "\n"
 
 	    << "#kML\t" << MLendK / pow(s, MLendL) << "\t"
 	    << MLbegK / pow(s, MLbegL) << "\t"
-	    << MLmidK / pow(s*s, MLmidL) << "\n"
+	    << MLmidK / pow(s, MLmidL) << "\n"
 
 	    << "#kML1\t" << MLendKsimple/scale << "\t" << MLbegKsimple/scale
-	    << "\t" << MLmidKsimple/(scale*scale) << "\n";
+	    << "\t" << MLmidKsimple/scale << "\n";
 
   std::cout << "#lamLM\t" << LMendL << "\t" << LMbegL << "\t" << LMmidL << "\n"
 
 	    << "#kLM\t" << LMendK / pow(s, LMendL) << "\t"
 	    << LMbegK / pow(s, LMbegL) << "\t"
-	    << LMmidK / pow(s*s, LMmidL) << "\n";
+	    << LMmidK / pow(s, LMmidL) << "\n";
 
   Result h = {MLendKsimple, MLbegKsimple, MLmidKsimple};
   return h;
@@ -687,7 +687,7 @@ options:\n\
 		  << endKMN / r->endAnchored << "\t"
 		  << log2(r->begAnchored)+shift << "\t"
 		  << begKMN / r->begAnchored << "\t"
-		  << log2(r->midAnchored)+shift*2 << "\t"
+		  << log2(r->midAnchored)+shift << "\t"
 		  << midKMN / r->midAnchored << "\n";
 	++r;
       }
