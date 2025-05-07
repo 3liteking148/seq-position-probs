@@ -364,7 +364,6 @@ int finalizeProfile(Profile p) {
 
   // set the final epsilon to the geometric mean of the other epsilons
   end[3] = geometricMean(p.values + p.width + 3, p.length - 1, p.width);
-  std::cerr << "final epsilon: " << end[3] << "\n";
 
   // set the background letter probabilities proportional to the
   // geometric mean of the foreground letter probabilities
