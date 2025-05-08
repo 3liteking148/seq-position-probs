@@ -303,7 +303,9 @@ Triple estimateK(Profile profile, const Float *letterFreqs,
   double *begScores = endScores + numOfSequences;
   double *midScores = begScores + numOfSequences;
 
-  std::cout << "#trial\tend-\tstart-\tmid-anchored score" << std::endl;
+  std::cout << "#trial\tend-anchored\t\tstart-anchored\t\tmid-anchored\n"
+    "#\tprofPos\tseqPos\tscore\tprofPos\tseqPos\tscore\tprofPos\tseqPos\tscore"
+	    << std::endl;
 
   for (int i = 0; i < numOfSequences; ++i) {
     for (int j = 0; j < sequenceLength; ++j) sequence[j] = dist(randGen);
@@ -314,8 +316,12 @@ Triple estimateK(Profile profile, const Float *letterFreqs,
     endScores[i] = log(r.endAnchored.probRatio);
     begScores[i] = log(r.begAnchored.probRatio);
     midScores[i] = log(r.midAnchored.probRatio);
-    std::cout << (i+1) << "\t" << log2(r.endAnchored.probRatio)+shift << "\t"
+    std::cout << (i+1) << "\t"
+	      << r.endAnchored.pos1 << "\t" << r.endAnchored.pos2 << "\t"
+	      << log2(r.endAnchored.probRatio)+shift << "\t"
+	      << r.begAnchored.pos1 << "\t" << r.begAnchored.pos2 << "\t"
 	      << log2(r.begAnchored.probRatio)+shift << "\t"
+	      << r.midAnchored.pos1 << "\t" << r.midAnchored.pos2 << "\t"
 	      << log2(r.midAnchored.probRatio)+shift << std::endl;
   }
 
@@ -335,6 +341,8 @@ Triple estimateK(Profile profile, const Float *letterFreqs,
 		 LMmidL, LMmidK, midScores, numOfSequences, sequenceLength);
 
   double s = scale;
+
+  std::cout << "#\tend-\tstart-\tmid-anchored\n";
 
   std::cout << "#lamMM\t" << MMendL << "\t" << MMbegL << "\t" << MMmidL << "\n"
 
