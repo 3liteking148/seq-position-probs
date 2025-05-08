@@ -34,10 +34,22 @@ struct Sequence {
   int length;
 };
 
-struct Result {
+struct Triple {
   double endAnchored;
   double begAnchored;
   double midAnchored;
+};
+
+struct Similarity {
+  double probRatio;
+  int pos1;
+  int pos2;
+};
+
+struct Result {
+  Similarity endAnchored;
+  Similarity begAnchored;
+  Similarity midAnchored;
 };
 
 double mean(const double *x, int n) {
@@ -102,6 +114,7 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
   // Backward algorithm:
 
   Float maxBeg = 0;
+  int iMaxBeg, jMaxBeg;
 
   for (int j = 0; j <= sequenceLength; ++j) Y[j] = 0;
 
@@ -122,6 +135,8 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
       Float w = x + d * y + a * z + scale;
       if (w > maxBeg) {
 	maxBeg = w;
+	iMaxBeg = i;
+	jMaxBeg = j;
       }
       wOld = Wfrom[j];
       W[j] = w;
@@ -133,7 +148,10 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
   // Forward algorithm:
 
   Float maxEnd = 0;
+  int iMaxEnd, jMaxEnd;
+
   Float maxMid = 0;
+  int iMaxMid, jMaxMid;
 
   for (int j = 0; j <= sequenceLength; ++j) Y[j] = 0;
 
@@ -153,10 +171,14 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
       Float w = x + y + z + scale;
       if (w > maxEnd) {
 	maxEnd = w;
+	iMaxEnd = i;
+	jMaxEnd = j;
       }
       Float wMid = w * W[j];
       if (wMid > maxMid) {
 	maxMid = wMid;
+	iMaxMid = i;
+	jMaxMid = j;
       }
       x = X[j];
       W[j] = S[sequence[j]] * w;
@@ -165,7 +187,9 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
     }
   }
 
-  Result result = {maxEnd, maxBeg, maxMid / scale};
+  Result result = {{maxEnd, iMaxEnd, jMaxEnd},
+		   {maxBeg, iMaxBeg, jMaxBeg},
+		   {maxMid / scale, iMaxMid, jMaxMid}};
   return result;
 }
 
@@ -267,7 +291,7 @@ void estimateGumbel(double &mmLambda, double &mmK, double &mmKsimple,
   methodOfLmomentsGumbel(lmLambda, lmK, scores, n, seqLength);
 }
 
-Result estimateK(Profile profile, const Float *letterFreqs,
+Triple estimateK(Profile profile, const Float *letterFreqs,
 		 char *sequence, int sequenceLength, int border,
 		 int numOfSequences, Float *scratch) {
   std::mt19937_64 randGen;
@@ -287,12 +311,12 @@ Result estimateK(Profile profile, const Float *letterFreqs,
     sequence[sequenceLength + border] = dist(randGen);  // arbitrary letter
     Result r = maxProbabilityRatios(profile, sequence, sequenceLength + border,
 				    scratch);
-    endScores[i] = log(r.endAnchored);
-    begScores[i] = log(r.begAnchored);
-    midScores[i] = log(r.midAnchored);
-    std::cout << (i+1) << "\t" << log2(r.endAnchored)+shift << "\t"
-	      << log2(r.begAnchored)+shift << "\t"
-	      << log2(r.midAnchored)+shift << std::endl;
+    endScores[i] = log(r.endAnchored.probRatio);
+    begScores[i] = log(r.begAnchored.probRatio);
+    midScores[i] = log(r.midAnchored.probRatio);
+    std::cout << (i+1) << "\t" << log2(r.endAnchored.probRatio)+shift << "\t"
+	      << log2(r.begAnchored.probRatio)+shift << "\t"
+	      << log2(r.midAnchored.probRatio)+shift << std::endl;
   }
 
   double MMendL, MMendK, MMendKsimple, MLendL, MLendK, MLendKsimple;
@@ -336,7 +360,7 @@ Result estimateK(Profile profile, const Float *letterFreqs,
 	    << LMbegK / pow(s, LMbegL) << "\t"
 	    << LMmidK / pow(s, LMmidL) << "\n";
 
-  Result h = {MLendKsimple, MLbegKsimple, MLmidKsimple};
+  Triple h = {MLendKsimple, MLbegKsimple, MLmidKsimple};
   return h;
 }
 
@@ -615,7 +639,7 @@ options:\n\
     std::cout << "# Background letter probabilities:";
     for (int j = 4; j < p.width - 1; ++j) std::cout << " " << profileEnd[j];
     std::cout << "\n";
-    Result r = estimateK(p, profileEnd+4, &charVec[seqIdx], sequenceLength,
+    Triple r = estimateK(p, profileEnd+4, &charVec[seqIdx], sequenceLength,
 			 border, numOfSequences, &scratch[0]);
     totEndK += r.endAnchored;
     totBegK += r.begAnchored;
@@ -687,12 +711,12 @@ options:\n\
 	std::cout << &charVec[s.nameIdx] << "\t" << s.length << "\t"
 		  << &charVec[p.nameIdx] << "\t" << p.length << "\t"
 		  << "+-"[k] << "\t"
-		  << log2(r->endAnchored)+shift << "\t"
-		  << endKMN / r->endAnchored << "\t"
-		  << log2(r->begAnchored)+shift << "\t"
-		  << begKMN / r->begAnchored << "\t"
-		  << log2(r->midAnchored)+shift << "\t"
-		  << midKMN / r->midAnchored << "\n";
+		  << log2(r->endAnchored.probRatio)+shift << "\t"
+		  << endKMN / r->endAnchored.probRatio << "\t"
+		  << log2(r->begAnchored.probRatio)+shift << "\t"
+		  << begKMN / r->begAnchored.probRatio << "\t"
+		  << log2(r->midAnchored.probRatio)+shift << "\t"
+		  << midKMN / r->midAnchored.probRatio << "\n";
 	++r;
       }
     }
