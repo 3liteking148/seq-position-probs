@@ -42,8 +42,7 @@ struct Triple {
 
 struct Similarity {
   double probRatio;
-  int pos1;
-  int pos2;
+  int anchor1, anchor2;
 };
 
 struct Result {
@@ -150,7 +149,7 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
   Float maxEnd = 0;
   int iMaxEnd, jMaxEnd;
 
-  Float maxMid = 0;
+  Float maxMid = scale * maxBeg;
   int iMaxMid, jMaxMid;
 
   for (int j = 0; j <= sequenceLength; ++j) Y[j] = 0;
@@ -175,7 +174,7 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
 	jMaxEnd = j;
       }
       Float wMid = w * W[j];
-      if (wMid > maxMid) {
+      if (wMid >= maxMid) {
 	maxMid = wMid;
 	iMaxMid = i;
 	jMaxMid = j;
@@ -317,11 +316,11 @@ Triple estimateK(Profile profile, const Float *letterFreqs,
     begScores[i] = log(r.begAnchored.probRatio);
     midScores[i] = log(r.midAnchored.probRatio);
     std::cout << (i+1) << "\t"
-	      << r.endAnchored.pos1 << "\t" << r.endAnchored.pos2 << "\t"
+	      << r.endAnchored.anchor1 << "\t" << r.endAnchored.anchor2 << "\t"
 	      << log2(r.endAnchored.probRatio)+shift << "\t"
-	      << r.begAnchored.pos1 << "\t" << r.begAnchored.pos2 << "\t"
+	      << r.begAnchored.anchor1 << "\t" << r.begAnchored.anchor2 << "\t"
 	      << log2(r.begAnchored.probRatio)+shift << "\t"
-	      << r.midAnchored.pos1 << "\t" << r.midAnchored.pos2 << "\t"
+	      << r.midAnchored.anchor1 << "\t" << r.midAnchored.anchor2 << "\t"
 	      << log2(r.midAnchored.probRatio)+shift << std::endl;
   }
 
@@ -714,11 +713,12 @@ options:\n\
     Sequence s = sequences[i];
     for (int k = 0; k < 2; ++k) {
       if (k == strandOpt) continue;
+      char strand = "+-"[k];
       for (size_t j = 0; j < numOfProfiles; ++j) {
 	Profile p = profiles[j];
 	std::cout << &charVec[s.nameIdx] << "\t" << s.length << "\t"
 		  << &charVec[p.nameIdx] << "\t" << p.length << "\t"
-		  << "+-"[k] << "\t"
+		  << strand << "\t"
 		  << log2(r->endAnchored.probRatio)+shift << "\t"
 		  << endKMN / r->endAnchored.probRatio << "\t"
 		  << log2(r->begAnchored.probRatio)+shift << "\t"
