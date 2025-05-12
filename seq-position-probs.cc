@@ -71,11 +71,15 @@ int numOfDigits(int x) {
   return n;
 }
 
+char complement(char c) {
+  return (c > 3) ? c : 3 - c;
+}
+
 void reverseComplement(char *beg, char *end) {
   while (beg < end) {
     char c = *--end;
-    *end = 3 - *beg;
-    *beg++ = 3 - c;
+    *end = complement(*beg);
+    *beg++ = complement(c);
   }
 }
 
