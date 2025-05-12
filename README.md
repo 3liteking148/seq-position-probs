@@ -51,12 +51,20 @@ avoid [edge effects][] on the distribution of scores.
 
     seq-position-probs profile.hmm randomSeqNum randomSeqLength realSeqs.fasta
 
-This prints the maximum end-, start-, and mid-anchored score, for each
-profile versus each sequence.  It also shows an *E*-value for each
-score.  This *E*-value means: the expected number of distinct
-sequence regions with equal or higher score, if we compared *all* the
-profiles to random sequences with the same length as *all* of
-`realSeqs.fasta`.
+For each profile versus each sequence, it shows:
+
+1. The maximum end-anchored score, with a representative alignment
+2. The maximum start-anchored score, with a representative alignment
+3. The maximum mid-anchored score, with a representative alignment
+
+The alignments are in [MAF][] format.  Each alignment aligns positions
+whose probability of being aligned is > 0.5, among all possible
+alignments with that anchor.
+
+It also shows an *E*-value for each score.  This *E*-value means: the
+expected number of distinct sequence regions with equal or higher
+score, if we compared *all* the profiles to random sequences with the
+same length as *all* of `realSeqs.fasta`.
 
 For nucleotide profiles, it will search both strands of
 `realSeqs.fasta`.  Use option `-s1` to search forward strands only, or
@@ -78,3 +86,4 @@ For nucleotide profiles, it will search both strands of
   the sum of sequence lengths.
 
 [edge effects]: https://doi.org/10.1093/nar/29.2.351
+[MAF]: https://genome.ucsc.edu/FAQ/FAQformat.html#format5

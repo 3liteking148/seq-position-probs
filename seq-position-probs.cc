@@ -2,12 +2,14 @@
 
 #include <algorithm>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <random>
 #include <sstream>
 #include <string>
 #include <vector>
 
+#include <assert.h>
 #include <ctype.h>
 #include <limits.h>
 #include <math.h>
@@ -34,6 +36,10 @@ struct Sequence {
   int length;
 };
 
+struct Pair {
+  int x, y;
+};
+
 struct Triple {
   double endAnchored;
   double begAnchored;
@@ -43,6 +49,8 @@ struct Triple {
 struct Similarity {
   double probRatio;
   int anchor1, anchor2;
+  int start1, start2;
+  std::vector<char> alignedSequences;
 };
 
 struct Result {
@@ -55,6 +63,12 @@ double mean(const double *x, int n) {
   double s = 0;
   for (int i = 0; i < n; ++i) s += x[i];
   return s / n;
+}
+
+int numOfDigits(int x) {
+  int n = 0;
+  do ++n; while (x /= 10);
+  return n;
 }
 
 void reverseComplement(char *beg, char *end) {
@@ -104,11 +118,190 @@ std::istream &readSequence(std::istream &in, Sequence &sequence,
   return in;
 }
 
+int consensusLetter(Profile profile, int position) {
+  const Float *S = profile.values + position * profile.width + 4;
+  return std::max_element(S, S + profile.width - 5) - S;
+}
+
+void addAlignedProfile(std::vector<char> &gappedSeq,
+		       const std::vector<Pair> &alignment,
+		       const char *alphabet, Profile profile) {
+  for (size_t i = 0; i < alignment.size(); ++i) {
+    if (i > 0) {
+      assert(alignment[i-1].y < alignment[i].y);
+      for (int k = alignment[i-1].x + 1; k < alignment[i].x; ++k) {
+	gappedSeq.push_back(alphabet[consensusLetter(profile, k)]);
+      }
+      gappedSeq.insert(gappedSeq.end(),
+		       alignment[i].y - alignment[i-1].y - 1, '-');
+    }
+    gappedSeq.push_back(alphabet[consensusLetter(profile, alignment[i].x)]);
+  }
+}
+
+void addAlignedSequence(std::vector<char> &gappedSeq,
+			const std::vector<Pair> &alignment,
+			const char *alphabet, const char *sequence) {
+  for (size_t i = 0; i < alignment.size(); ++i) {
+    if (i > 0) {
+      assert(alignment[i-1].x < alignment[i].x);
+      gappedSeq.insert(gappedSeq.end(),
+		       alignment[i].x - alignment[i-1].x - 1, '-');
+      for (int k = alignment[i-1].y + 1; k < alignment[i].y; ++k) {
+	gappedSeq.push_back(alphabet[sequence[k]]);
+      }
+    }
+    gappedSeq.push_back(alphabet[sequence[alignment[i].y]]);
+  }
+}
+
+void setSimilarity(Similarity &s, Profile profile, const char *sequence,
+		   double probRatio, int anchor1, int anchor2,
+		   const std::vector<Pair> &alignment) {
+  const char *alphabet =
+    (profile.width == 9) ? "acgtn" : "ACDEFGHIKLMNPQRSTVWYX";
+  s.probRatio = probRatio;
+  s.anchor1 = anchor1;
+  s.anchor2 = anchor2;
+  s.start1 = alignment.empty() ? anchor1 : alignment[0].x;
+  s.start2 = alignment.empty() ? anchor2 : alignment[0].y;
+  addAlignedProfile(s.alignedSequences, alignment, alphabet, profile);
+  addAlignedSequence(s.alignedSequences, alignment, alphabet, sequence);
+}
+
+void printSimilarity(const char *names, Profile p, Sequence s,
+		     char strand, double gumbelK, const Similarity &sim) {
+  const char *seq = sim.alignedSequences.data();
+  int length = sim.alignedSequences.size() / 2;
+  int span1 = length - std::count(seq, seq + length, '-');
+  int span2 = length - std::count(seq + length, seq + length * 2, '-');
+  int w1 = std::max(strlen(names + p.nameIdx), strlen(names + s.nameIdx));
+  int w2 = std::max(numOfDigits(sim.start1), numOfDigits(sim.start2));
+  int w3 = std::max(numOfDigits(span1), numOfDigits(span2));
+  int w4 = std::max(numOfDigits(p.length), numOfDigits(s.length));
+  std::cout << "a score=" << log2(sim.probRatio)+shift
+	    << " E=" << gumbelK / sim.probRatio
+	    << " anchor=" << sim.anchor1 << "," << sim.anchor2 << "\n";
+  std::cout << "s " << std::left << std::setw(w1) << names + p.nameIdx << " "
+	    << std::right << std::setw(w2) << sim.start1 << " "
+	    << std::setw(w3) << span1 << " " << '+' << " "
+	    << std::setw(w4) << p.length << " ";
+  std::cout.write(seq, length);
+  std::cout << "\n";
+  std::cout << "s " << std::left << std::setw(w1) << names + s.nameIdx << " "
+	    << std::right << std::setw(w2) << sim.start2 << " "
+	    << std::setw(w3) << span2 << " " << strand << " "
+	    << std::setw(w4) << s.length << " ";
+  std::cout.write(seq + length, length);
+  std::cout << "\n\n";
+}
+
+void addForwardAlignment(std::vector<Pair> &alignment,
+			 Profile profile, const char *sequence,
+			 int sequenceLength, const Float *scratch,
+			 int iBeg, int jBeg, Float half) {
+  long rowSize = sequenceLength + 1;
+  size_t alignmentSize = alignment.size();
+  const char *seq = sequence + jBeg;
+
+  for (int size = 16; ; size *= 2) {
+    int iEnd = std::min(iBeg + size, profile.length);
+    int jEnd = std::min(jBeg + size, sequenceLength);
+    int jLen = jEnd - jBeg;
+    std::vector<Float> scratch2(jLen * 2);
+    Float *X = scratch2.data();
+    Float *Y = X + jLen;
+    Float wSum = 0;
+
+    for (int i = iBeg; i < iEnd; ++i) {
+      const Float *Wreverse = scratch + (i+1) * rowSize + jBeg + 1;
+      Float a = profile.values[i * profile.width + 0];
+      Float b = profile.values[i * profile.width + 1];
+      Float d = profile.values[i * profile.width + 2];
+      Float e = profile.values[i * profile.width + 3];
+      const Float *S = profile.values + i * profile.width + 4;
+
+      Float x = (i == iBeg) ? scale : 0;
+      Float z = 0;
+      for (int j = 0; j < jLen; ++j) {
+	Float y = Y[j];
+	Float w = x + y + z;
+	wSum += w;
+	x = X[j];
+	X[j] = S[seq[j]] * w;
+	if (X[j] * Wreverse[j] > half * scale) {
+	  Pair p = {i, jBeg + j};
+	  alignment.push_back(p);
+	}
+	Y[j] = d * w + e * y;
+	z = a * w + b * z;
+      }
+
+      if (wSum >= half) return;
+    }
+
+    if (iEnd == profile.length && jEnd == sequenceLength) break;
+    alignment.resize(alignmentSize);
+  }
+}
+
+void addReverseAlignment(std::vector<Pair> &alignment,
+			 Profile profile, const char *sequence,
+			 int sequenceLength, const Float *scratch,
+			 int iEnd, int jEnd, Float half) {
+  long rowSize = sequenceLength + 1;
+  size_t alignmentSize = alignment.size();
+
+  for (int size = 16; ; size *= 2) {
+    int iBeg = std::max(iEnd - size, 0);
+    int jBeg = std::max(jEnd - size, 0);
+    int jLen = jEnd - jBeg;
+    const char *seq = sequence + jBeg;
+    std::vector<Float> scratch2(jLen * 2);
+    Float *X = scratch2.data();
+    Float *Y = X + jLen;
+    Float wSum = 0;
+
+    for (int i = iEnd-1; i >= iBeg; --i) {
+      const Float *Xforward = scratch + i * rowSize + jBeg;
+      Float a = profile.values[(i+1) * profile.width + 0];
+      Float b = profile.values[(i+1) * profile.width + 1];
+      Float d = profile.values[(i+1) * profile.width + 2];
+      Float e = profile.values[(i+1) * profile.width + 3];
+      const Float *S = profile.values + i * profile.width + 4;
+
+      Float x = (i == iEnd-1) ? scale : 0;
+      Float z = 0;
+      for (int j = jLen-1; j >= 0; --j) {
+	Float y = Y[j];
+	Float w = x + d * y + a * z;  // this is: W[i+1][jBeg+j+1]
+	wSum += w;
+	x = X[j];
+	X[j] = S[seq[j]] * w;
+	if (Xforward[j] * w > half * scale) {
+	  Pair p = {i, jBeg + j};
+	  alignment.push_back(p);
+	}
+	Y[j] = w + e * y;
+	z = w + b * z;
+      }
+
+      if (wSum >= half) return;
+    }
+
+    if (iBeg == 0 && jBeg == 0) break;
+    alignment.resize(alignmentSize);
+  }
+}
+
 Result maxProbabilityRatios(Profile profile, const char *sequence,
-			    int sequenceLength, Float *scratch) {
+			    int sequenceLength, Float *scratch,
+			    bool wantAlignment) {
   long rowSize = sequenceLength + 1;
   // scratch has space for (sequenceLength + 1) * (profile.length + 2) values
   Float *Y = scratch + rowSize * (profile.length + 1);
+  std::vector<Pair> alignment;
+  Result result;
 
   // Backward algorithm:
 
@@ -144,12 +337,20 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
     }
   }
 
+  if (wantAlignment) {
+    addForwardAlignment(alignment, profile, sequence, sequenceLength,
+			scratch, iMaxBeg, jMaxBeg, maxBeg / 2);
+  }
+  setSimilarity(result.begAnchored, profile, sequence,
+		maxBeg, iMaxBeg, jMaxBeg, alignment);
+
   // Forward algorithm:
 
   Float maxEnd = 0;
   int iMaxEnd, jMaxEnd;
 
   Float maxMid = scale * maxBeg;
+  Float wMaxMid;
   int iMaxMid, jMaxMid;
 
   for (int j = 0; j <= sequenceLength; ++j) Y[j] = 0;
@@ -178,6 +379,12 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
 	maxMid = wMid;
 	iMaxMid = i;
 	jMaxMid = j;
+	if (wantAlignment) {
+	  wMaxMid = w;
+	  alignment.clear();
+	  addForwardAlignment(alignment, profile, sequence, sequenceLength,
+			      scratch, i, j, W[j] / 2);
+	}
       }
       x = X[j];
       W[j] = S[sequence[j]] * w;
@@ -186,9 +393,24 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
     }
   }
 
-  Result result = {{maxEnd, iMaxEnd, jMaxEnd},
-		   {maxBeg, iMaxBeg, jMaxBeg},
-		   {maxMid / scale, iMaxMid, jMaxMid}};
+  if (wantAlignment) {
+    reverse(alignment.begin(), alignment.end());
+    addReverseAlignment(alignment, profile, sequence, sequenceLength,
+			scratch, iMaxMid, jMaxMid, wMaxMid / 2);
+    reverse(alignment.begin(), alignment.end());
+  }
+  setSimilarity(result.midAnchored, profile, sequence,
+		maxMid / scale, iMaxMid, jMaxMid, alignment);
+
+  if (wantAlignment) {
+    alignment.clear();
+    addReverseAlignment(alignment, profile, sequence, sequenceLength,
+			scratch, iMaxEnd, jMaxEnd, maxEnd / 2);
+    reverse(alignment.begin(), alignment.end());
+  }
+  setSimilarity(result.endAnchored, profile, sequence,
+		maxEnd, iMaxEnd, jMaxEnd, alignment);
+
   return result;
 }
 
@@ -311,7 +533,7 @@ Triple estimateK(Profile profile, const Float *letterFreqs,
     for (int j = 0; j < border; ++j) sequence[sequenceLength+j] = sequence[j];
     sequence[sequenceLength + border] = dist(randGen);  // arbitrary letter
     Result r = maxProbabilityRatios(profile, sequence, sequenceLength + border,
-				    scratch);
+				    scratch, false);
     endScores[i] = log(r.endAnchored.probRatio);
     begScores[i] = log(r.begAnchored.probRatio);
     midScores[i] = log(r.midAnchored.probRatio);
@@ -689,8 +911,8 @@ options:\n\
 	totSequenceLength += sequence.length;
 	for (size_t j = 0; j < numOfProfiles; ++j) {
 	  results.push_back(maxProbabilityRatios(profiles[j], &charVec[seqIdx],
-						 sequence.length,
-						 &scratch[0]));
+						 sequence.length, &scratch[0],
+						 true));
 	}
       }
       reverseComplement(&charVec[seqIdx], &charVec[seqIdx] + sequence.length);
@@ -705,8 +927,6 @@ options:\n\
   double begKMN = totBegK * totSequenceLength;
   double midKMN = totMidK * totSequenceLength;
 
-  std::cout << "#seq\tseqLen\tprofile\tproLen\tstrand\t"
-    "EAscore\tE-value\tSAscore\tE-value\tMAscore\tE-value\n";
   std::cout.precision(3);
   const Result *r = results.empty() ? 0 : &results[0];
   for (size_t i = 0; i < sequences.size(); ++i) {
@@ -716,15 +936,10 @@ options:\n\
       char strand = "+-"[k];
       for (size_t j = 0; j < numOfProfiles; ++j) {
 	Profile p = profiles[j];
-	std::cout << &charVec[s.nameIdx] << "\t" << s.length << "\t"
-		  << &charVec[p.nameIdx] << "\t" << p.length << "\t"
-		  << strand << "\t"
-		  << log2(r->endAnchored.probRatio)+shift << "\t"
-		  << endKMN / r->endAnchored.probRatio << "\t"
-		  << log2(r->begAnchored.probRatio)+shift << "\t"
-		  << begKMN / r->begAnchored.probRatio << "\t"
-		  << log2(r->midAnchored.probRatio)+shift << "\t"
-		  << midKMN / r->midAnchored.probRatio << "\n";
+	std::cout << "\n";
+	printSimilarity(charVec.data(), p, s, strand, endKMN, r->endAnchored);
+	printSimilarity(charVec.data(), p, s, strand, begKMN, r->begAnchored);
+	printSimilarity(charVec.data(), p, s, strand, midKMN, r->midAnchored);
 	++r;
       }
     }
