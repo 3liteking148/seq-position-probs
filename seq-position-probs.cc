@@ -9,7 +9,6 @@
 #include <string>
 #include <vector>
 
-#include <assert.h>
 #include <ctype.h>
 #include <limits.h>
 #include <math.h>
@@ -132,7 +131,6 @@ void addAlignedProfile(std::vector<char> &gappedSeq,
 		       const char *alphabet, Profile profile) {
   for (size_t i = 0; i < alignment.size(); ++i) {
     if (i > 0) {
-      assert(alignment[i-1].y < alignment[i].y);
       for (int k = alignment[i-1].x + 1; k < alignment[i].x; ++k) {
 	gappedSeq.push_back(alphabet[consensusLetter(profile, k)]);
       }
@@ -148,7 +146,6 @@ void addAlignedSequence(std::vector<char> &gappedSeq,
 			const char *alphabet, const char *sequence) {
   for (size_t i = 0; i < alignment.size(); ++i) {
     if (i > 0) {
-      assert(alignment[i-1].x < alignment[i].x);
       gappedSeq.insert(gappedSeq.end(),
 		       alignment[i].x - alignment[i-1].x - 1, '-');
       for (int k = alignment[i-1].y + 1; k < alignment[i].y; ++k) {
@@ -200,12 +197,27 @@ void printSimilarity(const char *names, Profile p, Sequence s,
   std::cout << "\n\n";
 }
 
+void addForwardMatch(std::vector<Pair> &alignment, int pos1, int pos2) {
+  if (!alignment.empty()) {
+    if (alignment.back().x >= pos1 || alignment.back().y >= pos2) return;
+  }
+  Pair p = {pos1, pos2};
+  alignment.push_back(p);
+}
+
+void addReverseMatch(std::vector<Pair> &alignment, int pos1, int pos2) {
+  if (!alignment.empty()) {
+    if (alignment.back().x <= pos1 || alignment.back().y <= pos2) return;
+  }
+  Pair p = {pos1, pos2};
+  alignment.push_back(p);
+}
+
 void addForwardAlignment(std::vector<Pair> &alignment,
 			 Profile profile, const char *sequence,
 			 int sequenceLength, const Float *scratch,
 			 int iBeg, int jBeg, Float half) {
   long rowSize = sequenceLength + 1;
-  size_t alignmentSize = alignment.size();
   const char *seq = sequence + jBeg;
 
   for (int size = 16; ; size *= 2) {
@@ -234,8 +246,7 @@ void addForwardAlignment(std::vector<Pair> &alignment,
 	x = X[j];
 	X[j] = S[seq[j]] * w;
 	if (X[j] * Wreverse[j] > half * scale) {
-	  Pair p = {i, jBeg + j};
-	  alignment.push_back(p);
+	  addForwardMatch(alignment, i, jBeg + j);
 	}
 	Y[j] = d * w + e * y;
 	z = a * w + b * z;
@@ -245,7 +256,6 @@ void addForwardAlignment(std::vector<Pair> &alignment,
     }
 
     if (iEnd == profile.length && jEnd == sequenceLength) break;
-    alignment.resize(alignmentSize);
   }
 }
 
@@ -254,7 +264,6 @@ void addReverseAlignment(std::vector<Pair> &alignment,
 			 int sequenceLength, const Float *scratch,
 			 int iEnd, int jEnd, Float half) {
   long rowSize = sequenceLength + 1;
-  size_t alignmentSize = alignment.size();
 
   for (int size = 16; ; size *= 2) {
     int iBeg = std::max(iEnd - size, 0);
@@ -283,8 +292,7 @@ void addReverseAlignment(std::vector<Pair> &alignment,
 	x = X[j];
 	X[j] = S[seq[j]] * w;
 	if (Xforward[j] * w > half * scale) {
-	  Pair p = {i, jBeg + j};
-	  alignment.push_back(p);
+	  addReverseMatch(alignment, i, jBeg + j);
 	}
 	Y[j] = w + e * y;
 	z = w + b * z;
@@ -294,7 +302,6 @@ void addReverseAlignment(std::vector<Pair> &alignment,
     }
 
     if (iBeg == 0 && jBeg == 0) break;
-    alignment.resize(alignmentSize);
   }
 }
 
