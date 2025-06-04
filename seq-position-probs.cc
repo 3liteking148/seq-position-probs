@@ -221,8 +221,8 @@ void addForwardAlignment(std::vector<Pair> &alignment,
   const char *seq = sequence + jBeg;
 
   for (int size = 16; ; size *= 2) {
-    int iEnd = std::min(iBeg + size, profile.length);
-    int jEnd = std::min(jBeg + size, sequenceLength);
+    int iEnd = std::min(iBeg + size, profile.length + 1);
+    int jEnd = std::min(jBeg + size, sequenceLength + 1);
     int jLen = jEnd - jBeg;
     std::vector<Float> scratch2(jLen * 2);
     Float *X = scratch2.data();
@@ -246,6 +246,7 @@ void addForwardAlignment(std::vector<Pair> &alignment,
 	Y[j] = d * w + e * y;
 	x = X[j];
 	z = a * w + b * z;
+	if (i == profile.length || jBeg + j == sequenceLength) continue;
 	X[j] = S[seq[j]] * w;
 	if (X[j] * Wreverse[j] > half * scale) {
 	  addForwardMatch(alignment, i, jBeg + j);
@@ -254,8 +255,6 @@ void addForwardAlignment(std::vector<Pair> &alignment,
 
       if (wSum >= half) return;
     }
-
-    if (iEnd == profile.length && jEnd == sequenceLength) break;
   }
 }
 
@@ -267,8 +266,8 @@ void addReverseAlignment(std::vector<Pair> &alignment,
   const char *seq = sequence + jEnd;
 
   for (int size = 16; ; size *= 2) {
-    int iBeg = std::max(iEnd - size, 0);
-    int jBeg = std::max(jEnd - size, 0);
+    int iBeg = std::max(iEnd - size, -1);
+    int jBeg = std::max(jEnd - size, -1);
     int jLen = jEnd - jBeg;
     std::vector<Float> scratch2(jLen * 2);
     Float *X = scratch2.data() + jLen;
@@ -276,12 +275,12 @@ void addReverseAlignment(std::vector<Pair> &alignment,
     Float wSum = 0;
 
     for (int i = iEnd-1; i >= iBeg; --i) {
-      const Float *Xforward = scratch + i * rowSize + jEnd;
+      const Float *Xforward = (i >= 0) ? scratch + i * rowSize + jEnd : 0;
       Float a = profile.values[(i+1) * profile.width + 0];
       Float b = profile.values[(i+1) * profile.width + 1];
       Float d = profile.values[(i+1) * profile.width + 2];
       Float e = profile.values[(i+1) * profile.width + 3];
-      const Float *S = profile.values + i * profile.width + 4;
+      const Float *S = (i >= 0) ? profile.values + i * profile.width + 4 : 0;
 
       Float x = (i == iEnd-1) ? scale : 0;
       Float z = 0;
@@ -292,6 +291,7 @@ void addReverseAlignment(std::vector<Pair> &alignment,
 	Y[j] = w + e * y;
 	x = X[j];
 	z = w + b * z;
+	if (i < 0 || jEnd + j < 0) continue;
 	X[j] = S[seq[j]] * w;
 	if (Xforward[j] * w > half * scale) {
 	  addReverseMatch(alignment, i, jEnd + j);
@@ -300,8 +300,6 @@ void addReverseAlignment(std::vector<Pair> &alignment,
 
       if (wSum >= half) return;
     }
-
-    if (iBeg == 0 && jBeg == 0) break;
   }
 }
 
