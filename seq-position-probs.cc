@@ -243,13 +243,13 @@ void addForwardAlignment(std::vector<Pair> &alignment,
 	Float y = Y[j];
 	Float w = x + y + z;
 	wSum += w;
+	Y[j] = d * w + e * y;
 	x = X[j];
+	z = a * w + b * z;
 	X[j] = S[seq[j]] * w;
 	if (X[j] * Wreverse[j] > half * scale) {
 	  addForwardMatch(alignment, i, jBeg + j);
 	}
-	Y[j] = d * w + e * y;
-	z = a * w + b * z;
       }
 
       if (wSum >= half) return;
@@ -289,13 +289,13 @@ void addReverseAlignment(std::vector<Pair> &alignment,
 	Float y = Y[j];
 	Float w = x + d * y + a * z;  // this is: W[i+1][jBeg+j+1]
 	wSum += w;
+	Y[j] = w + e * y;
 	x = X[j];
+	z = w + b * z;
 	X[j] = S[seq[j]] * w;
 	if (Xforward[j] * w > half * scale) {
 	  addReverseMatch(alignment, i, jBeg + j);
 	}
-	Y[j] = w + e * y;
-	z = w + b * z;
       }
 
       if (wSum >= half) return;
