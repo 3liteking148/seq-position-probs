@@ -35,8 +35,8 @@ struct Sequence {
   int length;
 };
 
-struct Pair {
-  int x, y;
+struct SegmentPair {
+  int start1, start2, length;
 };
 
 struct Triple {
@@ -127,45 +127,50 @@ int consensusLetter(Profile profile, int position) {
 }
 
 void addAlignedProfile(std::vector<char> &gappedSeq,
-		       const std::vector<Pair> &alignment,
+		       const std::vector<SegmentPair> &alignment,
 		       const char *alphabet, Profile profile) {
-  for (size_t i = 0; i < alignment.size(); ++i) {
-    if (i > 0) {
-      for (int k = alignment[i-1].x + 1; k < alignment[i].x; ++k) {
-	gappedSeq.push_back(alphabet[consensusLetter(profile, k)]);
-      }
-      gappedSeq.insert(gappedSeq.end(),
-		       alignment[i].y - alignment[i-1].y - 1, '-');
+  int pos1 = alignment[0].start1;
+  int pos2 = alignment[0].start2;
+  for (auto a : alignment) {
+    for (; pos1 < a.start1; ++pos1) {
+      gappedSeq.push_back(alphabet[consensusLetter(profile, pos1)]);
     }
-    gappedSeq.push_back(alphabet[consensusLetter(profile, alignment[i].x)]);
+    gappedSeq.insert(gappedSeq.end(), a.start2 - pos2, '-');
+    for (; pos1 < a.start1 + a.length; ++pos1) {
+      gappedSeq.push_back(alphabet[consensusLetter(profile, pos1)]);
+    }
+    pos2 = a.start2 + a.length;
   }
 }
 
 void addAlignedSequence(std::vector<char> &gappedSeq,
-			const std::vector<Pair> &alignment,
+			const std::vector<SegmentPair> &alignment,
 			const char *alphabet, const char *sequence) {
-  for (size_t i = 0; i < alignment.size(); ++i) {
-    if (i > 0) {
-      gappedSeq.insert(gappedSeq.end(),
-		       alignment[i].x - alignment[i-1].x - 1, '-');
-      for (int k = alignment[i-1].y + 1; k < alignment[i].y; ++k) {
-	gappedSeq.push_back(alphabet[sequence[k]]);
-      }
+  int pos1 = alignment[0].start1;
+  int pos2 = alignment[0].start2;
+  for (auto a : alignment) {
+    gappedSeq.insert(gappedSeq.end(), a.start1 - pos1, '-');
+    for (; pos2 < a.start2; ++pos2) {
+      gappedSeq.push_back(alphabet[sequence[pos2]]);
     }
-    gappedSeq.push_back(alphabet[sequence[alignment[i].y]]);
+    for (; pos2 < a.start2 + a.length; ++pos2) {
+      gappedSeq.push_back(alphabet[sequence[pos2]]);
+    }
+    pos1 = a.start1 + a.length;
   }
 }
 
 void setSimilarity(Similarity &s, Profile profile, const char *sequence,
 		   double probRatio, int anchor1, int anchor2,
-		   const std::vector<Pair> &alignment) {
+		   const std::vector<SegmentPair> &alignment) {
   const char *alphabet =
     (profile.width == 9) ? "acgtn" : "ACDEFGHIKLMNPQRSTVWYX";
   s.probRatio = probRatio;
   s.anchor1 = anchor1;
   s.anchor2 = anchor2;
-  s.start1 = alignment.empty() ? anchor1 : alignment[0].x;
-  s.start2 = alignment.empty() ? anchor2 : alignment[0].y;
+  s.start1 = alignment.empty() ? anchor1 : alignment[0].start1;
+  s.start2 = alignment.empty() ? anchor2 : alignment[0].start2;
+  if (alignment.empty()) return;
   addAlignedProfile(s.alignedSequences, alignment, alphabet, profile);
   addAlignedSequence(s.alignedSequences, alignment, alphabet, sequence);
 }
@@ -197,23 +202,33 @@ void printSimilarity(const char *names, Profile p, Sequence s,
   std::cout << "\n\n";
 }
 
-void addForwardMatch(std::vector<Pair> &alignment, int pos1, int pos2) {
+void addForwardMatch(std::vector<SegmentPair> &alignment, int pos1, int pos2) {
   if (!alignment.empty()) {
-    if (alignment.back().x >= pos1 || alignment.back().y >= pos2) return;
+    SegmentPair &x = alignment.back();
+    if (x.start1 + x.length == pos1 && x.start2 + x.length == pos2) {
+      ++x.length;
+    }
+    if (x.start1 + x.length > pos1 || x.start2 + x.length > pos2) return;
   }
-  Pair p = {pos1, pos2};
-  alignment.push_back(p);
+  SegmentPair sp = {pos1, pos2, 1};
+  alignment.push_back(sp);
 }
 
-void addReverseMatch(std::vector<Pair> &alignment, int pos1, int pos2) {
+void addReverseMatch(std::vector<SegmentPair> &alignment, int pos1, int pos2) {
   if (!alignment.empty()) {
-    if (alignment.back().x <= pos1 || alignment.back().y <= pos2) return;
+    SegmentPair &x = alignment.back();
+    if (x.start1 - 1 == pos1 && x.start2 - 1 == pos2) {
+      --x.start1;
+      --x.start2;
+      ++x.length;
+    }
+    if (x.start1 <= pos1 || x.start2 <= pos2) return;
   }
-  Pair p = {pos1, pos2};
-  alignment.push_back(p);
+  SegmentPair sp = {pos1, pos2, 1};
+  alignment.push_back(sp);
 }
 
-void addForwardAlignment(std::vector<Pair> &alignment,
+void addForwardAlignment(std::vector<SegmentPair> &alignment,
 			 Profile profile, const char *sequence,
 			 int sequenceLength, const Float *scratch,
 			 int iBeg, int jBeg, Float half) {
@@ -258,7 +273,7 @@ void addForwardAlignment(std::vector<Pair> &alignment,
   }
 }
 
-void addReverseAlignment(std::vector<Pair> &alignment,
+void addReverseAlignment(std::vector<SegmentPair> &alignment,
 			 Profile profile, const char *sequence,
 			 int sequenceLength, const Float *scratch,
 			 int iEnd, int jEnd, Float half) {
@@ -309,7 +324,7 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
   long rowSize = sequenceLength + 1;
   // scratch has space for (sequenceLength + 1) * (profile.length + 2) values
   Float *Y = scratch + rowSize * (profile.length + 1);
-  std::vector<Pair> alignment;
+  std::vector<SegmentPair> alignment;
   Result result;
 
   // Backward algorithm:
