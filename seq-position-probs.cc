@@ -264,19 +264,19 @@ void addReverseAlignment(std::vector<Pair> &alignment,
 			 int sequenceLength, const Float *scratch,
 			 int iEnd, int jEnd, Float half) {
   long rowSize = sequenceLength + 1;
+  const char *seq = sequence + jEnd;
 
   for (int size = 16; ; size *= 2) {
     int iBeg = std::max(iEnd - size, 0);
     int jBeg = std::max(jEnd - size, 0);
     int jLen = jEnd - jBeg;
-    const char *seq = sequence + jBeg;
     std::vector<Float> scratch2(jLen * 2);
-    Float *X = scratch2.data();
+    Float *X = scratch2.data() + jLen;
     Float *Y = X + jLen;
     Float wSum = 0;
 
     for (int i = iEnd-1; i >= iBeg; --i) {
-      const Float *Xforward = scratch + i * rowSize + jBeg;
+      const Float *Xforward = scratch + i * rowSize + jEnd;
       Float a = profile.values[(i+1) * profile.width + 0];
       Float b = profile.values[(i+1) * profile.width + 1];
       Float d = profile.values[(i+1) * profile.width + 2];
@@ -285,16 +285,16 @@ void addReverseAlignment(std::vector<Pair> &alignment,
 
       Float x = (i == iEnd-1) ? scale : 0;
       Float z = 0;
-      for (int j = jLen-1; j >= 0; --j) {
+      for (int j = -1; j >= -jLen; --j) {
 	Float y = Y[j];
-	Float w = x + d * y + a * z;  // this is: W[i+1][jBeg+j+1]
+	Float w = x + d * y + a * z;  // this is: W[i+1][jEnd+j+1]
 	wSum += w;
 	Y[j] = w + e * y;
 	x = X[j];
 	z = w + b * z;
 	X[j] = S[seq[j]] * w;
 	if (Xforward[j] * w > half * scale) {
-	  addReverseMatch(alignment, i, jBeg + j);
+	  addReverseMatch(alignment, i, jEnd + j);
 	}
       }
 
