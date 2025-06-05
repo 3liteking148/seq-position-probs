@@ -45,6 +45,12 @@ struct Triple {
   double midAnchored;
 };
 
+struct RawSimilarity {
+  double probRatio;
+  int anchor1, anchor2;
+  std::vector<SegmentPair> alignment;
+};
+
 struct Similarity {
   double probRatio;
   size_t profileNum;
@@ -154,21 +160,6 @@ void addAlignedSequence(std::vector<char> &gappedSeq,
     }
     pos1 = a.start1 + a.length;
   }
-}
-
-void setSimilarity(Similarity &s, Profile profile, const char *sequence,
-		   double probRatio, int anchor1, int anchor2,
-		   const std::vector<SegmentPair> &alignment) {
-  const char *alphabet =
-    (profile.width == 9) ? "acgtn" : "ACDEFGHIKLMNPQRSTVWYX";
-  s.probRatio = probRatio;
-  s.anchor1 = anchor1;
-  s.anchor2 = anchor2;
-  s.start1 = alignment.empty() ? anchor1 : alignment[0].start1;
-  s.start2 = alignment.empty() ? anchor2 : alignment[0].start2;
-  if (alignment.empty()) return;
-  addAlignedProfile(s.alignedSequences, alignment, alphabet, profile);
-  addAlignedSequence(s.alignedSequences, alignment, alphabet, sequence);
 }
 
 void printSimilarity(const char *names, Profile p, Sequence s,
@@ -314,15 +305,14 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment,
   }
 }
 
-void findSimilarities(std::vector<Similarity> &similarities,
-		      Profile profile, const char *sequence,
-		      int sequenceLength, Float *scratch,
-		      bool wantAlignment) {
+void findRawSimilarities(std::vector<RawSimilarity> &similarities,
+			 Profile profile, const char *sequence,
+			 int sequenceLength, Float *scratch,
+			 bool wantAlignment) {
   long rowSize = sequenceLength + 1;
   // scratch has space for (sequenceLength + 1) * (profile.length + 2) values
   Float *Y = scratch + rowSize * (profile.length + 1);
   std::vector<SegmentPair> alignment;
-  Similarity endAnchored, begAnchored, midAnchored;
 
   // Backward algorithm:
 
@@ -362,8 +352,7 @@ void findSimilarities(std::vector<Similarity> &similarities,
     addForwardAlignment(alignment, profile, sequence, sequenceLength,
 			scratch, iMaxBeg, jMaxBeg, maxBeg / 2);
   }
-  setSimilarity(begAnchored, profile, sequence,
-		maxBeg, iMaxBeg, jMaxBeg, alignment);
+  RawSimilarity begAnchored = {maxBeg, iMaxBeg, jMaxBeg, alignment};
 
   // Forward algorithm:
 
@@ -420,8 +409,7 @@ void findSimilarities(std::vector<Similarity> &similarities,
 			scratch, iMaxMid, jMaxMid, wMaxMid / 2);
     reverse(alignment.begin(), alignment.end());
   }
-  setSimilarity(midAnchored, profile, sequence,
-		maxMid / scale, iMaxMid, jMaxMid, alignment);
+  RawSimilarity midAnchored = {maxMid / scale, iMaxMid, jMaxMid, alignment};
 
   if (wantAlignment) {
     alignment.clear();
@@ -429,12 +417,34 @@ void findSimilarities(std::vector<Similarity> &similarities,
 			scratch, iMaxEnd, jMaxEnd, maxEnd / 2);
     reverse(alignment.begin(), alignment.end());
   }
-  setSimilarity(endAnchored, profile, sequence,
-		maxEnd, iMaxEnd, jMaxEnd, alignment);
+  RawSimilarity endAnchored = {maxEnd, iMaxEnd, jMaxEnd, alignment};
 
   similarities.push_back(endAnchored);
   similarities.push_back(begAnchored);
   similarities.push_back(midAnchored);
+}
+
+void findSimilarities(std::vector<Similarity> &similarities,
+		      Profile profile, const char *sequence,
+		      int sequenceLength, Float *scratch,
+		      size_t profileNum, size_t strandNum) {
+  const char *alphabet =
+    (profile.width == 9) ? "acgtn" : "ACDEFGHIKLMNPQRSTVWYX";
+
+  std::vector<RawSimilarity> raws;
+  findRawSimilarities(raws, profile, sequence, sequenceLength, scratch, true);
+
+  for (const auto &r : raws) {
+    Similarity s = {r.probRatio, profileNum, strandNum, r.anchor1, r.anchor2,
+		    r.anchor1, r.anchor2};
+    if (!r.alignment.empty()) {
+      s.start1 = r.alignment[0].start1;
+      s.start2 = r.alignment[0].start2;
+      addAlignedProfile(s.alignedSequences, r.alignment, alphabet, profile);
+      addAlignedSequence(s.alignedSequences, r.alignment, alphabet, sequence);
+    }
+    similarities.push_back(s);
+  }
 }
 
 double methodOfMomentsLambda(const double *scores, int n, double meanScore) {
@@ -555,9 +565,9 @@ Triple estimateK(Profile profile, const Float *letterFreqs,
     for (int j = 0; j < sequenceLength; ++j) sequence[j] = dist(randGen);
     for (int j = 0; j < border; ++j) sequence[sequenceLength+j] = sequence[j];
     sequence[sequenceLength + border] = dist(randGen);  // arbitrary letter
-    std::vector<Similarity> sims;
-    findSimilarities(sims, profile, sequence, sequenceLength + border,
-		     scratch, false);
+    std::vector<RawSimilarity> sims;
+    findRawSimilarities(sims, profile, sequence, sequenceLength + border,
+			scratch, false);
     endScores[i] = log(sims[0].probRatio);
     begScores[i] = log(sims[1].probRatio);
     midScores[i] = log(sims[2].probRatio);
@@ -933,14 +943,10 @@ options:\n\
     for (int s = 0; s < 2; ++s) {
       if (s != strandOpt) {
 	totSequenceLength += sequence.length;
+	size_t strandNum = i * 2 + s;
 	for (size_t j = 0; j < numOfProfiles; ++j) {
-	  size_t simCount = similarities.size();
 	  findSimilarities(similarities, profiles[j], &charVec[seqIdx],
-			   sequence.length, &scratch[0], true);
-	  for (size_t x = simCount; x < similarities.size(); ++x) {
-	    similarities[x].profileNum = j;
-	    similarities[x].strandNum = i * 2 + s;
-	  }
+			   sequence.length, &scratch[0], j, strandNum);
 	}
       }
       reverseComplement(&charVec[seqIdx], &charVec[seqIdx] + sequence.length);
