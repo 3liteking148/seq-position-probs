@@ -47,15 +47,11 @@ struct Triple {
 
 struct Similarity {
   double probRatio;
+  size_t profileNum;
+  size_t strandNum;
   int anchor1, anchor2;
   int start1, start2;
   std::vector<char> alignedSequences;
-};
-
-struct Result {
-  Similarity endAnchored;
-  Similarity begAnchored;
-  Similarity midAnchored;
 };
 
 double mean(const double *x, int n) {
@@ -318,14 +314,15 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment,
   }
 }
 
-Result maxProbabilityRatios(Profile profile, const char *sequence,
-			    int sequenceLength, Float *scratch,
-			    bool wantAlignment) {
+void findSimilarities(std::vector<Similarity> &similarities,
+		      Profile profile, const char *sequence,
+		      int sequenceLength, Float *scratch,
+		      bool wantAlignment) {
   long rowSize = sequenceLength + 1;
   // scratch has space for (sequenceLength + 1) * (profile.length + 2) values
   Float *Y = scratch + rowSize * (profile.length + 1);
   std::vector<SegmentPair> alignment;
-  Result result;
+  Similarity endAnchored, begAnchored, midAnchored;
 
   // Backward algorithm:
 
@@ -365,7 +362,7 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
     addForwardAlignment(alignment, profile, sequence, sequenceLength,
 			scratch, iMaxBeg, jMaxBeg, maxBeg / 2);
   }
-  setSimilarity(result.begAnchored, profile, sequence,
+  setSimilarity(begAnchored, profile, sequence,
 		maxBeg, iMaxBeg, jMaxBeg, alignment);
 
   // Forward algorithm:
@@ -423,7 +420,7 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
 			scratch, iMaxMid, jMaxMid, wMaxMid / 2);
     reverse(alignment.begin(), alignment.end());
   }
-  setSimilarity(result.midAnchored, profile, sequence,
+  setSimilarity(midAnchored, profile, sequence,
 		maxMid / scale, iMaxMid, jMaxMid, alignment);
 
   if (wantAlignment) {
@@ -432,10 +429,12 @@ Result maxProbabilityRatios(Profile profile, const char *sequence,
 			scratch, iMaxEnd, jMaxEnd, maxEnd / 2);
     reverse(alignment.begin(), alignment.end());
   }
-  setSimilarity(result.endAnchored, profile, sequence,
+  setSimilarity(endAnchored, profile, sequence,
 		maxEnd, iMaxEnd, jMaxEnd, alignment);
 
-  return result;
+  similarities.push_back(endAnchored);
+  similarities.push_back(begAnchored);
+  similarities.push_back(midAnchored);
 }
 
 double methodOfMomentsLambda(const double *scores, int n, double meanScore) {
@@ -556,18 +555,19 @@ Triple estimateK(Profile profile, const Float *letterFreqs,
     for (int j = 0; j < sequenceLength; ++j) sequence[j] = dist(randGen);
     for (int j = 0; j < border; ++j) sequence[sequenceLength+j] = sequence[j];
     sequence[sequenceLength + border] = dist(randGen);  // arbitrary letter
-    Result r = maxProbabilityRatios(profile, sequence, sequenceLength + border,
-				    scratch, false);
-    endScores[i] = log(r.endAnchored.probRatio);
-    begScores[i] = log(r.begAnchored.probRatio);
-    midScores[i] = log(r.midAnchored.probRatio);
+    std::vector<Similarity> sims;
+    findSimilarities(sims, profile, sequence, sequenceLength + border,
+		     scratch, false);
+    endScores[i] = log(sims[0].probRatio);
+    begScores[i] = log(sims[1].probRatio);
+    midScores[i] = log(sims[2].probRatio);
     std::cout << (i+1) << "\t"
-	      << r.endAnchored.anchor1 << "\t" << r.endAnchored.anchor2 << "\t"
-	      << log2(r.endAnchored.probRatio)+shift << "\t"
-	      << r.begAnchored.anchor1 << "\t" << r.begAnchored.anchor2 << "\t"
-	      << log2(r.begAnchored.probRatio)+shift << "\t"
-	      << r.midAnchored.anchor1 << "\t" << r.midAnchored.anchor2 << "\t"
-	      << log2(r.midAnchored.probRatio)+shift << std::endl;
+	      << sims[0].anchor1 << "\t" << sims[0].anchor2 << "\t"
+	      << log2(sims[0].probRatio)+shift << "\t"
+	      << sims[1].anchor1 << "\t" << sims[1].anchor2 << "\t"
+	      << log2(sims[1].probRatio)+shift << "\t"
+	      << sims[2].anchor1 << "\t" << sims[2].anchor2 << "\t"
+	      << log2(sims[2].probRatio)+shift << std::endl;
   }
 
   double MMendL, MMendK, MMendKsimple, MLendL, MLendK, MLendKsimple;
@@ -920,23 +920,27 @@ options:\n\
 
   charVec.resize(seqIdx);
   std::vector<Sequence> sequences;
-  std::vector<Result> results;
+  std::vector<Similarity> similarities;
   size_t totSequenceLength = 0;
 
   std::ifstream file;
   std::istream &in = openFile(file, argv[optind + 3]);
   if (!file) return 1;
   Sequence sequence;
-  while (readSequence(in, sequence, charVec, charToNumber)) {
+  for (size_t i = 0; readSequence(in, sequence, charVec, charToNumber); ++i) {
     if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
     seqIdx = charVec.size() - sequence.length - 1;
     for (int s = 0; s < 2; ++s) {
       if (s != strandOpt) {
 	totSequenceLength += sequence.length;
 	for (size_t j = 0; j < numOfProfiles; ++j) {
-	  results.push_back(maxProbabilityRatios(profiles[j], &charVec[seqIdx],
-						 sequence.length, &scratch[0],
-						 true));
+	  size_t simCount = similarities.size();
+	  findSimilarities(similarities, profiles[j], &charVec[seqIdx],
+			   sequence.length, &scratch[0], true);
+	  for (size_t x = simCount; x < similarities.size(); ++x) {
+	    similarities[x].profileNum = j;
+	    similarities[x].strandNum = i * 2 + s;
+	  }
 	}
       }
       reverseComplement(&charVec[seqIdx], &charVec[seqIdx] + sequence.length);
@@ -952,21 +956,13 @@ options:\n\
   double midKMN = totMidK * totSequenceLength;
 
   std::cout.precision(3);
-  const Result *r = results.empty() ? 0 : &results[0];
-  for (size_t i = 0; i < sequences.size(); ++i) {
-    Sequence s = sequences[i];
-    for (int k = 0; k < 2; ++k) {
-      if (k == strandOpt) continue;
-      char strand = "+-"[k];
-      for (size_t j = 0; j < numOfProfiles; ++j) {
-	Profile p = profiles[j];
-	std::cout << "\n";
-	printSimilarity(charVec.data(), p, s, strand, endKMN, r->endAnchored);
-	printSimilarity(charVec.data(), p, s, strand, begKMN, r->begAnchored);
-	printSimilarity(charVec.data(), p, s, strand, midKMN, r->midAnchored);
-	++r;
-      }
-    }
+  for (size_t i = 0; i < similarities.size(); ++i) {
+    Profile p = profiles[similarities[i].profileNum];
+    Sequence s = sequences[similarities[i].strandNum / 2];
+    char strand = "+-"[similarities[i].strandNum % 2];
+    double kmn = (i % 3 == 0) ? endKMN : (i % 3 == 1) ? begKMN : midKMN;
+    if (i % 3 == 0) std::cout << "\n";
+    printSimilarity(charVec.data(), p, s, strand, kmn, similarities[i]);
   }
 
   return 0;
