@@ -163,7 +163,8 @@ void addAlignedSequence(std::vector<char> &gappedSeq,
 }
 
 void printSimilarity(const char *names, Profile p, Sequence s,
-		     char strand, double gumbelK, const Similarity &sim) {
+		     const Similarity &sim, double evalue) {
+  char strand = "+-"[sim.strandNum % 2];
   const char *seq = sim.alignedSequences.data();
   int length = sim.alignedSequences.size() / 2;
   int span1 = length - std::count(seq, seq + length, '-');
@@ -172,8 +173,7 @@ void printSimilarity(const char *names, Profile p, Sequence s,
   int w2 = std::max(numOfDigits(sim.start1), numOfDigits(sim.start2));
   int w3 = std::max(numOfDigits(span1), numOfDigits(span2));
   int w4 = std::max(numOfDigits(p.length), numOfDigits(s.length));
-  std::cout << "a score=" << log2(sim.probRatio)+shift
-	    << " E=" << gumbelK / sim.probRatio
+  std::cout << "a score=" << log2(sim.probRatio)+shift << " E=" << evalue
 	    << " anchor=" << sim.anchor1 << "," << sim.anchor2 << "\n";
   std::cout << "s " << std::left << std::setw(w1) << names + p.nameIdx << " "
 	    << std::right << std::setw(w2) << sim.start1 << " "
@@ -965,10 +965,10 @@ options:\n\
   for (size_t i = 0; i < similarities.size(); ++i) {
     Profile p = profiles[similarities[i].profileNum];
     Sequence s = sequences[similarities[i].strandNum / 2];
-    char strand = "+-"[similarities[i].strandNum % 2];
     double kmn = (i % 3 == 0) ? endKMN : (i % 3 == 1) ? begKMN : midKMN;
+    double evalue = kmn / similarities[i].probRatio;
     if (i % 3 == 0) std::cout << "\n";
-    printSimilarity(charVec.data(), p, s, strand, kmn, similarities[i]);
+    printSimilarity(charVec.data(), p, s, similarities[i], evalue);
   }
 
   return 0;
