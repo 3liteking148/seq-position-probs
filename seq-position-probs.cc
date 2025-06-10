@@ -360,13 +360,14 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
   Float maxEnd = 0;
   int iMaxEnd, jMaxEnd;
 
-  Float maxMid = scale * maxBeg;
-  Float wMaxMid;
+  Float maxMid = 0;
+  Float wBegAnchored, wEndAnchored;
   int iMaxMid, jMaxMid;
 
   for (int j = 0; j <= sequenceLength; ++j) Y[j] = 0;
 
   for (int i = 0; i <= profile.length; ++i) {
+    Float maxMidHere = maxMid;
     Float *W = scratch + i * rowSize;
     const Float *X = i ? W - rowSize : Y;
     Float a = profile.values[i * profile.width + 0];
@@ -386,16 +387,11 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
 	jMaxEnd = j;
       }
       Float wMid = w * W[j];
-      if (wMid >= maxMid) {
-	maxMid = wMid;
-	iMaxMid = i;
+      if (wMid > maxMidHere) {
+	maxMidHere = wMid;
+	wBegAnchored = W[j];
+	wEndAnchored = w;
 	jMaxMid = j;
-	if (wantAlignment) {
-	  wMaxMid = w;
-	  alignment.clear();
-	  addForwardAlignment(alignment, profile, sequence, sequenceLength,
-			      scratch, i, j, W[j] / 2);
-	}
       }
       if (minProbRatio > 0 && wMid >= minProbRatio) {
 	RawSimilarity raw = {wMid / scale, i, j};
@@ -411,12 +407,23 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
       Y[j] = d * w + e * y;
       z = a * w + b * z;
     }
+
+    if (maxMidHere > maxMid) {
+      maxMid = maxMidHere;
+      iMaxMid = i;
+      if (wantAlignment) {
+	alignment.clear();
+	addForwardAlignment(alignment, profile, sequence, sequenceLength,
+			    scratch, iMaxMid, jMaxMid, wBegAnchored / 2);
+      }
+    }
+
   }
 
   if (wantAlignment) {
     reverse(alignment.begin(), alignment.end());
     addReverseAlignment(alignment, profile, sequence, sequenceLength,
-			scratch, iMaxMid, jMaxMid, wMaxMid / 2);
+			scratch, iMaxMid, jMaxMid, wEndAnchored / 2);
     reverse(alignment.begin(), alignment.end());
   }
   RawSimilarity midAnchored = {maxMid / scale, iMaxMid, jMaxMid, alignment};
