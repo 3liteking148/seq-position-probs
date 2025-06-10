@@ -309,11 +309,9 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
 			 Profile profile, const char *sequence,
 			 int sequenceLength, Float *scratch,
 			 double minProbRatio) {
-  bool wantAlignment = (minProbRatio < 0);
   long rowSize = sequenceLength + 1;
   // scratch has space for (sequenceLength + 1) * (profile.length + 2) values
   Float *Y = scratch + rowSize * (profile.length + 1);
-  std::vector<SegmentPair> alignment;
 
   // Backward algorithm:
 
@@ -349,11 +347,9 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
     }
   }
 
-  if (wantAlignment) {
-    addForwardAlignment(alignment, profile, sequence, sequenceLength,
-			scratch, iMaxBeg, jMaxBeg, maxBeg / 2);
-  }
-  RawSimilarity begAnchored = {maxBeg, iMaxBeg, jMaxBeg, alignment};
+  RawSimilarity begAnchored = {maxBeg, iMaxBeg, jMaxBeg};
+  addForwardAlignment(begAnchored.alignment, profile, sequence, sequenceLength,
+		      scratch, iMaxBeg, jMaxBeg, maxBeg / 2);
 
   // Forward algorithm:
 
@@ -363,6 +359,7 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
   Float maxMid = 0;
   Float wBegAnchored, wEndAnchored;
   int iMaxMid, jMaxMid;
+  std::vector<SegmentPair> alignment;
 
   for (int j = 0; j <= sequenceLength; ++j) Y[j] = 0;
 
@@ -411,7 +408,7 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
     if (maxMidHere > maxMid) {
       maxMid = maxMidHere;
       iMaxMid = i;
-      if (wantAlignment) {
+      if (minProbRatio < 0) {
 	alignment.clear();
 	addForwardAlignment(alignment, profile, sequence, sequenceLength,
 			    scratch, iMaxMid, jMaxMid, wBegAnchored / 2);
@@ -420,23 +417,18 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
 
   }
 
-  if (wantAlignment) {
-    reverse(alignment.begin(), alignment.end());
-    addReverseAlignment(alignment, profile, sequence, sequenceLength,
-			scratch, iMaxMid, jMaxMid, wEndAnchored / 2);
-    reverse(alignment.begin(), alignment.end());
-  }
+  reverse(alignment.begin(), alignment.end());
+  addReverseAlignment(alignment, profile, sequence, sequenceLength,
+		      scratch, iMaxMid, jMaxMid, wEndAnchored / 2);
   RawSimilarity midAnchored = {maxMid / scale, iMaxMid, jMaxMid, alignment};
 
-  if (wantAlignment) {
-    alignment.clear();
-    addReverseAlignment(alignment, profile, sequence, sequenceLength,
-			scratch, iMaxEnd, jMaxEnd, maxEnd / 2);
-    reverse(alignment.begin(), alignment.end());
-  }
-  RawSimilarity endAnchored = {maxEnd, iMaxEnd, jMaxEnd, alignment};
+  RawSimilarity endAnchored = {maxEnd, iMaxEnd, jMaxEnd};
+  addReverseAlignment(endAnchored.alignment, profile, sequence, sequenceLength,
+		      scratch, iMaxEnd, jMaxEnd, maxEnd / 2);
 
   if (minProbRatio <= 0) {
+    reverse(midAnchored.alignment.begin(), midAnchored.alignment.end());
+    reverse(endAnchored.alignment.begin(), endAnchored.alignment.end());
     similarities.push_back(endAnchored);
     similarities.push_back(begAnchored);
     similarities.push_back(midAnchored);
