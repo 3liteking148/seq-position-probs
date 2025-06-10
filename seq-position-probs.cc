@@ -354,15 +354,15 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
   // Forward algorithm:
 
   wMax = 0;
-  Float maxMid = 0;
+  Float wMidMax = 0;
   Float wBegAnchored, wEndAnchored;
-  int iMaxMid, jMaxMid;
+  int iMidMax, jMidMax;
   std::vector<SegmentPair> alignment;
 
   for (int j = 0; j <= sequenceLength; ++j) Y[j] = 0;
 
   for (int i = 0; i <= profile.length; ++i) {
-    Float maxMidHere = maxMid;
+    Float wMidMaxHere = wMidMax;
     Float *W = scratch + i * rowSize;
     const Float *X = i ? W - rowSize : Y;
     Float a = profile.values[i * profile.width + 0];
@@ -393,11 +393,11 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
 	  iMax = i;
 	  jMax = j;
 	}
-	if (wMid > maxMidHere) {
-	  maxMidHere = wMid;
+	if (wMid > wMidMaxHere) {
+	  wMidMaxHere = wMid;
 	  wBegAnchored = W[j];
 	  wEndAnchored = w;
-	  jMaxMid = j;
+	  jMidMax = j;
 	}
       }
       x = X[j];
@@ -406,24 +406,23 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
       z = a * w + b * z;
     }
 
-    if (maxMidHere > maxMid) {
-      maxMid = maxMidHere;
-      iMaxMid = i;
+    if (wMidMaxHere > wMidMax) {
+      wMidMax = wMidMaxHere;
+      iMidMax = i;
       if (minProbRatio < 0) {
 	alignment.clear();
 	addForwardAlignment(alignment, profile, sequence, sequenceLength,
-			    scratch, iMaxMid, jMaxMid, wBegAnchored / 2);
+			    scratch, iMidMax, jMidMax, wBegAnchored / 2);
       }
     }
-
   }
 
   if (minProbRatio <= 0) {
     reverse(alignment.begin(), alignment.end());
     addReverseAlignment(alignment, profile, sequence, sequenceLength,
-			scratch, iMaxMid, jMaxMid, wEndAnchored / 2);
+			scratch, iMidMax, jMidMax, wEndAnchored / 2);
     reverse(alignment.begin(), alignment.end());
-    RawSimilarity midAnchored = {maxMid / scale, iMaxMid, jMaxMid, alignment};
+    RawSimilarity midAnchored = {wMidMax / scale, iMidMax, jMidMax, alignment};
 
     RawSimilarity endAnchored = {wMax, iMax, jMax};
     addReverseAlignment(endAnchored.alignment, profile, sequence,
