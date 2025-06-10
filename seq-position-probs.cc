@@ -315,8 +315,8 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
 
   // Backward algorithm:
 
-  Float maxBeg = 0;
-  int iMaxBeg, jMaxBeg;
+  Float wMax = 0;
+  int iMax, jMax;
 
   for (int j = 0; j <= sequenceLength; ++j) Y[j] = 0;
 
@@ -335,10 +335,10 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
       Float x = S[sequence[j]] * wOld;
       Float y = Y[j];
       Float w = x + d * y + a * z + scale;
-      if (w > maxBeg) {
-	maxBeg = w;
-	iMaxBeg = i;
-	jMaxBeg = j;
+      if (w > wMax) {
+	wMax = w;
+	iMax = i;
+	jMax = j;
       }
       wOld = Wfrom[j];
       W[j] = w;
@@ -347,15 +347,13 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
     }
   }
 
-  RawSimilarity begAnchored = {maxBeg, iMaxBeg, jMaxBeg};
+  RawSimilarity begAnchored = {wMax, iMax, jMax};
   addForwardAlignment(begAnchored.alignment, profile, sequence,
-		      sequenceLength, scratch, iMaxBeg, jMaxBeg, maxBeg / 2);
+		      sequenceLength, scratch, iMax, jMax, wMax / 2);
 
   // Forward algorithm:
 
-  Float maxEnd = 0;
-  int iMaxEnd, jMaxEnd;
-
+  wMax = 0;
   Float maxMid = 0;
   Float wBegAnchored, wEndAnchored;
   int iMaxMid, jMaxMid;
@@ -390,10 +388,10 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
 	  similarities.push_back(raw);
 	}
       } else {
-	if (w > maxEnd) {
-	  maxEnd = w;
-	  iMaxEnd = i;
-	  jMaxEnd = j;
+	if (w > wMax) {
+	  wMax = w;
+	  iMax = i;
+	  jMax = j;
 	}
 	if (wMid > maxMidHere) {
 	  maxMidHere = wMid;
@@ -427,9 +425,9 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
     reverse(alignment.begin(), alignment.end());
     RawSimilarity midAnchored = {maxMid / scale, iMaxMid, jMaxMid, alignment};
 
-    RawSimilarity endAnchored = {maxEnd, iMaxEnd, jMaxEnd};
+    RawSimilarity endAnchored = {wMax, iMax, jMax};
     addReverseAlignment(endAnchored.alignment, profile, sequence,
-			sequenceLength, scratch, iMaxEnd, jMaxEnd, maxEnd / 2);
+			sequenceLength, scratch, iMax, jMax, wMax / 2);
     reverse(endAnchored.alignment.begin(), endAnchored.alignment.end());
 
     similarities.push_back(endAnchored);
