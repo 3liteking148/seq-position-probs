@@ -379,25 +379,28 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
       Float y = Y[j];
       Float w = x + y + z + scale;
       Float wMid = w * W[j];
-      if (w > maxEnd) {
-	maxEnd = w;
-	iMaxEnd = i;
-	jMaxEnd = j;
-      }
-      if (wMid > maxMidHere) {
-	maxMidHere = wMid;
-	wBegAnchored = W[j];
-	wEndAnchored = w;
-	jMaxMid = j;
-      }
-      if (minProbRatio > 0 && wMid >= minProbRatio) {
-	RawSimilarity raw = {wMid / scale, i, j};
-	addReverseAlignment(raw.alignment, profile, sequence, sequenceLength,
-			    scratch, i, j, w / 2);
-	reverse(raw.alignment.begin(), raw.alignment.end());
-	addForwardAlignment(raw.alignment, profile, sequence, sequenceLength,
-			    scratch, i, j, W[j] / 2);
-	similarities.push_back(raw);
+      if (minProbRatio > 0) {
+	if (wMid >= minProbRatio) {
+	  RawSimilarity raw = {wMid / scale, i, j};
+	  addReverseAlignment(raw.alignment, profile, sequence, sequenceLength,
+			      scratch, i, j, w / 2);
+	  reverse(raw.alignment.begin(), raw.alignment.end());
+	  addForwardAlignment(raw.alignment, profile, sequence, sequenceLength,
+			      scratch, i, j, W[j] / 2);
+	  similarities.push_back(raw);
+	}
+      } else {
+	if (w > maxEnd) {
+	  maxEnd = w;
+	  iMaxEnd = i;
+	  jMaxEnd = j;
+	}
+	if (wMid > maxMidHere) {
+	  maxMidHere = wMid;
+	  wBegAnchored = W[j];
+	  wEndAnchored = w;
+	  jMaxMid = j;
+	}
       }
       x = X[j];
       W[j] = S[sequence[j]] * w;
