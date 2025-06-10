@@ -348,8 +348,8 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
   }
 
   RawSimilarity begAnchored = {maxBeg, iMaxBeg, jMaxBeg};
-  addForwardAlignment(begAnchored.alignment, profile, sequence, sequenceLength,
-		      scratch, iMaxBeg, jMaxBeg, maxBeg / 2);
+  addForwardAlignment(begAnchored.alignment, profile, sequence,
+		      sequenceLength, scratch, iMaxBeg, jMaxBeg, maxBeg / 2);
 
   // Forward algorithm:
 
@@ -378,12 +378,12 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
     for (int j = 0; j <= sequenceLength; ++j) {
       Float y = Y[j];
       Float w = x + y + z + scale;
+      Float wMid = w * W[j];
       if (w > maxEnd) {
 	maxEnd = w;
 	iMaxEnd = i;
 	jMaxEnd = j;
       }
-      Float wMid = w * W[j];
       if (wMid > maxMidHere) {
 	maxMidHere = wMid;
 	wBegAnchored = W[j];
@@ -417,18 +417,18 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
 
   }
 
-  reverse(alignment.begin(), alignment.end());
-  addReverseAlignment(alignment, profile, sequence, sequenceLength,
-		      scratch, iMaxMid, jMaxMid, wEndAnchored / 2);
-  RawSimilarity midAnchored = {maxMid / scale, iMaxMid, jMaxMid, alignment};
-
-  RawSimilarity endAnchored = {maxEnd, iMaxEnd, jMaxEnd};
-  addReverseAlignment(endAnchored.alignment, profile, sequence, sequenceLength,
-		      scratch, iMaxEnd, jMaxEnd, maxEnd / 2);
-
   if (minProbRatio <= 0) {
-    reverse(midAnchored.alignment.begin(), midAnchored.alignment.end());
+    reverse(alignment.begin(), alignment.end());
+    addReverseAlignment(alignment, profile, sequence, sequenceLength,
+			scratch, iMaxMid, jMaxMid, wEndAnchored / 2);
+    reverse(alignment.begin(), alignment.end());
+    RawSimilarity midAnchored = {maxMid / scale, iMaxMid, jMaxMid, alignment};
+
+    RawSimilarity endAnchored = {maxEnd, iMaxEnd, jMaxEnd};
+    addReverseAlignment(endAnchored.alignment, profile, sequence,
+			sequenceLength, scratch, iMaxEnd, jMaxEnd, maxEnd / 2);
     reverse(endAnchored.alignment.begin(), endAnchored.alignment.end());
+
     similarities.push_back(endAnchored);
     similarities.push_back(begAnchored);
     similarities.push_back(midAnchored);
