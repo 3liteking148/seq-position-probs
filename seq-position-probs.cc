@@ -640,7 +640,7 @@ void estimateGumbel(double &mmLambda, double &mmK, double &mmKsimple,
 
 Triple estimateK(Profile profile, const Float *letterFreqs,
 		 char *sequence, int sequenceLength, int border,
-		 int numOfSequences, Float *scratch) {
+		 int numOfSequences, Float *scratch, int printVerbosity) {
   std::mt19937_64 randGen;
   int alphabetSize = profile.width - 5;
   std::discrete_distribution<> dist(letterFreqs, letterFreqs + alphabetSize);
@@ -650,9 +650,11 @@ Triple estimateK(Profile profile, const Float *letterFreqs,
   double *begScores = endScores + numOfSequences;
   double *midScores = begScores + numOfSequences;
 
-  std::cout << "#trial\tend-anchored\t\tstart-anchored\t\tmid-anchored\n"
-    "#\tprofPos\tseqPos\tscore\tprofPos\tseqPos\tscore\tprofPos\tseqPos\tscore"
-	    << std::endl;
+  if (printVerbosity > 1) {
+    std::cout << "#trial\tend-anchored\t\tstart-anchored\t\tmid-anchored\n\
+#\tprofPos\tseqPos\tscore\tprofPos\tseqPos\tscore\tprofPos\tseqPos\tscore"
+	      << std::endl;
+  }
 
   for (int i = 0; i < numOfSequences; ++i) {
     for (int j = 0; j < sequenceLength; ++j) sequence[j] = dist(randGen);
@@ -664,13 +666,15 @@ Triple estimateK(Profile profile, const Float *letterFreqs,
     endScores[i] = log(sims[0].probRatio);
     begScores[i] = log(sims[1].probRatio);
     midScores[i] = log(sims[2].probRatio);
-    std::cout << (i+1) << "\t"
-	      << sims[0].anchor1 << "\t" << sims[0].anchor2 << "\t"
-	      << log2(sims[0].probRatio)+shift << "\t"
-	      << sims[1].anchor1 << "\t" << sims[1].anchor2 << "\t"
-	      << log2(sims[1].probRatio)+shift << "\t"
-	      << sims[2].anchor1 << "\t" << sims[2].anchor2 << "\t"
-	      << log2(sims[2].probRatio)+shift << std::endl;
+    if (printVerbosity > 1) {
+      std::cout << (i+1) << "\t"
+		<< sims[0].anchor1 << "\t" << sims[0].anchor2 << "\t"
+		<< log2(sims[0].probRatio)+shift << "\t"
+		<< sims[1].anchor1 << "\t" << sims[1].anchor2 << "\t"
+		<< log2(sims[1].probRatio)+shift << "\t"
+		<< sims[2].anchor1 << "\t" << sims[2].anchor2 << "\t"
+		<< log2(sims[2].probRatio)+shift << std::endl;
+    }
   }
 
   double MMendL, MMendK, MMendKsimple, MLendL, MLendK, MLendKsimple;
@@ -690,31 +694,41 @@ Triple estimateK(Profile profile, const Float *letterFreqs,
 
   double s = scale;
 
-  std::cout << "#\tend-\tstart-\tmid-anchored\n";
+  if (printVerbosity > 1) {
+    std::cout << "#\tend-\tstart-\tmid-anchored\n";
 
-  std::cout << "#lamMM\t" << MMendL << "\t" << MMbegL << "\t" << MMmidL << "\n"
+    std::cout << "#lamMM\t" << MMendL << "\t" << MMbegL << "\t"
+	      << MMmidL << "\n"
 
-	    << "#kMM\t" << MMendK / pow(s, MMendL) << "\t"
-	    << MMbegK / pow(s, MMbegL) << "\t"
-	    << MMmidK / pow(s, MMmidL) << "\n"
+	      << "#kMM\t" << MMendK / pow(s, MMendL) << "\t"
+	      << MMbegK / pow(s, MMbegL) << "\t"
+	      << MMmidK / pow(s, MMmidL) << "\n"
 
-	    << "#kMM1\t" << MMendKsimple/scale << "\t" << MMbegKsimple/scale
-	    << "\t" << MMmidKsimple/scale << "\n";
+	      << "#kMM1\t" << MMendKsimple/scale << "\t" << MMbegKsimple/scale
+	      << "\t" << MMmidKsimple/scale << "\n";
 
-  std::cout << "#lamML\t" << MLendL << "\t" << MLbegL << "\t" << MLmidL << "\n"
+    std::cout << "#lamML\t" << MLendL << "\t" << MLbegL << "\t"
+	      << MLmidL << "\n"
 
-	    << "#kML\t" << MLendK / pow(s, MLendL) << "\t"
-	    << MLbegK / pow(s, MLbegL) << "\t"
-	    << MLmidK / pow(s, MLmidL) << "\n"
+	      << "#kML\t" << MLendK / pow(s, MLendL) << "\t"
+	      << MLbegK / pow(s, MLbegL) << "\t"
+	      << MLmidK / pow(s, MLmidL) << "\n"
 
-	    << "#kML1\t" << MLendKsimple/scale << "\t" << MLbegKsimple/scale
-	    << "\t" << MLmidKsimple/scale << "\n";
+	      << "#kML1\t" << MLendKsimple/scale << "\t" << MLbegKsimple/scale
+	      << "\t" << MLmidKsimple/scale << "\n";
 
-  std::cout << "#lamLM\t" << LMendL << "\t" << LMbegL << "\t" << LMmidL << "\n"
+    std::cout << "#lamLM\t" << LMendL << "\t" << LMbegL << "\t"
+	      << LMmidL << "\n"
 
-	    << "#kLM\t" << LMendK / pow(s, LMendL) << "\t"
-	    << LMbegK / pow(s, LMbegL) << "\t"
-	    << LMmidK / pow(s, LMmidL) << std::endl;
+	      << "#kLM\t" << LMendK / pow(s, LMendL) << "\t"
+	      << LMbegK / pow(s, LMbegL) << "\t"
+	      << LMmidK / pow(s, LMmidL) << "\n";
+  } else if (printVerbosity > 0) {
+    std::cout << "# K: " << MMendKsimple/scale << " "
+	      << MMbegKsimple/scale << " " << MMmidKsimple/scale << "\n";
+  } else {
+    std::cout << "# K: " << MMmidKsimple/scale << "\n";
+  }
 
   Triple h = {MMendKsimple, MMbegKsimple, MMmidKsimple};
   return h;
@@ -1003,6 +1017,8 @@ Options for random sequences:\n\
 
   std::cout << "# Length of random sequence: " << sequenceLength << "\n";
 
+  int printVerbosity = (argc - optind < 2) * 2 + (evalueOpt <= 0);
+
   double totEndK = 0;
   double totBegK = 0;
   double totMidK = 0;
@@ -1010,19 +1026,21 @@ Options for random sequences:\n\
   for (size_t i = 0; i < numOfProfiles; ++i) {
     Profile p = profiles[i];
     const Float *profileEnd = p.values + p.width * p.length;
+    std::cout << "\n";
     std::cout << "# Profile name: " << &charVec[p.nameIdx] << "\n";
     std::cout << "# Profile length: " << p.length << "\n";
     std::cout << "# Background letter probabilities:";
     for (int j = 4; j < p.width - 1; ++j) std::cout << " " << profileEnd[j];
-    std::cout << "\n";
+    std::cout << std::endl;
     Triple r = estimateK(p, profileEnd+4, &charVec[seqIdx], sequenceLength,
-			 border, numOfSequences, &scratch[0]);
+			 border, numOfSequences, &scratch[0], printVerbosity);
     totEndK += r.endAnchored;
     totBegK += r.begAnchored;
     totMidK += r.midAnchored;
   }
 
   if (argc - optind < 2 || numOfProfiles < 1) return 0;
+  std::cout << std::endl;
 
   int width = profiles[0].width;
   for (size_t i = 1; i < numOfProfiles; ++i) {
