@@ -178,54 +178,54 @@
 #kLM	167.471	139.998	670.949
 # Total sequence length: 1150
 
-a score=81.5 E=5.68e-20 anchor=233,293
+a score=81.5 E=5.42e-20 anchor=233,293
 s MIR       37 196 + 262 gccagactgcctgggttcgaatcccgg-ctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagta-----cctacctcatagggttgttgtgaggattaaatgagttaatacatgtaaagcgcttagaacagtgcctggcacatag
 s hg38_dna 116 177 + 650 ggcaga---tctggctttgaatatt--attatgccacttagtagctcttttaccttta-taaatctctgaacccttctgagactcgatttccctatctgtaaaatgggcatga--------aatgttctattctgtggggtggttgtgaggactcaatgacataagataggtgaa-----------agtggcaagcaaatag
 
-a score=81.6 E=4.68e-20 anchor=36,115
+a score=81.6 E=4.56e-20 anchor=36,115
 s MIR       36 192 + 262 agccagactgcctgggttcgaatcccgg-ctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagta-----cctacctcatagggttgttgtgaggattaaatgagttaatacatgtaaagcgcttagaacag--tgcctggca
 s hg38_dna 115 173 + 650 aggcaga---tctggctttgaatatt--attatgccacttagtagctcttttaccttta-taaatctctgaacccttctgagactcgatttccctatctgtaaaatgggcatga--------aatgttctattctgtggggtggttgtgaggactcaatgacataagataggtgaa-------------agtggcaagca
 
-a score=84.9 E=2.96e-20 anchor=134,208
+a score=84.9 E=2.92e-20 anchor=134,208
 s MIR       37 191 + 262 gccagactgcctgggttcgaatcccgg-ctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagta-----cctacctcatagggttgttgtgaggattaaatgagttaatacatgtaaagcgcttagaacag--tgcctggca
 s hg38_dna 116 172 + 650 ggcaga---tctggctttgaatatt--attatgccacttagtagctcttttaccttta-taaatctctgaacccttctgagactcgatttccctatctgtaaaatgggcatga--------aatgttctattctgtggggtggttgtgaggactcaatgacataagataggtgaa-------------agtggcaagca
 
 
-a score=21.2 E=0.0797 anchor=60,434
+a score=21.2 E=0.0759 anchor=60,434
 s U7        31 29 +  63 caggctttccggtttttc----accggaaagcc
 s hg38_dna 406 28 + 650 ggggctttctggc-----aaaaactgaaaagcc
 
-a score=20.5 E=0.115 anchor=33,408
+a score=20.5 E=0.112 anchor=33,408
 s U7        33 27 +  63 ggctttccggtttttc----accggaaagcc
 s hg38_dna 408 26 + 650 ggctttctggc-----aaaaactgaaaagcc
 
-a score=22.5 E=0.177 anchor=39,414
+a score=22.5 E=0.174 anchor=39,414
 s U7        31 29 +  63 caggctttccggtttttc----accggaaagcc
 s hg38_dna 406 28 + 650 ggggctttctggc-----aaaaactgaaaagcc
 
 
-a score=33.9 E=1.18e-05 anchor=231,372
+a score=33.9 E=1.13e-05 anchor=231,372
 s MIR      135 96 + 262 taaaatggggataataatagtacctacctcatag--ggttgttgtgaggattaaa----------tgagttaatacatgt-----aaagcgcttagaacagtgcctggcacat
 s hg38_dna 286 86 + 500 tgaaatgtaggttaccatggtgcctagcacaaa-acggttgttg-----------aatgaataaat--------------gaatgaacggactcagaacaagg-ctggctcat
 
-a score=33.8 E=1.14e-05 anchor=135,286
+a score=33.8 E=1.11e-05 anchor=135,286
 s MIR      135 96 + 262 taaaatggggataataatagtacctacctcatag--ggttgttgtgaggattaa---------atgagttaatacatgt-----aaagcgcttagaacagtgcctggcacat
 s hg38_dna 286 86 + 500 tgaaatgtaggttaccatggtgcctagcacaaa-acggttgttg----------aatgaataaat--------------gaatgaacggactcagaacaagg-ctggctcat
 
-a score=36.7 E=9.25e-06 anchor=213,355
+a score=36.7 E=9.11e-06 anchor=213,355
 s MIR      135 96 + 262 taaaatggggataataatagtacctacctcatag--ggttgttgtgaggattaaatgagttaatacatgt----------------aaagcgcttagaacagtgcctggcacat
 s hg38_dna 286 86 + 500 tgaaatgtaggttaccatggtgcctagcacaaa-acggttgttg--------------------------aatgaataaatgaatgaacggactcagaacaagg-ctggctcat
 
 
-a score=78.1 E=5.8e-19 anchor=62,122
+a score=78.1 E=5.53e-19 anchor=62,122
 s U7        1 61 +  63 agtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccc
 s hg38_dna 62 60 + 500 agtgttacagcacttttagaatttgtctagcaggctttcaggtcttt-gccagaaagcccc
 
-a score=78.3 E=4.44e-19 anchor=1,62
+a score=78.3 E=4.33e-19 anchor=1,62
 s U7        1 61 +  63 agtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccc
 s hg38_dna 62 60 + 500 agtgttacagcacttttagaatttgtctagcaggctttcaggtcttt-gccagaaagcccc
 
-a score=79 E=1.75e-18 anchor=30,91
+a score=79 E=1.73e-18 anchor=30,91
 s U7        1 61 +  63 agtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccc
 s hg38_dna 62 60 + 500 agtgttacagcacttttagaatttgtctagcaggctttcaggtcttt-gccagaaagcccc
 
@@ -360,106 +360,106 @@ s hg38_dna 62 60 + 500 agtgttacagcacttttagaatttgtctagcaggctttcaggtcttt-gccagaaag
 #kLM	167.471	139.998	670.949
 # Total sequence length: 2300
 
-a score=81.5 E=1.14e-19 anchor=233,293
+a score=81.5 E=1.08e-19 anchor=233,293
 s MIR       37 196 + 262 gccagactgcctgggttcgaatcccgg-ctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagta-----cctacctcatagggttgttgtgaggattaaatgagttaatacatgtaaagcgcttagaacagtgcctggcacatag
 s hg38_dna 116 177 + 650 ggcaga---tctggctttgaatatt--attatgccacttagtagctcttttaccttta-taaatctctgaacccttctgagactcgatttccctatctgtaaaatgggcatga--------aatgttctattctgtggggtggttgtgaggactcaatgacataagataggtgaa-----------agtggcaagcaaatag
 
-a score=81.6 E=9.36e-20 anchor=36,115
+a score=81.6 E=9.12e-20 anchor=36,115
 s MIR       36 192 + 262 agccagactgcctgggttcgaatcccgg-ctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagta-----cctacctcatagggttgttgtgaggattaaatgagttaatacatgtaaagcgcttagaacag--tgcctggca
 s hg38_dna 115 173 + 650 aggcaga---tctggctttgaatatt--attatgccacttagtagctcttttaccttta-taaatctctgaacccttctgagactcgatttccctatctgtaaaatgggcatga--------aatgttctattctgtggggtggttgtgaggactcaatgacataagataggtgaa-------------agtggcaagca
 
-a score=84.9 E=5.92e-20 anchor=134,208
+a score=84.9 E=5.84e-20 anchor=134,208
 s MIR       37 191 + 262 gccagactgcctgggttcgaatcccgg-ctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagta-----cctacctcatagggttgttgtgaggattaaatgagttaatacatgtaaagcgcttagaacag--tgcctggca
 s hg38_dna 116 172 + 650 ggcaga---tctggctttgaatatt--attatgccacttagtagctcttttaccttta-taaatctctgaacccttctgagactcgatttccctatctgtaaaatgggcatga--------aatgttctattctgtggggtggttgtgaggactcaatgacataagataggtgaa-------------agtggcaagca
 
 
-a score=21.2 E=0.159 anchor=60,434
+a score=21.2 E=0.152 anchor=60,434
 s U7        31 29 +  63 caggctttccggtttttc----accggaaagcc
 s hg38_dna 406 28 + 650 ggggctttctggc-----aaaaactgaaaagcc
 
-a score=20.5 E=0.23 anchor=33,408
+a score=20.5 E=0.224 anchor=33,408
 s U7        33 27 +  63 ggctttccggtttttc----accggaaagcc
 s hg38_dna 408 26 + 650 ggctttctggc-----aaaaactgaaaagcc
 
-a score=22.5 E=0.354 anchor=39,414
+a score=22.5 E=0.349 anchor=39,414
 s U7        31 29 +  63 caggctttccggtttttc----accggaaagcc
 s hg38_dna 406 28 + 650 ggggctttctggc-----aaaaactgaaaagcc
 
 
-a score=18.9 E=0.807 anchor=104,605
+a score=18.9 E=0.769 anchor=104,605
 s MIR       64 40 + 262 ctctgccacttact---agctgtg-tgaccttgggcaagttact
 s hg38_dna 570 35 - 650 ctccacca------tgtggct---gtacccttgcccaagcccct
 
-a score=18.3 E=1.03 anchor=36,521
+a score=18.3 E=1 anchor=36,521
 s MIR       36 65 + 262 agccagac--tgcctgggttcgaatcccggctctgccacttact-------------------------------------------agctgtgtg---accttgggcaagtt
 s hg38_dna 521 81 - 650 agccaga-tctgccttag--------------------------taagcatgggtccctttccttctctcctcccactccaccatgtggct-----gtacccttgcccaagcc
 
-a score=22.6 E=0.333 anchor=91,592
+a score=22.6 E=0.328 anchor=91,592
 s MIR       64 39 + 262 ctctgccacttact---agctgtg-tgaccttgggcaagttac
 s hg38_dna 570 34 - 650 ctccacca------tgtggct---gtacccttgcccaagcccc
 
 
-a score=79.7 E=3.92e-19 anchor=63,245
+a score=79.7 E=3.74e-19 anchor=63,245
 s U7         0 63 +  63 aagtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccct
 s hg38_dna 183 62 - 650 aaatgttacagctcttttagaatttgtctagcaggcttttcagttttt-gccagaaagcccct
 
-a score=79.8 E=3.29e-19 anchor=0,183
+a score=79.8 E=3.21e-19 anchor=0,183
 s U7         0 63 +  63 aagtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccct
 s hg38_dna 183 62 - 650 aaatgttacagctcttttagaatttgtctagcaggcttttcagttttt-gccagaaagcccct
 
-a score=80.5 E=1.23e-18 anchor=30,213
+a score=80.5 E=1.21e-18 anchor=30,213
 s U7         0 63 +  63 aagtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccct
 s hg38_dna 183 62 - 650 aaatgttacagctcttttagaatttgtctagcaggcttttcagttttt-gccagaaagcccct
 
 
-a score=33.9 E=2.36e-05 anchor=231,372
+a score=33.9 E=2.25e-05 anchor=231,372
 s MIR      135 96 + 262 taaaatggggataataatagtacctacctcatag--ggttgttgtgaggattaaa----------tgagttaatacatgt-----aaagcgcttagaacagtgcctggcacat
 s hg38_dna 286 86 + 500 tgaaatgtaggttaccatggtgcctagcacaaa-acggttgttg-----------aatgaataaat--------------gaatgaacggactcagaacaagg-ctggctcat
 
-a score=33.8 E=2.28e-05 anchor=135,286
+a score=33.8 E=2.22e-05 anchor=135,286
 s MIR      135 96 + 262 taaaatggggataataatagtacctacctcatag--ggttgttgtgaggattaa---------atgagttaatacatgt-----aaagcgcttagaacagtgcctggcacat
 s hg38_dna 286 86 + 500 tgaaatgtaggttaccatggtgcctagcacaaa-acggttgttg----------aatgaataaat--------------gaatgaacggactcagaacaagg-ctggctcat
 
-a score=36.7 E=1.85e-05 anchor=213,355
+a score=36.7 E=1.82e-05 anchor=213,355
 s MIR      135 96 + 262 taaaatggggataataatagtacctacctcatag--ggttgttgtgaggattaaatgagttaatacatgt----------------aaagcgcttagaacagtgcctggcacat
 s hg38_dna 286 86 + 500 tgaaatgtaggttaccatggtgcctagcacaaa-acggttgttg--------------------------aatgaataaatgaatgaacggactcagaacaagg-ctggctcat
 
 
-a score=78.1 E=1.16e-18 anchor=62,122
+a score=78.1 E=1.11e-18 anchor=62,122
 s U7        1 61 +  63 agtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccc
 s hg38_dna 62 60 + 500 agtgttacagcacttttagaatttgtctagcaggctttcaggtcttt-gccagaaagcccc
 
-a score=78.3 E=8.87e-19 anchor=1,62
+a score=78.3 E=8.65e-19 anchor=1,62
 s U7        1 61 +  63 agtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccc
 s hg38_dna 62 60 + 500 agtgttacagcacttttagaatttgtctagcaggctttcaggtcttt-gccagaaagcccc
 
-a score=79 E=3.51e-18 anchor=30,91
+a score=79 E=3.46e-18 anchor=30,91
 s U7        1 61 +  63 agtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccc
 s hg38_dna 62 60 + 500 agtgttacagcacttttagaatttgtctagcaggctttcaggtcttt-gccagaaagcccc
 
 
-a score=19.5 E=0.518 anchor=121,335
+a score=19.5 E=0.493 anchor=121,335
 s MIR      101 20 + 262 acttaacctctctgtgcctc
 s hg38_dna 315 20 - 500 atacagcatctctgtacctc
 
-a score=19.8 E=0.379 anchor=45,441
+a score=19.8 E=0.37 anchor=45,441
 s MIR       45 22 + 262 gcctgggttcgaatcccggctc
 s hg38_dna 441 22 - 500 gcctaggtttcagttctgactt
 
-a score=22.3 E=0.414 anchor=52,448
+a score=22.3 E=0.408 anchor=52,448
 s MIR       45 22 + 262 gcctgggttcgaatcccggctc
 s hg38_dna 441 22 - 500 gcctaggtttcagttctgactt
 
 
-a score=21.5 E=0.127 anchor=60,406
+a score=21.5 E=0.121 anchor=60,406
 s U7        33 27 +  63 ggctttccggtttttc----accggaaagcc
 s hg38_dna 380 26 - 500 ggctttctggc-----aaagacctgaaagcc
 
-a score=21.6 E=0.103 anchor=33,380
+a score=21.6 E=0.101 anchor=33,380
 s U7        33 27 +  63 ggctttccggtttttc----accggaaagcc
 s hg38_dna 380 26 - 500 ggctttctggc-----aaagacctgaaagcc
 
-a score=22.7 E=0.3 anchor=54,400
+a score=22.7 E=0.296 anchor=54,400
 s U7        33 27 +  63 ggctttccggtttttc----accggaaagcc
 s hg38_dna 380 26 - 500 ggctttctggc-----aaagacctgaaagcc
 
@@ -594,54 +594,54 @@ s hg38_dna 380 26 - 500 ggctttctggc-----aaagacctgaaagcc
 #kLM	167.471	139.998	670.949
 # Total sequence length: 1150
 
-a score=18.9 E=0.403 anchor=104,605
+a score=18.9 E=0.384 anchor=104,605
 s MIR       64 40 + 262 ctctgccacttact---agctgtg-tgaccttgggcaagttact
 s hg38_dna 570 35 - 650 ctccacca------tgtggct---gtacccttgcccaagcccct
 
-a score=18.3 E=0.515 anchor=36,521
+a score=18.3 E=0.502 anchor=36,521
 s MIR       36 65 + 262 agccagac--tgcctgggttcgaatcccggctctgccacttact-------------------------------------------agctgtgtg---accttgggcaagtt
 s hg38_dna 521 81 - 650 agccaga-tctgccttag--------------------------taagcatgggtccctttccttctctcctcccactccaccatgtggct-----gtacccttgcccaagcc
 
-a score=22.6 E=0.167 anchor=91,592
+a score=22.6 E=0.164 anchor=91,592
 s MIR       64 39 + 262 ctctgccacttact---agctgtg-tgaccttgggcaagttac
 s hg38_dna 570 34 - 650 ctccacca------tgtggct---gtacccttgcccaagcccc
 
 
-a score=79.7 E=1.96e-19 anchor=63,245
+a score=79.7 E=1.87e-19 anchor=63,245
 s U7         0 63 +  63 aagtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccct
 s hg38_dna 183 62 - 650 aaatgttacagctcttttagaatttgtctagcaggcttttcagttttt-gccagaaagcccct
 
-a score=79.8 E=1.64e-19 anchor=0,183
+a score=79.8 E=1.6e-19 anchor=0,183
 s U7         0 63 +  63 aagtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccct
 s hg38_dna 183 62 - 650 aaatgttacagctcttttagaatttgtctagcaggcttttcagttttt-gccagaaagcccct
 
-a score=80.5 E=6.13e-19 anchor=30,213
+a score=80.5 E=6.04e-19 anchor=30,213
 s U7         0 63 +  63 aagtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccct
 s hg38_dna 183 62 - 650 aaatgttacagctcttttagaatttgtctagcaggcttttcagttttt-gccagaaagcccct
 
 
-a score=19.5 E=0.259 anchor=121,335
+a score=19.5 E=0.247 anchor=121,335
 s MIR      101 20 + 262 acttaacctctctgtgcctc
 s hg38_dna 315 20 - 500 atacagcatctctgtacctc
 
-a score=19.8 E=0.19 anchor=45,441
+a score=19.8 E=0.185 anchor=45,441
 s MIR       45 22 + 262 gcctgggttcgaatcccggctc
 s hg38_dna 441 22 - 500 gcctaggtttcagttctgactt
 
-a score=22.3 E=0.207 anchor=52,448
+a score=22.3 E=0.204 anchor=52,448
 s MIR       45 22 + 262 gcctgggttcgaatcccggctc
 s hg38_dna 441 22 - 500 gcctaggtttcagttctgactt
 
 
-a score=21.5 E=0.0635 anchor=60,406
+a score=21.5 E=0.0605 anchor=60,406
 s U7        33 27 +  63 ggctttccggtttttc----accggaaagcc
 s hg38_dna 380 26 - 500 ggctttctggc-----aaagacctgaaagcc
 
-a score=21.6 E=0.0517 anchor=33,380
+a score=21.6 E=0.0504 anchor=33,380
 s U7        33 27 +  63 ggctttccggtttttc----accggaaagcc
 s hg38_dna 380 26 - 500 ggctttctggc-----aaagacctgaaagcc
 
-a score=22.7 E=0.15 anchor=54,400
+a score=22.7 E=0.148 anchor=54,400
 s U7        33 27 +  63 ggctttccggtttttc----accggaaagcc
 s hg38_dna 380 26 - 500 ggctttctggc-----aaagacctgaaagcc
 
@@ -776,54 +776,54 @@ s hg38_dna 380 26 - 500 ggctttctggc-----aaagacctgaaagcc
 #kLM	167.471	139.998	670.949
 # Total sequence length: 1151
 
-a score=81.5 E=5.69e-20 anchor=233,294
+a score=81.5 E=5.42e-20 anchor=233,294
 s MIR       37 196 + 262 gccagactgcctgggttcgaatcccgg-ctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagta-----cctacctcatagggttgttgtgaggattaaatgagttaatacatgtaaagcgcttagaacagtgcctggcacatag
 s hg38_dna 117 177 + 651 ggcaga---tctggctttgaatatt--attatgccacttagtagctcttttaccttta-taaatctctgaacccttctgagactcgatttccctatctgtaaaatgggcatga--------aatgttctattctgtggggtggttgtgaggactcaatgacataagataggtgaa-----------agtggcaagcaaatag
 
-a score=81.6 E=4.68e-20 anchor=36,116
+a score=81.6 E=4.57e-20 anchor=36,116
 s MIR       36 192 + 262 agccagactgcctgggttcgaatcccgg-ctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagta-----cctacctcatagggttgttgtgaggattaaatgagttaatacatgtaaagcgcttagaacag--tgcctggca
 s hg38_dna 116 173 + 651 aggcaga---tctggctttgaatatt--attatgccacttagtagctcttttaccttta-taaatctctgaacccttctgagactcgatttccctatctgtaaaatgggcatga--------aatgttctattctgtggggtggttgtgaggactcaatgacataagataggtgaa-------------agtggcaagca
 
-a score=84.9 E=2.96e-20 anchor=134,209
+a score=84.9 E=2.92e-20 anchor=134,209
 s MIR       37 191 + 262 gccagactgcctgggttcgaatcccgg-ctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagta-----cctacctcatagggttgttgtgaggattaaatgagttaatacatgtaaagcgcttagaacag--tgcctggca
 s hg38_dna 117 172 + 651 ggcaga---tctggctttgaatatt--attatgccacttagtagctcttttaccttta-taaatctctgaacccttctgagactcgatttccctatctgtaaaatgggcatga--------aatgttctattctgtggggtggttgtgaggactcaatgacataagataggtgaa-------------agtggcaagca
 
 
-a score=21.2 E=0.0797 anchor=60,435
+a score=21.2 E=0.076 anchor=60,435
 s U7        31 29 +  63 caggctttccggtttttc----accggaaagcc
 s hg38_dna 407 28 + 651 ggggctttctggc-----aaaaactgaaaagcc
 
-a score=20.5 E=0.115 anchor=33,409
+a score=20.5 E=0.112 anchor=33,409
 s U7        33 27 +  63 ggctttccggtttttc----accggaaagcc
 s hg38_dna 409 26 + 651 ggctttctggc-----aaaaactgaaaagcc
 
-a score=22.5 E=0.177 anchor=39,415
+a score=22.5 E=0.175 anchor=39,415
 s U7        31 29 +  63 caggctttccggtttttc----accggaaagcc
 s hg38_dna 407 28 + 651 ggggctttctggc-----aaaaactgaaaagcc
 
 
-a score=33.9 E=1.18e-05 anchor=231,372
+a score=33.9 E=1.13e-05 anchor=231,372
 s MIR      135 96 + 262 taaaatggggataataatagtacctacctcatag--ggttgttgtgaggattaaa----------tgagttaatacatgt-----aaagcgcttagaacagtgcctggcacat
 s hg38_dna 286 86 + 500 tgaaatgtaggttaccatggtgcctagcacaaa-acggttgttg-----------aatgaataaat--------------gaatgaacggactcagaacaagg-ctggctcat
 
-a score=33.8 E=1.14e-05 anchor=135,286
+a score=33.8 E=1.11e-05 anchor=135,286
 s MIR      135 96 + 262 taaaatggggataataatagtacctacctcatag--ggttgttgtgaggattaa---------atgagttaatacatgt-----aaagcgcttagaacagtgcctggcacat
 s hg38_dna 286 86 + 500 tgaaatgtaggttaccatggtgcctagcacaaa-acggttgttg----------aatgaataaat--------------gaatgaacggactcagaacaagg-ctggctcat
 
-a score=36.7 E=9.25e-06 anchor=213,355
+a score=36.7 E=9.12e-06 anchor=213,355
 s MIR      135 96 + 262 taaaatggggataataatagtacctacctcatag--ggttgttgtgaggattaaatgagttaatacatgt----------------aaagcgcttagaacagtgcctggcacat
 s hg38_dna 286 86 + 500 tgaaatgtaggttaccatggtgcctagcacaaa-acggttgttg--------------------------aatgaataaatgaatgaacggactcagaacaagg-ctggctcat
 
 
-a score=78.1 E=5.8e-19 anchor=62,122
+a score=78.1 E=5.53e-19 anchor=62,122
 s U7        1 61 +  63 agtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccc
 s hg38_dna 62 60 + 500 agtgttacagcacttttagaatttgtctagcaggctttcaggtcttt-gccagaaagcccc
 
-a score=78.3 E=4.44e-19 anchor=1,62
+a score=78.3 E=4.33e-19 anchor=1,62
 s U7        1 61 +  63 agtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccc
 s hg38_dna 62 60 + 500 agtgttacagcacttttagaatttgtctagcaggctttcaggtcttt-gccagaaagcccc
 
-a score=79 E=1.76e-18 anchor=30,91
+a score=79 E=1.73e-18 anchor=30,91
 s U7        1 61 +  63 agtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccc
 s hg38_dna 62 60 + 500 agtgttacagcacttttagaatttgtctagcaggctttcaggtcttt-gccagaaagcccc
 
@@ -958,54 +958,54 @@ s hg38_dna 62 60 + 500 agtgttacagcacttttagaatttgtctagcaggctttcaggtcttt-gccagaaag
 #kLM	167.471	139.998	670.949
 # Total sequence length: 1150
 
-a score=12.2 E=40.8 anchor=169,416
+a score=12.2 E=38.9 anchor=169,416
 s MIR      158 11 + 262 ctacctcatag
 s hg38_dna 405 11 - 650 ccaccccacag
 
-a score=12.6 E=27.8 anchor=37,231
+a score=12.6 E=27.1 anchor=37,231
 s MIR       37 11 + 262 gccagactgcc
 s hg38_dna 231 11 - 650 gccagaaagcc
 
-a score=14.1 E=59.8 anchor=164,411
+a score=14.1 E=58.9 anchor=164,411
 s MIR      158 11 + 262 ctacctcatag
 s hg38_dna 405 11 - 650 ccaccccacag
 
 
-a score=20.2 E=0.166 anchor=62,244
+a score=20.2 E=0.158 anchor=62,244
 s U7        50 12 +  63 ccggaaagcccc
 s hg38_dna 232 12 - 650 ccagaaagcccc
 
-a score=19.2 E=0.287 anchor=49,231
+a score=19.2 E=0.28 anchor=49,231
 s U7        49 13 +  63 accggaaagcccc
 s hg38_dna 231 13 - 650 gccagaaagcccc
 
-a score=20.7 E=0.594 anchor=56,238
+a score=20.7 E=0.586 anchor=56,238
 s U7        50 12 +  63 ccggaaagcccc
 s hg38_dna 232 12 - 650 ccagaaagcccc
 
 
-a score=19.5 E=0.259 anchor=121,335
+a score=19.5 E=0.247 anchor=121,335
 s MIR      101 20 + 262 acttaacctctctgtgcctc
 s hg38_dna 315 20 - 500 atacagcatctctgtacctc
 
-a score=19.8 E=0.19 anchor=45,441
+a score=19.8 E=0.185 anchor=45,441
 s MIR       45 22 + 262 gcctgggttcgaatcccggctc
 s hg38_dna 441 22 - 500 gcctaggtttcagttctgactt
 
-a score=22.3 E=0.207 anchor=52,448
+a score=22.3 E=0.204 anchor=52,448
 s MIR       45 22 + 262 gcctgggttcgaatcccggctc
 s hg38_dna 441 22 - 500 gcctaggtttcagttctgactt
 
 
-a score=21.5 E=0.0635 anchor=60,406
+a score=21.5 E=0.0605 anchor=60,406
 s U7        33 27 +  63 ggctttccggtttttc----accggaaagcc
 s hg38_dna 380 26 - 500 ggctttctggc-----aaagacctgaaagcc
 
-a score=21.6 E=0.0517 anchor=33,380
+a score=21.6 E=0.0504 anchor=33,380
 s U7        33 27 +  63 ggctttccggtttttc----accggaaagcc
 s hg38_dna 380 26 - 500 ggctttctggc-----aaagacctgaaagcc
 
-a score=22.7 E=0.15 anchor=54,400
+a score=22.7 E=0.148 anchor=54,400
 s U7        33 27 +  63 ggctttccggtttttc----accggaaagcc
 s hg38_dna 380 26 - 500 ggctttctggc-----aaagacctgaaagcc
 
@@ -1239,71 +1239,71 @@ s hg38_dna 380 26 - 500 ggctttctggc-----aaagacctgaaagcc
 #lamLM	1.34405	1.24095	1.28774
 #kLM	736.567	294.09	2266.83
 # Total sequence length: 60000
-a score=51.3 E=2e-08 anchor=126,1755
+a score=51.3 E=1.79e-08 anchor=126,1755
 s MIR                            59 185 +   262 cccggctctgccac---ttactagctgt----------------gtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagtacctacctcatagggt-------tgttgtgaggattaaatgagttaatacatgtaaagcgcttagaa-------------------------------cagtgcctggcacatagtaagcgctcaa
 s hg38.chr15:90050000-90080000 1685 162 + 30000 cccaactc------cactta--------ttctctggtgtacctggtaaccgtgggtgaatcactcaactc--ctgtgccttggtttcctcctctgtaaa---------------------------------tacgttttgttgtcaagatt-------------------------------ctgtgctgtataaaaatgatctcaacaggcacaactccaggctgaaaggaagggctcag
 
-a score=71.8 E=1.34e-14 anchor=122,2607
+a score=71.8 E=1.19e-14 anchor=122,2607
 s MIR                            51 100 +   262 gttcgaatcccggctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataata
 s hg38.chr15:90050000-90080000 2539  97 + 30000 gctccaatcctgcctttatctcttactggctctgtgacgt-agacaaatcac--agcttctctaagactcagtttgctcatctgtaaaatgaaaattaaa
 
-a score=38.6 E=0.000134 anchor=144,2911
+a score=38.6 E=0.00012 anchor=144,2911
 s MIR                           141 115 +   262 ggggataataatagtacctacctcatagggt----tgttgtgaggattaaatgagttaatacatgtaaagcgct------tagaaca-----------gtgcctggcacatagtaagcgctcaataaatgttagct
 s hg38.chr15:90050000-90080000 2908 128 + 30000 ggcgacagagagagactctgcctcaaaaaa-taataattattaaaataaaataaaataaaatgtcta-------tctccctgggacagcctgtcccttgtgcctggtccataatatgagctcagtaaatgatggct
 
-a score=46.6 E=5.37e-07 anchor=123,4545
+a score=46.6 E=4.8e-07 anchor=123,4545
 s MIR                            48 131 +   262 tgggttcgaatcccggctctgccacttac------------------tagctgtgtgaccttgggcaagttact-----taacctctctg--------tgcctcagtttcctcatctgtaaaatggggataataatag----tacctacctcatagggttgttgtg
 s hg38.chr15:90050000-90080000 4479 119 + 30000 tgggt------------------------ctcggccctgggcccacccagctg---------gggcc-------tgctctatcctgcctgcaggggactgcctcagtttccacgtctgtataatggaaatg-------gtaccccccatcccagaggactgccccg
 
-a score=87.8 E=2.13e-19 anchor=88,9409
+a score=87.8 E=1.91e-19 anchor=88,9409
 s MIR                            26 135 +   262 cggactctggagccagact-gcctgggttcgaatcccggctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataata----------atagtaccta
 s hg38.chr15:90050000-90080000 9348 133 + 30000 ggggctgcggggccgga--gacctgcattctagcccttgctcccccaccgtctcactgtgtgaccttggaccattcccttcccctccctgggcctcagtttcctcatctgttaac-----------agggccgggtatggtgcgca
 
-a score=40.2 E=4.51e-05 anchor=127,13335
+a score=40.2 E=4.03e-05 anchor=127,13335
 s MIR                             29 161 +   262 actctggagccagactg-cctgggttcgaatcccggctctgc-cacttactagctgtgtgacc----ttgggcaagttacttaacctctct------------gtgcctcagtttcctcatctgtaaaatggggataataatagtacctacctcat----------------agggttgttgtgaggattaaatg
 s hg38.chr15:90050000-90080000 13247 154 + 30000 gctgtggggccacacgggcctggctgcaga-cccaactc---ccccttcattgatggg-----gcacttggg-------------------agtgtgttattcaagcctggatttcctggggcgtgaggtggggagcgcacta-------------ccccacccctgccccccgggttgttcctagtattaaatg
 
-a score=67.3 E=2.99e-13 anchor=96,29156
+a score=67.3 E=2.67e-13 anchor=96,29156
 s MIR                             79 172 +   262 gctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagtacctacctcatagggttgttgtgaggattaaatgagttaatacatgtaaagcgcttagaacagtgcctggcacatagtaagcgctcaataaatgt
 s hg38.chr15:90050000-90080000 29139 133 + 30000 gctgggtgacctttggcaagttgattcacctctctaaacctcagccttctgagctgctaaatggg--------------------------gctgttgtgattgctggatgaggcgaggcctgcgaa------------gtggctggcatgcagcaggtgct-aatgagtgc
 
-a score=43.1 E=6.07e-06 anchor=11,26434
+a score=43.1 E=5.42e-06 anchor=11,26434
 s U7                               1 27 +    63 agtgttacagctcttttagaatttgtc
 s hg38.chr15:90050000-90080000 26424 27 + 30000 agtgttacagctcttttagaatttgtt
 
-a score=40.8 E=2.98e-05 anchor=34,26773
+a score=40.8 E=2.67e-05 anchor=34,26773
 s U7                              21 36 +    63 atttgtctagcaggctttccggtttttcaccggaaa
 s hg38.chr15:90050000-90080000 26760 35 + 30000 attcatttagcaggttttccagttttt-accagaaa
 
-a score=105 E=1.48e-24 anchor=134,5381
+a score=105 E=1.32e-24 anchor=134,5381
 s MIR                            65 196 +   262 tctgccacttactagctgtg---tgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagtacctacctcatagggttg-ttgtgaggattaaatgagttaatacatgtaaagcgcttagaacagt---gcctggcacatagtaagcgctcaataaatgttagctattat
 s hg38.chr15:90050000-90080000 5310 171 - 30000 tctgtcacctcct-gctgtgttgtcatcttgcatgagctatctaagttctctgttcttcagtttctgcatctgtaaaacgatgacaatgacagagccaacctc---------gctttgaggatcacatgagttaata----------------------aaggcctggcacacagttagcactcaataaatgttagttatgat
 
-a score=36.6 E=0.000535 anchor=133,10502
+a score=36.6 E=0.000478 anchor=133,10502
 s MIR                            112 41 +   262 ctgt-gcctcagtttcctcatctgtaaaatggggataataat
 s hg38.chr15:90050000-90080000 10482 40 - 30000 ct--ggcctctgtcctcccatctagaaaatagggagggtaag
 
-a score=43 E=6.58e-06 anchor=122,13136
+a score=43 E=5.88e-06 anchor=122,13136
 s MIR                             63 83 +   262 gctctgccacttactag--ctgtgtgaccttg-ggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatgggga
 s hg38.chr15:90050000-90080000 13080 80 - 30000 tctcctccatct-----ccctgggagatcctggggtaagctctgcccccttgctg-gcctcagtcttcccatctgtacaacaggga
 
-a score=68.1 E=1.83e-13 anchor=122,15083
+a score=68.1 E=1.64e-13 anchor=122,15083
 s MIR                             52 189 +   262 ttcgaatcccggctctgccacttactagctgtg-tgacctt-gggcaagttacttaacc-----tctctgtgcctcagtttcctcatctgtaaaatggggataataatagtacc-tacctcatagggttgttgtgaggattaaatgagttaatacatgtaaagcgcttagaacagt-gcctggcacatagtaagcgct
 s hg38.chr15:90050000-90080000 15026 161 - 30000 ctcgagtgccagctcagtcacttgcaa------gtgac---taagcaa-----------agtcatgccagtggctcagtttccctatctgaaaaacggggatgaaaaca-----ctcacccatggaagggttgtgagggcccacggtcctaacacaggtgaagc------------agcttggttcattataaggccc
 
-a score=47.9 E=2.1e-07 anchor=66,16015
+a score=47.9 E=1.87e-07 anchor=66,16015
 s MIR                             48 48 +   262 tgggttcgaatcccggctctgccacttactagctgtgtgaccttgggc
 s hg38.chr15:90050000-90080000 15998 47 - 30000 tgagttc-aatccaggctctgccgtctactagccgtgtgacatcaggt
 
-a score=52 E=1.27e-08 anchor=134,18174
+a score=52 E=1.14e-08 anchor=134,18174
 s MIR                             29 132 +   262 actctggagccagactgcctgggttcgaatc-------------------ccggctctgccacttactagctgtgtgacc----ttgggcaagttacttaacctctctg----tgcctcagtttcctcatctgtaaaatggggataataatagtac---cta
 s hg38.chr15:90050000-90080000 18069 127 - 30000 gctctggaatc--------------------tctaactgtgacttcacctacggctttgccccatgggtcctgta-----aaggctgggcaagtcgcctggctcctc--cacctgtctccatttcctgatctgtaaaatgggcacaag--------agccta
 
-a score=75.2 E=1.28e-15 anchor=69,28060
+a score=75.2 E=1.14e-15 anchor=69,28060
 s MIR                             37 105 +   262 gccagactgcctgggttcgaatcccggctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatg
 s hg38.chr15:90050000-90080000 28028 105 - 30000 tccagcagacctgtcctccacccccagctctgccacttaggagctgtacaccctcaggcaagtgtctcaacctccctgggatttggtttccttgtctgtatagtg
 
-a score=73.1 E=5.36e-15 anchor=130,29371
+a score=73.1 E=4.79e-15 anchor=130,29371
 s MIR                             18 175 +   262 taagagcacggactctggagccagactgcctgggttcgaa-tcccggctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagtacctacctcatagggttgttgtgaggattaaatgagt
 s hg38.chr15:90050000-90080000 29292 138 - 30000 tcagggcatgggccgcagggtcagactgc-----------agtctggccccaccactcac----------accttgg-------------tctgtgtgtgcctcagtctcctcatctgtggcatgag----ataatggttctcacttcctggagttgttagggggtttaactgagc
 

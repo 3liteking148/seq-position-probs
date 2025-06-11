@@ -716,7 +716,7 @@ Triple estimateK(Profile profile, const Float *letterFreqs,
 	    << LMbegK / pow(s, LMbegL) << "\t"
 	    << LMmidK / pow(s, LMmidL) << std::endl;
 
-  Triple h = {MLendKsimple, MLbegKsimple, MLmidKsimple};
+  Triple h = {MMendKsimple, MMbegKsimple, MMmidKsimple};
   return h;
 }
 
