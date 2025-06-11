@@ -890,30 +890,38 @@ int main(int argc, char* argv[]) {
   const char help[] = "\
 usage: seq-position-probs profile.hmm [sequences.fa]\n\
 \n\
-Get similarity scores between profiles and random sequences, estimate Gumbel K\n\
-parameters, and optionally get scores and E-values for real sequences.\n\
+Find similarities between sequences and profiles.   A profile is a set of\n\
+position-specific letter, deletion, and insertion probabilities.\n\
 \n\
-options:\n\
+Options:\n\
   -h, --help        show this help message and exit\n\
   -v, --verbose     show progress messages\n\
+\n\
+Options for real sequences:\n\
   -e E, --evalue E  find similarities with E-value <= this (default: "
     STR(OPT_e) ")\n\
-  -s S, --strand S  strand: 0=reverse, 1=forward, 2=both, ignored for protein\n\
-                    (default: " STR(OPT_s) ")\n\
+  -s S, --strand S  DNA strand: 0=reverse, 1=forward, 2=both (default: "
+    STR(OPT_s) ")\n\
+\n\
+Options for random sequences:\n\
+  -n N, --number N  number of random sequences to generate (default: "
+    STR(OPT_n) ")\n\
+  -l L, --length L  length of each random sequence (default: "
+    STR(OPT_l) ")\n\
   -b B, --border B  add this size border to each random sequence (default: "
     STR(OPT_b) ")\n\
 ";
 
-  const char sOpts[] = "hn:l:b:e:s:v";
+  const char sOpts[] = "hve:s:n:l:b:";
 
   static struct option lOpts[] = {
     {"help",    no_argument,       0, 'h'},
     {"verbose", no_argument,       0, 'v'},
+    {"evalue",  required_argument, 0, 'e'},
+    {"strand",  required_argument, 0, 's'},
     {"number",  required_argument, 0, 'n'},
     {"length",  required_argument, 0, 'l'},
     {"border",  required_argument, 0, 'b'},
-    {"evalue",  required_argument, 0, 'e'},
-    {"strand",  required_argument, 0, 's'},
     {0, 0, 0, 0}
   };
 
@@ -923,18 +931,8 @@ options:\n\
     case 'h':
       std::cout << help;
       return 0;
-    case 'n':
-      numOfSequences = intFromText(optarg);
-      break;
-    case 'l':
-      sequenceLength = intFromText(optarg);
-      break;
-    case 'b':
-      border = intFromText(optarg);
-      if (border < 0) {
-	std::cerr << help;
-	return 1;
-      }
+    case 'v':
+      ++verbosity;
       break;
     case 'e':
       evalueOpt = strtod(optarg, 0);
@@ -950,8 +948,18 @@ options:\n\
 	return 1;
       }
       break;
-    case 'v':
-      ++verbosity;
+    case 'n':
+      numOfSequences = intFromText(optarg);
+      break;
+    case 'l':
+      sequenceLength = intFromText(optarg);
+      break;
+    case 'b':
+      border = intFromText(optarg);
+      if (border < 0) {
+	std::cerr << help;
+	return 1;
+      }
       break;
     case '?':
       std::cerr << help;
