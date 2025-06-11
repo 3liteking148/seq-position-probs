@@ -60,6 +60,15 @@ struct Similarity {
   std::vector<char> alignedSequences;
 };
 
+int rawBeg2(const RawSimilarity &x) {
+  return x.alignment.empty() ? x.anchor2 : x.alignment[0].start2;
+}
+
+int rawEnd2(const RawSimilarity &x) {
+  return x.alignment.empty() ?
+    x.anchor2 : x.alignment.back().start2 + x.alignment.back().length;
+}
+
 double mean(const double *x, int n) {
   double s = 0;
   for (int i = 0; i < n; ++i) s += x[i];
@@ -320,6 +329,42 @@ void addMidAnchored(std::vector<RawSimilarity> &similarities,
   similarities.push_back(raw);
 }
 
+bool isLess(const RawSimilarity &a, const RawSimilarity &b) {
+  return rawBeg2(a) < rawBeg2(b);
+}
+
+bool isOverlapping(const std::vector<SegmentPair> &alignment1,
+		   const std::vector<SegmentPair> &alignment2) {
+  for (const auto &i : alignment1) {
+    for (const auto &j : alignment2) {
+      if (i.start1 - i.start2 == j.start1 - j.start2 &&
+	  i.start1 + i.length > j.start1 && i.start1 < j.start1 + j.length)
+	return true;
+    }
+  }
+  return false;
+}
+
+void nonredundantize(std::vector<RawSimilarity> &similarities) {
+  sort(similarities.begin(), similarities.end(), isLess);
+
+  for (size_t i = 0; i < similarities.size(); ++i) {
+    RawSimilarity &x = similarities[i];
+    int end = rawEnd2(x);
+    for (size_t j = i + 1; j < similarities.size(); ++j) {
+      RawSimilarity &y = similarities[j];
+      if (rawBeg2(y) >= end) break;
+      if (isOverlapping(x.alignment, y.alignment)) {
+	if (x.probRatio < y.probRatio) {
+	  x.probRatio = 0;
+	} else {
+	  y.probRatio = 0;
+	}
+      }
+    }
+  }
+}
+
 void findRawSimilarities(std::vector<RawSimilarity> &similarities,
 			 Profile profile, const char *sequence,
 			 int sequenceLength, Float *scratch,
@@ -439,7 +484,9 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
 		   scratch, i, jOld, wBegAnchored, wEndAnchored);
   }
 
-  if (minProbRatio <= 0) {
+  if (minProbRatio > 0) {
+    nonredundantize(similarities);
+  } else {
     reverse(alignment.begin(), alignment.end());
     addReverseAlignment(alignment, profile, sequence, sequenceLength,
 			scratch, iMidMax, jMidMax, wEndAnchored / 2);
@@ -836,6 +883,7 @@ parameters, and optionally get scores and E-values for real sequences.\n\
 options:\n\
   -h, --help        show this help message and exit\n\
   -b B, --border B  add a border of this length to each random sequence\n\
+  -e E, --evalue E  find mid-anchored similarities with E-value <= this\n\
   -s S, --strand S  strand: 0=reverse, 1=forward, 2=both, ignored for protein\n\
                     (default: 2)\n\
 ";
