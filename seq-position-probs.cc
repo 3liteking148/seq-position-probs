@@ -902,8 +902,8 @@ int badOpt(char opt) {
 int main(int argc, char* argv[]) {
   double evalueOpt = OPT_e;
   int strandOpt = OPT_s;
-  int numOfSequences = OPT_t;
-  int sequenceLength = OPT_l;
+  int randomSeqNum = OPT_t;
+  int randomSeqLen = OPT_l;
   int border = OPT_b;
 
   const char help[] = "\
@@ -962,12 +962,12 @@ Options for random sequences:\n\
       if (strandOpt < 0 || strandOpt > 2) return badOpt(c);
       break;
     case 't':
-      numOfSequences = intFromText(optarg);
-      if (numOfSequences < 1) return badOpt(c);
+      randomSeqNum = intFromText(optarg);
+      if (randomSeqNum < 1) return badOpt(c);
       break;
     case 'l':
-      sequenceLength = intFromText(optarg);
-      if (sequenceLength < 1 || sequenceLength == INT_MAX) return badOpt(c);
+      randomSeqLen = intFromText(optarg);
+      if (randomSeqLen < 1 || randomSeqLen == INT_MAX) return badOpt(c);
       break;
     case 'b':
       border = intFromText(optarg);
@@ -984,7 +984,7 @@ Options for random sequences:\n\
     return 1;
   }
 
-  if (INT_MAX - border <= sequenceLength) {
+  if (INT_MAX - border <= randomSeqLen) {
     std::cerr << "sequence + border is too big\n";
     return 1;
   }
@@ -1011,11 +1011,11 @@ Options for random sequences:\n\
   }
 
   size_t seqIdx = charVec.size();
-  charVec.resize(seqIdx + sequenceLength + border + 1);
+  charVec.resize(seqIdx + randomSeqLen + border + 1);
   std::vector<Float> scratch;
-  if (!resizeMem(scratch, maxProfileLength, sequenceLength + border)) return 1;
+  if (!resizeMem(scratch, maxProfileLength, randomSeqLen + border)) return 1;
 
-  std::cout << "# Length of random sequence: " << sequenceLength << "\n";
+  std::cout << "# Length of random sequence: " << randomSeqLen << "\n";
 
   int printVerbosity = (argc - optind < 2) * 2 + (evalueOpt <= 0);
 
@@ -1032,8 +1032,8 @@ Options for random sequences:\n\
     std::cout << "# Background letter probabilities:";
     for (int j = 4; j < p.width - 1; ++j) std::cout << " " << profileEnd[j];
     std::cout << std::endl;
-    Triple r = estimateK(p, profileEnd+4, &charVec[seqIdx], sequenceLength,
-			 border, numOfSequences, &scratch[0], printVerbosity);
+    Triple r = estimateK(p, profileEnd+4, &charVec[seqIdx], randomSeqLen,
+			 border, randomSeqNum, &scratch[0], printVerbosity);
     totEndK += r.endAnchored;
     totBegK += r.begAnchored;
     totMidK += r.midAnchored;
