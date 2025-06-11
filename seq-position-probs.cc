@@ -305,6 +305,20 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment,
   }
 }
 
+void addMidAnchored(std::vector<RawSimilarity> &similarities,
+		    Profile profile, const char *sequence,
+		    int sequenceLength, const Float *scratch,
+		    int anchor1, int anchor2,
+		    Float wBegAnchored, Float wEndAnchored) {
+  RawSimilarity raw = {wEndAnchored * wBegAnchored / scale, anchor1, anchor2};
+  addReverseAlignment(raw.alignment, profile, sequence, sequenceLength,
+		      scratch, anchor1, anchor2, wEndAnchored / 2);
+  reverse(raw.alignment.begin(), raw.alignment.end());
+  addForwardAlignment(raw.alignment, profile, sequence, sequenceLength,
+		      scratch, anchor1, anchor2, wBegAnchored / 2);
+  similarities.push_back(raw);
+}
+
 void findRawSimilarities(std::vector<RawSimilarity> &similarities,
 			 Profile profile, const char *sequence,
 			 int sequenceLength, Float *scratch,
@@ -379,13 +393,8 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
       Float wMid = w * W[j];
       if (minProbRatio > 0) {
 	if (wMid >= minProbRatio) {
-	  RawSimilarity raw = {wMid / scale, i, j};
-	  addReverseAlignment(raw.alignment, profile, sequence, sequenceLength,
-			      scratch, i, j, w / 2);
-	  reverse(raw.alignment.begin(), raw.alignment.end());
-	  addForwardAlignment(raw.alignment, profile, sequence, sequenceLength,
-			      scratch, i, j, W[j] / 2);
-	  similarities.push_back(raw);
+	  addMidAnchored(similarities, profile, sequence, sequenceLength,
+			 scratch, i, j, W[j], w);
 	}
       } else {
 	if (w > wMax) {
