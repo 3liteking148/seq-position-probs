@@ -23,6 +23,8 @@ typedef double Float;
 const Float scale = 1.0 / (1<<30) / (1<<30) / (1<<3); // sqrt[min normal float]
 const int shift = 63;  // add this to scores, to undo the scaling
 
+int verbosity = 0;
+
 struct Profile {  // position-specific (insert, delete, letter) probabilities
   Float *values;  // probabilities or probability ratios
   int width;  // values per position: 4 + alphabetSize + 1
@@ -886,15 +888,17 @@ options:\n\
   -e E, --evalue E  find mid-anchored similarities with E-value <= this\n\
   -s S, --strand S  strand: 0=reverse, 1=forward, 2=both, ignored for protein\n\
                     (default: 2)\n\
+  -v, --verbose     show progress messages\n\
 ";
 
-  const char sOpts[] = "hb:e:s:";
+  const char sOpts[] = "hb:e:s:v";
 
   static struct option lOpts[] = {
-    {"help",   no_argument,       0, 'h'},
-    {"border", required_argument, 0, 'b'},
-    {"evalue", required_argument, 0, 'e'},
-    {"strand", required_argument, 0, 's'},
+    {"help",    no_argument,       0, 'h'},
+    {"border",  required_argument, 0, 'b'},
+    {"evalue",  required_argument, 0, 'e'},
+    {"strand",  required_argument, 0, 's'},
+    {"verbose", no_argument,       0, 'v'},
     {0, 0, 0, 0}
   };
 
@@ -924,6 +928,9 @@ options:\n\
 	std::cerr << help;
 	return 1;
       }
+      break;
+    case 'v':
+      ++verbosity;
       break;
     case '?':
       std::cerr << help;
@@ -1030,6 +1037,8 @@ options:\n\
   if (!file) return 1;
   Sequence sequence;
   for (size_t i = 0; readSequence(in, sequence, charVec, charToNumber); ++i) {
+    if (verbosity > 0)
+      std::cerr << "Sequence: " << &charVec[sequence.nameIdx] << "\n";
     if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
     seqIdx = charVec.size() - sequence.length - 1;
     totSequenceLength += sequence.length * (strandOpt / 2 + 1);
@@ -1039,6 +1048,8 @@ options:\n\
       if (s != strandOpt) {
 	size_t strandNum = i * 2 + s;
 	for (size_t j = 0; j < numOfProfiles; ++j) {
+	  if (verbosity > 1)
+	    std::cerr << "Profile: " << &charVec[profiles[j].nameIdx] << "\n";
 	  findSimilarities(similarities, profiles[j], &charVec[seqIdx],
 			   sequence.length, &scratch[0], j, strandNum,
 			   minProbRatio);
