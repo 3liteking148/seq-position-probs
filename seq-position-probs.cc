@@ -20,7 +20,7 @@
 #define MACROS_SUCK(X) #X
 #define STR(X) MACROS_SUCK(X)
 
-#define OPT_e 0
+#define OPT_e 10.0
 #define OPT_s 2
 #define OPT_n 1000
 #define OPT_l 500
@@ -896,7 +896,8 @@ parameters, and optionally get scores and E-values for real sequences.\n\
 options:\n\
   -h, --help        show this help message and exit\n\
   -v, --verbose     show progress messages\n\
-  -e E, --evalue E  find mid-anchored similarities with E-value <= this\n\
+  -e E, --evalue E  find similarities with E-value <= this (default: "
+    STR(OPT_e) ")\n\
   -s S, --strand S  strand: 0=reverse, 1=forward, 2=both, ignored for protein\n\
                     (default: " STR(OPT_s) ")\n\
   -b B, --border B  add this size border to each random sequence (default: "
@@ -937,7 +938,7 @@ options:\n\
       break;
     case 'e':
       evalueOpt = strtod(optarg, 0);
-      if (evalueOpt <= 0) {
+      if (evalueOpt < 0) {
 	std::cerr << help;
 	return 1;
       }
