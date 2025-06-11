@@ -17,6 +17,13 @@
 
 #include <getopt.h>
 
+#define MACROS_SUCK(X) #X
+#define STR(X) MACROS_SUCK(X)
+
+#define OPT_e 0
+#define OPT_s 2
+#define OPT_b 0
+
 typedef double Float;
 
 // down-scale probabilities by this amount, to delay overflow:
@@ -872,9 +879,9 @@ int resizeMem(std::vector<Float> &v, int profileLength, int sequenceLength) {
 }
 
 int main(int argc, char* argv[]) {
-  int border = 0;
-  int strandOpt = 2;
-  double evalueOpt = 0;
+  double evalueOpt = OPT_e;
+  int strandOpt = OPT_s;
+  int border = OPT_b;
 
   const char help[] = "\
 usage: seq-position-probs profile.hmm randomTrials randomLength [sequences.fa]\n\
@@ -887,7 +894,7 @@ options:\n\
   -b B, --border B  add a border of this length to each random sequence\n\
   -e E, --evalue E  find mid-anchored similarities with E-value <= this\n\
   -s S, --strand S  strand: 0=reverse, 1=forward, 2=both, ignored for protein\n\
-                    (default: 2)\n\
+                    (default: " STR(OPT_s) ")\n\
   -v, --verbose     show progress messages\n\
 ";
 
