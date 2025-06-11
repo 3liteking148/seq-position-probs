@@ -22,6 +22,8 @@
 
 #define OPT_e 0
 #define OPT_s 2
+#define OPT_n 1000
+#define OPT_l 500
 #define OPT_b 0
 
 typedef double Float;
@@ -881,10 +883,12 @@ int resizeMem(std::vector<Float> &v, int profileLength, int sequenceLength) {
 int main(int argc, char* argv[]) {
   double evalueOpt = OPT_e;
   int strandOpt = OPT_s;
+  int numOfSequences = OPT_n;
+  int sequenceLength = OPT_l;
   int border = OPT_b;
 
   const char help[] = "\
-usage: seq-position-probs profile.hmm randomTrials randomLength [sequences.fa]\n\
+usage: seq-position-probs profile.hmm [sequences.fa]\n\
 \n\
 Get similarity scores between profiles and random sequences, estimate Gumbel K\n\
 parameters, and optionally get scores and E-values for real sequences.\n\
@@ -898,10 +902,12 @@ options:\n\
   -v, --verbose     show progress messages\n\
 ";
 
-  const char sOpts[] = "hb:e:s:v";
+  const char sOpts[] = "hn:l:b:e:s:v";
 
   static struct option lOpts[] = {
     {"help",    no_argument,       0, 'h'},
+    {"number",  required_argument, 0, 'n'},
+    {"length",  required_argument, 0, 'l'},
     {"border",  required_argument, 0, 'b'},
     {"evalue",  required_argument, 0, 'e'},
     {"strand",  required_argument, 0, 's'},
@@ -915,6 +921,12 @@ options:\n\
     case 'h':
       std::cout << help;
       return 0;
+    case 'n':
+      numOfSequences = intFromText(optarg);
+      break;
+    case 'l':
+      sequenceLength = intFromText(optarg);
+      break;
     case 'b':
       border = intFromText(optarg);
       if (border < 0) {
@@ -945,13 +957,10 @@ options:\n\
     }
   }
 
-  if (argc - optind < 3 || argc - optind > 4) {
+  if (argc - optind < 1 || argc - optind > 2) {
     std::cerr << help;
     return 1;
   }
-
-  int numOfSequences = intFromText(argv[optind + 1]);
-  int sequenceLength = intFromText(argv[optind + 2]);
 
   if (numOfSequences < 1) {
     std::cerr << "bad numOfSequences\n";
@@ -1015,7 +1024,7 @@ options:\n\
     totMidK += r.midAnchored;
   }
 
-  if (argc - optind < 4 || numOfProfiles < 1) return 0;
+  if (argc - optind < 2 || numOfProfiles < 1) return 0;
 
   int width = profiles[0].width;
   for (size_t i = 1; i < numOfProfiles; ++i) {
@@ -1040,7 +1049,7 @@ options:\n\
   size_t totSequenceLength = 0;
 
   std::ifstream file;
-  std::istream &in = openFile(file, argv[optind + 3]);
+  std::istream &in = openFile(file, argv[optind + 1]);
   if (!file) return 1;
   Sequence sequence;
   for (size_t i = 0; readSequence(in, sequence, charVec, charToNumber); ++i) {
