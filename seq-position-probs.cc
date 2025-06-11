@@ -22,7 +22,7 @@
 
 #define OPT_e 10.0
 #define OPT_s 2
-#define OPT_n 1000
+#define OPT_t 1000
 #define OPT_l 500
 #define OPT_b 100
 
@@ -888,7 +888,7 @@ int badOpt(char opt) {
 int main(int argc, char* argv[]) {
   double evalueOpt = OPT_e;
   int strandOpt = OPT_s;
-  int numOfSequences = OPT_n;
+  int numOfSequences = OPT_t;
   int sequenceLength = OPT_l;
   int border = OPT_b;
 
@@ -909,22 +909,22 @@ Options for real sequences:\n\
     STR(OPT_s) ")\n\
 \n\
 Options for random sequences:\n\
-  -n N, --number N  number of random sequences to generate (default: "
-    STR(OPT_n) ")\n\
+  -t T, --trials T  generate this many random sequences (default: "
+    STR(OPT_t) ")\n\
   -l L, --length L  length of each random sequence (default: "
     STR(OPT_l) ")\n\
   -b B, --border B  add this size border to each random sequence (default: "
     STR(OPT_b) ")\n\
 ";
 
-  const char sOpts[] = "hve:s:n:l:b:";
+  const char sOpts[] = "hve:s:t:l:b:";
 
   static struct option lOpts[] = {
     {"help",    no_argument,       0, 'h'},
     {"verbose", no_argument,       0, 'v'},
     {"evalue",  required_argument, 0, 'e'},
     {"strand",  required_argument, 0, 's'},
-    {"number",  required_argument, 0, 'n'},
+    {"trials",  required_argument, 0, 't'},
     {"length",  required_argument, 0, 'l'},
     {"border",  required_argument, 0, 'b'},
     {0, 0, 0, 0}
@@ -941,23 +941,23 @@ Options for random sequences:\n\
       break;
     case 'e':
       evalueOpt = strtod(optarg, 0);
-      if (evalueOpt < 0) return badOpt('e');
+      if (evalueOpt < 0) return badOpt(c);
       break;
     case 's':
       strandOpt = intFromText(optarg);
-      if (strandOpt < 0 || strandOpt > 2) return badOpt('s');
+      if (strandOpt < 0 || strandOpt > 2) return badOpt(c);
       break;
-    case 'n':
+    case 't':
       numOfSequences = intFromText(optarg);
-      if (numOfSequences < 1) return badOpt('n');
+      if (numOfSequences < 1) return badOpt(c);
       break;
     case 'l':
       sequenceLength = intFromText(optarg);
-      if (sequenceLength < 1 || sequenceLength == INT_MAX) return badOpt('l');
+      if (sequenceLength < 1 || sequenceLength == INT_MAX) return badOpt(c);
       break;
     case 'b':
       border = intFromText(optarg);
-      if (border < 0) return badOpt('b');
+      if (border < 0) return badOpt(c);
       break;
     case '?':
       std::cerr << help;
