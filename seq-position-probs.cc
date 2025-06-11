@@ -24,7 +24,7 @@
 #define OPT_s 2
 #define OPT_n 1000
 #define OPT_l 500
-#define OPT_b 0
+#define OPT_b 100
 
 typedef double Float;
 
@@ -895,23 +895,24 @@ parameters, and optionally get scores and E-values for real sequences.\n\
 \n\
 options:\n\
   -h, --help        show this help message and exit\n\
-  -b B, --border B  add a border of this length to each random sequence\n\
+  -v, --verbose     show progress messages\n\
   -e E, --evalue E  find mid-anchored similarities with E-value <= this\n\
   -s S, --strand S  strand: 0=reverse, 1=forward, 2=both, ignored for protein\n\
                     (default: " STR(OPT_s) ")\n\
-  -v, --verbose     show progress messages\n\
+  -b B, --border B  add this size border to each random sequence (default: "
+    STR(OPT_b) ")\n\
 ";
 
   const char sOpts[] = "hn:l:b:e:s:v";
 
   static struct option lOpts[] = {
     {"help",    no_argument,       0, 'h'},
+    {"verbose", no_argument,       0, 'v'},
     {"number",  required_argument, 0, 'n'},
     {"length",  required_argument, 0, 'l'},
     {"border",  required_argument, 0, 'b'},
     {"evalue",  required_argument, 0, 'e'},
     {"strand",  required_argument, 0, 's'},
-    {"verbose", no_argument,       0, 'v'},
     {0, 0, 0, 0}
   };
 
