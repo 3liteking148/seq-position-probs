@@ -880,6 +880,11 @@ int resizeMem(std::vector<Float> &v, int profileLength, int sequenceLength) {
   return 1;
 }
 
+int badOpt(char opt) {
+  std::cerr << "option -" << opt << ": bad value\n";
+  return 1;
+}
+
 int main(int argc, char* argv[]) {
   double evalueOpt = OPT_e;
   int strandOpt = OPT_s;
@@ -888,7 +893,7 @@ int main(int argc, char* argv[]) {
   int border = OPT_b;
 
   const char help[] = "\
-usage: seq-position-probs profile.hmm [sequences.fa]\n\
+usage: seq-position-probs profiles.hmm [sequences.fa]\n\
 \n\
 Find similarities between sequences and profiles.   A profile is a set of\n\
 position-specific letter, deletion, and insertion probabilities.\n\
@@ -936,30 +941,23 @@ Options for random sequences:\n\
       break;
     case 'e':
       evalueOpt = strtod(optarg, 0);
-      if (evalueOpt < 0) {
-	std::cerr << help;
-	return 1;
-      }
+      if (evalueOpt < 0) return badOpt('e');
       break;
     case 's':
       strandOpt = intFromText(optarg);
-      if (strandOpt < 0 || strandOpt > 2) {
-	std::cerr << help;
-	return 1;
-      }
+      if (strandOpt < 0 || strandOpt > 2) return badOpt('s');
       break;
     case 'n':
       numOfSequences = intFromText(optarg);
+      if (numOfSequences < 1) return badOpt('n');
       break;
     case 'l':
       sequenceLength = intFromText(optarg);
+      if (sequenceLength < 1 || sequenceLength == INT_MAX) return badOpt('l');
       break;
     case 'b':
       border = intFromText(optarg);
-      if (border < 0) {
-	std::cerr << help;
-	return 1;
-      }
+      if (border < 0) return badOpt('b');
       break;
     case '?':
       std::cerr << help;
@@ -969,16 +967,6 @@ Options for random sequences:\n\
 
   if (argc - optind < 1 || argc - optind > 2) {
     std::cerr << help;
-    return 1;
-  }
-
-  if (numOfSequences < 1) {
-    std::cerr << "bad numOfSequences\n";
-    return 1;
-  }
-
-  if (sequenceLength < 1 || sequenceLength == INT_MAX) {
-    std::cerr << "bad sequenceLength\n";
     return 1;
   }
 
