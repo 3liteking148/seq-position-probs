@@ -4,29 +4,74 @@ This software finds similarities between genetic sequences and
 "profiles".  A profile is a set of position-specific letter, deletion,
 and insertion probabilities.
 
-This isn't very useful: it's a proof-of-principle for the paper [A
-simple way to find related sequences with position-specific
-probabilities](https://doi.org/10.1101/2025.03.14.643233).
+This is a proof-of-principle for the paper [A simple way to find
+related sequences with position-specific probabilities][frith2025].
 
 To compile it, just do `make`.
 
-## Similarity scores between profiles and random sequences
+It can compare sequences in FASTA format to profiles in HMMER3/f format:
 
-    seq-position-probs profile.hmm numOfSequences sequenceLength
+    seq-position-probs profiles.hmm sequences.fasta
 
-where `profile.hmm` has profile(s) in HMMER3/f format.  For each
-profile versus each sequence, it shows three kinds of score:
+The output shows similar regions in [MAF][] format:
 
-* The maximum end-anchored score
-* The maximum start-anchored score
-* The maximum mid-anchored score
+    a score=44.6 E=8.15e-05 anchor=227,9133
+    s myProfile   195 61 +   262 atacatgtaaagcgcttagaacagtgcctggcacatagtaagcgctcaataaatgttagct
+    s mySequence 9102 60 + 10000 ctacaccttcaggacttagg-ctgtgcctggcacatagtaggtgctcagtagacactggtt
 
-Here, an "anchor" means a pair of coordinates (*i*,*j*) in the profile
-and the sequence.  It gets each kind of score for all possible
-anchors, and shows the maximum.
+* The `score` reflects the likelihood that these regions are related
+  rather than random.
 
-It then estimates Gumbel parameters &lambda; and *K* for each kind of
-score, assuming the scores are Gumbel-distributed.
+* The *E*-value (`E=`) is the expected number of distinct sequence
+  regions with equal or higher score, if we compared all profiles in
+  `profiles.hmm` to random sequences with the same length as all of
+  `sequences.fasta`.
+
+* The `anchor` shows profile,sequence coordinates.  It means there are
+  similar regions around these coordinates.
+
+The `s` lines show a representative alignment.  This aligns letters
+whose probability of being aligned is > 0.5, among all possible
+alignments with that anchor.
+
+## Options
+
+Show all options and default values:
+
+    seq-position-probs --help
+
+Compare each profile to just the forward strand of each DNA sequence:
+
+    seq-position-probs -s1 profiles.hmm sequences.fasta
+
+`-s0` means reverse strands only, `-s1` means forward strands only,
+and `-s2` means both strands (the default).  This is ignored for
+proteins.
+
+Get similarities with *E*-value at most (say) 0.01:
+
+    seq-position-probs -e0.01 profiles.hmm sequences.fasta
+
+`-e0` has a special meaning: for each profile versus each strand, it
+shows the maximum [end-anchored][frith2025],
+[start-anchored][frith2025], and [mid-anchored][frith2025] scores (in
+that order).  It gets each kind of score for all possible anchors, and
+shows the maximum.
+
+## Random sequences
+
+To calculate *E*-values, it needs to estimate a *K* parameter for each
+profile.  To do that, it compares the profile to random sequences.  To
+see details of this, give it a profile file only:
+
+    seq-position-probs profiles.hmm
+
+For each profile versus each sequence, it shows the maximum
+[end-anchored][frith2025], [start-anchored][frith2025], and
+[mid-anchored][frith2025] scores.
+
+For each kind of score, it then shows various estimates of *K* (and
+another &lambda; parameter that isn't used currently).
 
 * `lamMM` is &lambda; estimated by the method of moments.
 * `kMM` is *K* estimated by the method of moments.
@@ -39,36 +84,18 @@ score, assuming the scores are Gumbel-distributed.
 
 (`kLM1` isn't shown, because it's identical to `kMM1`.)
 
-### Border
+Only `kMM1` is used to calculate *E*-values.
 
-The `-b` option adds a "border" to each random sequence.  For example,
-`-b100` adds a border of length 100.  If the sequence length is L and
-border length is B, it first generates a random sequence of length L,
-then appends B/L copies of this sequence to itself.  This aims to
-avoid [edge effects][] on the distribution of scores.
+These options affect the random sequences.
 
-## Searching profiles against real sequences
+- `-t T`, `--trials T`: generate this many random sequences.
 
-    seq-position-probs profile.hmm randomSeqNum randomSeqLength realSeqs.fasta
+- `-l L`, `--length L`: length of each random sequence.
 
-For each profile versus each sequence, it shows:
-
-1. The maximum end-anchored score, with a representative alignment
-2. The maximum start-anchored score, with a representative alignment
-3. The maximum mid-anchored score, with a representative alignment
-
-The alignments are in [MAF][] format.  Each alignment aligns positions
-whose probability of being aligned is > 0.5, among all possible
-alignments with that anchor.
-
-It also shows an *E*-value for each score.  This *E*-value means: the
-expected number of distinct sequence regions with equal or higher
-score, if we compared *all* the profiles to random sequences with the
-same length as *all* of `realSeqs.fasta`.
-
-For nucleotide profiles, it will search both strands of
-`realSeqs.fasta`.  Use option `-s1` to search forward strands only, or
-`-s0` for reverse strands only.
+- `-b B`, `--border B`: add this size border to each random sequence.
+  It first generates a random sequence of length L, then appends B/L
+  copies of this sequence to itself.  This aims to avoid [edge
+  effects][] on the distribution of scores.
 
 ## Details
 
@@ -82,8 +109,9 @@ For nucleotide profiles, it will search both strands of
 * A score is: log<sub>2</sub>[probability ratio].
 
 * An *E*-value is: *K*<sub>tot</sub> *N* / 2^score, where
-  *K*<sub>tot</sub> is the sum over profiles of `kML1`, and *N* is
-  the sum of sequence lengths.
+  *K*<sub>tot</sub> is the sum over profiles of *K*, and *N* is the
+  sum of sequence lengths.
 
+[frith2025]: https://doi.org/10.1101/2025.03.14.643233
 [edge effects]: https://doi.org/10.1093/nar/29.2.351
 [MAF]: https://genome.ucsc.edu/FAQ/FAQformat.html#format5
