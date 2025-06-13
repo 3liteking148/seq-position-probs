@@ -59,6 +59,7 @@ struct Triple {
 struct RawSimilarity {
   double probRatio;
   int anchor1, anchor2;
+  double wEndAnchored;
   std::vector<SegmentPair> alignment;
 };
 
@@ -331,13 +332,19 @@ void addMidAnchored(std::vector<RawSimilarity> &similarities,
 		    int anchor1, int anchor2,
 		    Float wBegAnchored, Float wEndAnchored) {
   if (anchor2 < 0) return;
-  RawSimilarity raw = {wEndAnchored * wBegAnchored / scale, anchor1, anchor2};
-  addReverseAlignment(raw.alignment, profile, sequence, sequenceLength,
-		      scratch, anchor1, anchor2, wEndAnchored / 2);
-  reverse(raw.alignment.begin(), raw.alignment.end());
+  RawSimilarity raw = {wEndAnchored * wBegAnchored / scale, anchor1, anchor2,
+		       wEndAnchored};
   addForwardAlignment(raw.alignment, profile, sequence, sequenceLength,
 		      scratch, anchor1, anchor2, wBegAnchored / 2);
   similarities.push_back(raw);
+}
+
+void finishMidAnchored(RawSimilarity &s, Profile profile, const char *sequence,
+		       int sequenceLength, const Float *scratch) {
+  reverse(s.alignment.begin(), s.alignment.end());
+  addReverseAlignment(s.alignment, profile, sequence, sequenceLength,
+		      scratch, s.anchor1, s.anchor2, s.wEndAnchored / 2);
+  reverse(s.alignment.begin(), s.alignment.end());
 }
 
 bool isLess(const RawSimilarity &a, const RawSimilarity &b) {
@@ -359,6 +366,7 @@ bool isOverlapping(const std::vector<SegmentPair> &alignment1,
 void nonredundantize(std::vector<RawSimilarity> &similarities) {
   sort(similarities.begin(), similarities.end(), isLess);
 
+  size_t k = 0;
   for (size_t i = 0; i < similarities.size(); ++i) {
     RawSimilarity &x = similarities[i];
     int end = rawEnd2(x);
@@ -373,7 +381,13 @@ void nonredundantize(std::vector<RawSimilarity> &similarities) {
 	}
       }
     }
+    if (x.probRatio > 0) {
+      std::swap(similarities[k], similarities[i]);
+      ++k;
+    }
   }
+
+  similarities.resize(k);
 }
 
 void findRawSimilarities(std::vector<RawSimilarity> &similarities,
@@ -496,13 +510,21 @@ void findRawSimilarities(std::vector<RawSimilarity> &similarities,
   }
 
   if (minProbRatio > 0) {
+    if (verbosity > 1) std::cerr << "Initial similarities: "
+				 << similarities.size() << "\n";
     nonredundantize(similarities);
+    if (verbosity > 1) std::cerr << "Non-overlapping forward extensions: "
+				 << similarities.size() << "\n";
+    for (auto &x : similarities) {
+      finishMidAnchored(x, profile, sequence, sequenceLength, scratch);
+    }
+    nonredundantize(similarities);
+    if (verbosity > 1) std::cerr << "Non-overlapping similarities: "
+				 << similarities.size() << "\n";
   } else {
-    reverse(alignment.begin(), alignment.end());
-    addReverseAlignment(alignment, profile, sequence, sequenceLength,
-			scratch, iMidMax, jMidMax, wEndAnchored / 2);
-    reverse(alignment.begin(), alignment.end());
-    RawSimilarity midAnchored = {wMidMax / scale, iMidMax, jMidMax, alignment};
+    RawSimilarity midAnchored = {wMidMax / scale, iMidMax, jMidMax,
+				 wEndAnchored, alignment};
+    finishMidAnchored(midAnchored, profile, sequence, sequenceLength, scratch);
 
     RawSimilarity endAnchored = {wMax, iMax, jMax};
     addReverseAlignment(endAnchored.alignment, profile, sequence,
