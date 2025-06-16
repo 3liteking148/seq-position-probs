@@ -28,6 +28,11 @@
 
 typedef double Float;
 
+// Only consider similarities that are local maxima.  If 2
+// similarities have identical 1st anchor coordinates, and their 2nd
+// anchor coordinates are closer than this, omit the lower-scoring one.
+const int minSeparation = 32;  // xxx ???
+
 // down-scale probabilities by this amount, to delay overflow:
 const Float scale = 1.0 / (1<<30) / (1<<30) / (1<<3); // sqrt[min normal float]
 const int shift = 63;  // add this to scores, to undo the scaling
@@ -54,6 +59,11 @@ struct Triple {
   double endAnchored;
   double begAnchored;
   double midAnchored;
+};
+
+struct InitialSimilarity {
+  Float probRatio;
+  int anchor2;  // 2nd anchor coordinate (don't need to store the 1st one)
 };
 
 struct AlignedSimilarity {
@@ -331,7 +341,6 @@ void addMidAnchored(std::vector<AlignedSimilarity> &similarities,
 		    int sequenceLength, const Float *scratch,
 		    int anchor1, int anchor2,
 		    Float wBegAnchored, Float wEndAnchored) {
-  if (anchor2 < 0) return;
   AlignedSimilarity s = {wEndAnchored * wBegAnchored / scale, anchor1, anchor2,
 			 wEndAnchored};
   addForwardAlignment(s.alignment, profile, sequence, sequenceLength,
@@ -391,11 +400,21 @@ void nonredundantize(std::vector<AlignedSimilarity> &similarities) {
   similarities.resize(k);
 }
 
+int updateInitialSimilarities(InitialSimilarity *sims, int count,
+			      int anchor2, Float probRatio) {
+  int i = 0;
+  int j = 0;
+  while (i < count && sims[i].anchor2 <= anchor2 - minSeparation) ++i;
+  while (i < count && sims[i].probRatio > probRatio) sims[j++] = sims[i++];
+  sims[j].probRatio = probRatio;
+  sims[j].anchor2 = anchor2;
+  return j + 1;
+}
+
 void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 		      Profile profile, const char *sequence,
 		      int sequenceLength, Float *scratch,
 		      double minProbRatio) {
-  const int minDistance = 32;  // xxx ???
   long rowSize = sequenceLength + 1;
   // scratch has space for (sequenceLength + 1) * (profile.length + 2) values
   Float *Y = scratch + rowSize * (profile.length + 1);
@@ -458,20 +477,25 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     Float e = profile.values[i * profile.width + 3];
     const Float *S = profile.values + i * profile.width + 4;
 
+    InitialSimilarity hits[minSeparation];
+    int hitCount = 0;
+    int jOld = INT_MAX;
+
     Float x = 0;
     Float z = 0;
-    int jOld = -minDistance;
     for (int j = 0; j <= sequenceLength; ++j) {
       Float y = Y[j];
       Float w = x + y + z + scale;
       Float wMid = w * W[j];
       if (minProbRatio > 0) {
 	if (wMid >= minProbRatio) {
-	  if (j - jOld >= minDistance) {
+	  if (j - jOld >= minSeparation) {
 	    addMidAnchored(similarities, profile, sequence, sequenceLength,
 			   scratch, i, jOld, wBegAnchored, wEndAnchored);
+	    jOld = INT_MAX;
 	  }
-	  if (j - jOld >= minDistance || wMid > wBegAnchored * wEndAnchored) {
+	  hitCount = updateInitialSimilarities(hits, hitCount, j, wMid);
+	  if (hitCount == 1) {
 	    jOld = j;
 	    wBegAnchored = W[j];
 	    wEndAnchored = w;
@@ -506,8 +530,10 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       }
     }
 
-    addMidAnchored(similarities, profile, sequence, sequenceLength,
-		   scratch, i, jOld, wBegAnchored, wEndAnchored);
+    if (jOld <= sequenceLength) {
+      addMidAnchored(similarities, profile, sequence, sequenceLength,
+		     scratch, i, jOld, wBegAnchored, wEndAnchored);
+    }
   }
 
   if (minProbRatio > 0) {
