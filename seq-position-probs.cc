@@ -493,7 +493,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       Float y = Y[j];
       Float w = x + y + z + scale;
       Float wMid = w * W[j];
-      if (minProbRatio > 0) {
+      if (minProbRatio >= 0) {
 	if (wMid >= minProbRatio) {
 	  if (j - jOld >= minSeparation) {
 	    addMidAnchored(similarities, profile, sequence, sequenceLength,
@@ -529,7 +529,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     if (wMidMaxHere > wMidMax) {
       wMidMax = wMidMaxHere;
       iMidMax = i;
-      if (minProbRatio < 0) {
+      if (minProbRatio >= -1) {
 	alignment.clear();
 	addForwardAlignment(alignment, profile, sequence, sequenceLength,
 			    scratch, iMidMax, jMidMax, wBegAnchored / 2);
@@ -542,7 +542,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     }
   }
 
-  if (minProbRatio > 0) {
+  if (minProbRatio >= 0) {
     if (verbosity > 1) std::cerr << "Initial similarities: "
 				 << similarities.size() << "\n";
     nonredundantize(similarities);
@@ -717,7 +717,7 @@ Triple estimateK(Profile profile, const Float *letterFreqs,
     sequence[sequenceLength + border] = dist(randGen);  // arbitrary letter
     std::vector<AlignedSimilarity> sims;
     findSimilarities(sims, profile, sequence, sequenceLength + border,
-		     scratch, 0);
+		     scratch, -2);
     endScores[i] = log(sims[0].probRatio);
     begScores[i] = log(sims[1].probRatio);
     midScores[i] = log(sims[2].probRatio);
