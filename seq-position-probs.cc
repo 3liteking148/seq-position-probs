@@ -119,6 +119,12 @@ bool isDash(const char *text) {
   return text[0] == '-' && text[1] == 0;
 }
 
+std::istream &fail(std::istream &s, const char *message) {
+  std::cerr << message << "\n";
+  s.setstate(std::ios::failbit);
+  return s;
+}
+
 std::istream &openFile(std::ifstream &file, const char *name) {
   if (isDash(name)) return std::cin;
   file.open(name);
@@ -128,19 +134,17 @@ std::istream &openFile(std::ifstream &file, const char *name) {
 
 std::istream &readSequence(std::istream &in, Sequence &sequence,
 			   std::vector<char> &vec, const char *charToNumber) {
-  sequence.nameIdx = vec.size();
+  char x;
+  if (!(in >> x)) return in;
+  if (x != '>') return fail(in, "bad sequence data: no '>'");
 
   std::string line, word;
-  while (getline(in, line)) {
-    std::istringstream iss(line);
-    char c;
-    if (iss >> c) {
-      if (c != '>' || !(iss >> word)) in.setstate(std::ios::failbit);
-      const char *name = word.c_str();
-      vec.insert(vec.end(), name, name + word.size() + 1);
-      break;
-    }
-  }
+  getline(in, line);
+  std::istringstream iss(line);
+  if (!(iss >> word)) return fail(in, "bad sequence data: no name");
+  sequence.nameIdx = vec.size();
+  const char *name = word.c_str();
+  vec.insert(vec.end(), name, name + word.size() + 1);
 
   std::streambuf *buf = in.rdbuf();
   int c = buf->sgetc();
@@ -149,7 +153,9 @@ std::istream &readSequence(std::istream &in, Sequence &sequence,
     c = buf->snextc();
   }
 
-  sequence.length = vec.size() - sequence.nameIdx - word.size() - 1;
+  size_t seqLen = vec.size() - sequence.nameIdx - word.size() - 1;
+  if (seqLen >= INT_MAX) return fail(in, "the sequence is too long!");
+  sequence.length = seqLen;
   vec.push_back(0);  // the algorithms need one arbitrary letter past the end
   return in;
 }
