@@ -391,10 +391,10 @@ void nonredundantize(std::vector<AlignedSimilarity> &similarities) {
   similarities.resize(k);
 }
 
-void findRawSimilarities(std::vector<AlignedSimilarity> &similarities,
-			 Profile profile, const char *sequence,
-			 int sequenceLength, Float *scratch,
-			 double minProbRatio) {
+void findSimilarities(std::vector<AlignedSimilarity> &similarities,
+		      Profile profile, const char *sequence,
+		      int sequenceLength, Float *scratch,
+		      double minProbRatio) {
   const int minDistance = 32;  // xxx ???
   long rowSize = sequenceLength + 1;
   // scratch has space for (sequenceLength + 1) * (profile.length + 2) values
@@ -538,17 +538,17 @@ void findRawSimilarities(std::vector<AlignedSimilarity> &similarities,
   }
 }
 
-void findSimilarities(std::vector<FinalSimilarity> &similarities,
-		      Profile profile, const char *sequence,
-		      int sequenceLength, Float *scratch,
-		      size_t profileNum, size_t strandNum,
-		      double minProbRatio) {
+void findFinalSimilarities(std::vector<FinalSimilarity> &similarities,
+			   Profile profile, const char *sequence,
+			   int sequenceLength, Float *scratch,
+			   size_t profileNum, size_t strandNum,
+			   double minProbRatio) {
   const char *alphabet =
     (profile.width == 9) ? "acgtn" : "ACDEFGHIKLMNPQRSTVWYX";
 
   std::vector<AlignedSimilarity> sims;
-  findRawSimilarities(sims, profile, sequence, sequenceLength, scratch,
-		      minProbRatio);
+  findSimilarities(sims, profile, sequence, sequenceLength, scratch,
+		   minProbRatio);
 
   for (const auto &x : sims) {
     FinalSimilarity s = {x.probRatio, profileNum, strandNum,
@@ -684,8 +684,8 @@ Triple estimateK(Profile profile, const Float *letterFreqs,
     for (int j = 0; j < border; ++j) sequence[sequenceLength+j] = sequence[j];
     sequence[sequenceLength + border] = dist(randGen);  // arbitrary letter
     std::vector<AlignedSimilarity> sims;
-    findRawSimilarities(sims, profile, sequence, sequenceLength + border,
-			scratch, 0);
+    findSimilarities(sims, profile, sequence, sequenceLength + border,
+		     scratch, 0);
     endScores[i] = log(sims[0].probRatio);
     begScores[i] = log(sims[1].probRatio);
     midScores[i] = log(sims[2].probRatio);
@@ -1105,9 +1105,9 @@ Options for random sequences:\n\
 	for (size_t j = 0; j < numOfProfiles; ++j) {
 	  if (verbosity > 1)
 	    std::cerr << "Profile: " << &charVec[profiles[j].nameIdx] << "\n";
-	  findSimilarities(similarities, profiles[j], &charVec[seqIdx],
-			   sequence.length, &scratch[0], j, strandNum,
-			   minProbRatio);
+	  findFinalSimilarities(similarities, profiles[j], &charVec[seqIdx],
+				sequence.length, &scratch[0], j, strandNum,
+				minProbRatio);
 	}
       }
       reverseComplement(&charVec[seqIdx], &charVec[seqIdx] + sequence.length);
