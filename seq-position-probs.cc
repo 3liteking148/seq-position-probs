@@ -72,11 +72,11 @@ struct Similarity {
   std::vector<char> alignedSequences;
 };
 
-int rawBeg2(const RawSimilarity &x) {
+int simBeg2(const RawSimilarity &x) {
   return x.alignment.empty() ? x.anchor2 : x.alignment[0].start2;
 }
 
-int rawEnd2(const RawSimilarity &x) {
+int simEnd2(const RawSimilarity &x) {
   return x.alignment.empty() ?
     x.anchor2 : x.alignment.back().start2 + x.alignment.back().length;
 }
@@ -332,11 +332,11 @@ void addMidAnchored(std::vector<RawSimilarity> &similarities,
 		    int anchor1, int anchor2,
 		    Float wBegAnchored, Float wEndAnchored) {
   if (anchor2 < 0) return;
-  RawSimilarity raw = {wEndAnchored * wBegAnchored / scale, anchor1, anchor2,
-		       wEndAnchored};
-  addForwardAlignment(raw.alignment, profile, sequence, sequenceLength,
+  RawSimilarity s = {wEndAnchored * wBegAnchored / scale, anchor1, anchor2,
+		     wEndAnchored};
+  addForwardAlignment(s.alignment, profile, sequence, sequenceLength,
 		      scratch, anchor1, anchor2, wBegAnchored / 2);
-  similarities.push_back(raw);
+  similarities.push_back(s);
 }
 
 void finishMidAnchored(RawSimilarity &s, Profile profile, const char *sequence,
@@ -348,7 +348,7 @@ void finishMidAnchored(RawSimilarity &s, Profile profile, const char *sequence,
 }
 
 bool isLess(const RawSimilarity &a, const RawSimilarity &b) {
-  return rawBeg2(a) < rawBeg2(b);
+  return simBeg2(a) < simBeg2(b);
 }
 
 bool isOverlapping(const std::vector<SegmentPair> &alignment1,
@@ -369,10 +369,10 @@ void nonredundantize(std::vector<RawSimilarity> &similarities) {
   size_t k = 0;
   for (size_t i = 0; i < similarities.size(); ++i) {
     RawSimilarity &x = similarities[i];
-    int end = rawEnd2(x);
+    int end = simEnd2(x);
     for (size_t j = i + 1; j < similarities.size(); ++j) {
       RawSimilarity &y = similarities[j];
-      if (rawBeg2(y) >= end) break;
+      if (simBeg2(y) >= end) break;
       if (isOverlapping(x.alignment, y.alignment)) {
 	if (x.probRatio < y.probRatio) {
 	  x.probRatio = 0;
@@ -545,18 +545,18 @@ void findSimilarities(std::vector<Similarity> &similarities,
   const char *alphabet =
     (profile.width == 9) ? "acgtn" : "ACDEFGHIKLMNPQRSTVWYX";
 
-  std::vector<RawSimilarity> raws;
-  findRawSimilarities(raws, profile, sequence, sequenceLength, scratch,
+  std::vector<RawSimilarity> sims;
+  findRawSimilarities(sims, profile, sequence, sequenceLength, scratch,
 		      minProbRatio);
 
-  for (const auto &r : raws) {
-    Similarity s = {r.probRatio, profileNum, strandNum, r.anchor1, r.anchor2,
-		    r.anchor1, r.anchor2};
-    if (!r.alignment.empty()) {
-      s.start1 = r.alignment[0].start1;
-      s.start2 = r.alignment[0].start2;
-      addAlignedProfile(s.alignedSequences, r.alignment, alphabet, profile);
-      addAlignedSequence(s.alignedSequences, r.alignment, alphabet, sequence);
+  for (const auto &x : sims) {
+    Similarity s = {x.probRatio, profileNum, strandNum, x.anchor1, x.anchor2,
+		    x.anchor1, x.anchor2};
+    if (!x.alignment.empty()) {
+      s.start1 = x.alignment[0].start1;
+      s.start2 = x.alignment[0].start2;
+      addAlignedProfile(s.alignedSequences, x.alignment, alphabet, profile);
+      addAlignedSequence(s.alignedSequences, x.alignment, alphabet, sequence);
     }
     similarities.push_back(s);
   }
