@@ -63,7 +63,7 @@ struct AlignedSimilarity {
   std::vector<SegmentPair> alignment;
 };
 
-struct Similarity {
+struct FinalSimilarity {
   double probRatio;
   size_t profileNum;
   size_t strandNum;
@@ -184,7 +184,7 @@ void addAlignedSequence(std::vector<char> &gappedSeq,
 }
 
 void printSimilarity(const char *names, Profile p, Sequence s,
-		     const Similarity &sim, double evalue) {
+		     const FinalSimilarity &sim, double evalue) {
   char strand = "+-"[sim.strandNum % 2];
   const char *seq = sim.alignedSequences.data();
   int length = sim.alignedSequences.size() / 2;
@@ -538,7 +538,7 @@ void findRawSimilarities(std::vector<AlignedSimilarity> &similarities,
   }
 }
 
-void findSimilarities(std::vector<Similarity> &similarities,
+void findSimilarities(std::vector<FinalSimilarity> &similarities,
 		      Profile profile, const char *sequence,
 		      int sequenceLength, Float *scratch,
 		      size_t profileNum, size_t strandNum,
@@ -551,8 +551,8 @@ void findSimilarities(std::vector<Similarity> &similarities,
 		      minProbRatio);
 
   for (const auto &x : sims) {
-    Similarity s = {x.probRatio, profileNum, strandNum, x.anchor1, x.anchor2,
-		    x.anchor1, x.anchor2};
+    FinalSimilarity s = {x.probRatio, profileNum, strandNum,
+			 x.anchor1, x.anchor2, x.anchor1, x.anchor2};
     if (!x.alignment.empty()) {
       s.start1 = x.alignment[0].start1;
       s.start2 = x.alignment[0].start2;
@@ -1084,7 +1084,7 @@ Options for random sequences:\n\
 
   charVec.resize(seqIdx);
   std::vector<Sequence> sequences;
-  std::vector<Similarity> similarities;
+  std::vector<FinalSimilarity> similarities;
   size_t totSequenceLength = 0;
 
   std::ifstream file;
