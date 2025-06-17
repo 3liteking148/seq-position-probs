@@ -28,7 +28,8 @@ The output shows similar regions in [MAF][] format:
   `sequences.fasta`.
 
 * The `anchor` shows profile,sequence coordinates.  It means there are
-  similar regions around these coordinates.
+  similar regions around these coordinates.  (These are
+  [mid-anchored][frith2025] similarities.)
 
 The `s` lines show a representative alignment.  This aligns letters
 whose probability of being aligned is > 0.5, among all possible
