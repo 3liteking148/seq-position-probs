@@ -26,7 +26,11 @@
 #define OPT_l 500
 #define OPT_b 100
 
+#ifdef DOUBLE
 typedef double Float;
+#else
+typedef float Float;
+#endif
 
 // Only consider similarities that are local maxima.  If 2
 // similarities have identical 1st anchor coordinates, and their 2nd
@@ -255,7 +259,7 @@ void addReverseMatch(std::vector<SegmentPair> &alignment, int pos1, int pos2) {
 void addForwardAlignment(std::vector<SegmentPair> &alignment,
 			 Profile profile, const char *sequence,
 			 int sequenceLength, const Float *scratch,
-			 int iBeg, int jBeg, Float half) {
+			 int iBeg, int jBeg, double half) {
   long rowSize = sequenceLength + 1;
   const char *seq = sequence + jBeg;
 
@@ -263,24 +267,24 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
     int iEnd = std::min(iBeg + size, profile.length + 1);
     int jEnd = std::min(jBeg + size, sequenceLength + 1);
     int jLen = jEnd - jBeg;
-    std::vector<Float> scratch2(jLen * 2);
-    Float *X = scratch2.data();
-    Float *Y = X + jLen;
-    Float wSum = 0;
+    std::vector<double> scratch2(jLen * 2);  // use "double" to avoid underflow
+    double *X = scratch2.data();
+    double *Y = X + jLen;
+    double wSum = 0;
 
     for (int i = iBeg; i < iEnd; ++i) {
       const Float *Wreverse = scratch + (i+1) * rowSize + jBeg + 1;
-      Float a = profile.values[i * profile.width + 0];
-      Float b = profile.values[i * profile.width + 1];
-      Float d = profile.values[i * profile.width + 2];
-      Float e = profile.values[i * profile.width + 3];
+      double a = profile.values[i * profile.width + 0];
+      double b = profile.values[i * profile.width + 1];
+      double d = profile.values[i * profile.width + 2];
+      double e = profile.values[i * profile.width + 3];
       const Float *S = profile.values + i * profile.width + 4;
 
-      Float x = (i == iBeg) ? scale : 0;
-      Float z = 0;
+      double x = (i == iBeg) ? scale : 0;
+      double z = 0;
       for (int j = 0; j < jLen; ++j) {
-	Float y = Y[j];
-	Float w = x + y + z;
+	double y = Y[j];
+	double w = x + y + z;
 	wSum += w;
 	Y[j] = d * w + e * y;
 	x = X[j];
@@ -303,7 +307,7 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
 void addReverseAlignment(std::vector<SegmentPair> &alignment,
 			 Profile profile, const char *sequence,
 			 int sequenceLength, const Float *scratch,
-			 int iEnd, int jEnd, Float half) {
+			 int iEnd, int jEnd, double half) {
   long rowSize = sequenceLength + 1;
   const char *seq = sequence + jEnd;
 
@@ -311,24 +315,24 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment,
     int iBeg = std::max(iEnd - size, -1);
     int jBeg = std::max(jEnd - size, -1);
     int jLen = jEnd - jBeg;
-    std::vector<Float> scratch2(jLen * 2);
-    Float *X = scratch2.data() + jLen;
-    Float *Y = X + jLen;
-    Float wSum = 0;
+    std::vector<double> scratch2(jLen * 2);  // use "double" to avoid underflow
+    double *X = scratch2.data() + jLen;
+    double *Y = X + jLen;
+    double wSum = 0;
 
     for (int i = iEnd-1; i >= iBeg; --i) {
       const Float *Xforward = (i >= 0) ? scratch + i * rowSize + jEnd : 0;
-      Float a = profile.values[(i+1) * profile.width + 0];
-      Float b = profile.values[(i+1) * profile.width + 1];
-      Float d = profile.values[(i+1) * profile.width + 2];
-      Float e = profile.values[(i+1) * profile.width + 3];
+      double a = profile.values[(i+1) * profile.width + 0];
+      double b = profile.values[(i+1) * profile.width + 1];
+      double d = profile.values[(i+1) * profile.width + 2];
+      double e = profile.values[(i+1) * profile.width + 3];
       const Float *S = (i >= 0) ? profile.values + i * profile.width + 4 : 0;
 
-      Float x = (i == iEnd-1) ? scale : 0;
-      Float z = 0;
+      double x = (i == iEnd-1) ? scale : 0;
+      double z = 0;
       for (int j = -1; j >= -jLen; --j) {
-	Float y = Y[j];
-	Float w = x + d * y + a * z;  // this is: W[i+1][jEnd+j+1]
+	double y = Y[j];
+	double w = x + d * y + a * z;  // this is: W[i+1][jEnd+j+1]
 	wSum += w;
 	Y[j] = w + e * y;
 	x = X[j];
