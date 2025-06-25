@@ -29,7 +29,9 @@ The output shows similar regions in [MAF][] format:
 
 * The `anchor` shows profile,sequence coordinates.  It means there are
   similar regions around these coordinates.  (These are
-  [mid-anchored][frith2025] similarities.)
+  [mid-anchored][frith2025] similarities.  It tries all possible
+  anchors, and outputs all whose *E*-values are &le; a threshold and
+  are local minima.)
 
 The `s` lines show a representative alignment.  This aligns letters
 whose probability of being aligned is > 0.5, among all possible
@@ -59,6 +61,12 @@ shows the maximum [end-anchored][frith2025],
 that order).  It gets each kind of score for all possible anchors, and
 shows the maximum.
 
+## Low-memory version
+
+`seq-position-probs2` uses half as much memory, and is a bit faster,
+but is more prone to numeric overflow.  (It uses single-precision
+instead of double-precision floating-point numbers.)
+
 ## Random sequences
 
 To calculate *E*-values, it needs to estimate a *K* parameter for each
@@ -77,9 +85,11 @@ another &lambda; parameter that isn't used currently).
 * `lamMM` is &lambda; estimated by the method of moments.
 * `kMM` is *K* estimated by the method of moments.
 * `kMM1` is *K* estimated by the method of moments assuming &lambda; = 1.
+
 * `lamML` is &lambda; estimated by maximum-likelihood.
 * `kML` is *K* estimated by maximum-likelihood.
 * `kML1` is *K* estimated by maximum-likelihood assuming &lambda; = 1.
+
 * `lamLM` is &lambda; estimated by the method of L-moments.
 * `kLM` is *K* estimated by the the method of L-moments.
 
@@ -87,7 +97,7 @@ another &lambda; parameter that isn't used currently).
 
 Only `kMM1` is used to calculate *E*-values.
 
-These options affect the random sequences.
+These options affect the random sequences:
 
 - `-t T`, `--trials T`: generate this many random sequences.
 
