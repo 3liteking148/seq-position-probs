@@ -69,7 +69,7 @@ struct InitialSimilarity {
 struct AlignedSimilarity {
   double probRatio;
   int anchor1, anchor2;
-  double wEndAnchored;
+  Float wEndAnchored;
   std::vector<SegmentPair> alignment;
 };
 
@@ -294,6 +294,9 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
 
       if (wSum >= half) return;
     }
+
+    // this line should be unnecessary, except for problems such as overflow:
+    if (iEnd >= profile.length && jEnd >= sequenceLength) break;
   }
 }
 
@@ -339,6 +342,9 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment,
 
       if (wSum >= half) return;
     }
+
+    // this line should be unnecessary, except for problems such as overflow:
+    if (iBeg <= 0 && jBeg <= 0) break;
   }
 }
 
@@ -420,12 +426,13 @@ int updateInitialSimilarities(InitialSimilarity *sims, int count,
 void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 		      Profile profile, const char *sequence,
 		      int sequenceLength, Float *scratch,
-		      double minProbRatio) {
+		      Float minProbRatio) {
   long rowSize = sequenceLength + 1;
   // scratch has space for (sequenceLength + 1) * (profile.length + 2) values
   Float *Y = scratch + rowSize * (profile.length + 1);
 
-  // Backward algorithm:
+  if (verbosity > 1 && minProbRatio >= -1)
+    std::cerr << "Backward algorithm...\n";
 
   Float wMax = 0;
   int iMax, jMax;
@@ -463,7 +470,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
   addForwardAlignment(begAnchored.alignment, profile, sequence,
 		      sequenceLength, scratch, iMax, jMax, wMax / 2);
 
-  // Forward algorithm:
+  if (verbosity > 1 && minProbRatio >= -1)
+    std::cerr << "Forward algorithm...\n";
 
   wMax = 0;
   Float wMidMax = 0;
@@ -574,7 +582,7 @@ void findFinalSimilarities(std::vector<FinalSimilarity> &similarities,
 			   Profile profile, const char *sequence,
 			   int sequenceLength, Float *scratch,
 			   size_t profileNum, size_t strandNum,
-			   double minProbRatio) {
+			   Float minProbRatio) {
   const char *alphabet =
     (profile.width == 9) ? "acgtn" : "ACDEFGHIKLMNPQRSTVWYX";
 
@@ -1129,7 +1137,7 @@ Options for random sequences:\n\
     if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
     seqIdx = charVec.size() - sequence.length - 1;
     totSequenceLength += sequence.length * (strandOpt / 2 + 1);
-    double minProbRatio =
+    Float minProbRatio =
       (evalueOpt > 0) ? totMidK * totSequenceLength / evalueOpt * scale : -1;
     for (int s = 0; s < 2; ++s) {
       if (s != strandOpt) {
