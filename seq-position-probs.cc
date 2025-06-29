@@ -273,7 +273,7 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
     double wSum = 0;
 
     for (int i = iBeg; i < iEnd; ++i) {
-      const Float *Wreverse = scratch + (i+1) * rowSize + jBeg + 1;
+      const Float *Wbackward = scratch + (i+1) * rowSize + jBeg + 1;
       double a = profile.values[i * profile.width + 0];
       double b = profile.values[i * profile.width + 1];
       double d = profile.values[i * profile.width + 2];
@@ -291,7 +291,7 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
 	z = a * w + b * z;
 	if (i == profile.length || jBeg + j == sequenceLength) continue;
 	X[j] = S[seq[j]] * w;
-	if (X[j] * Wreverse[j] > half * scale) {
+	if (X[j] * Wbackward[j] > half * scale) {
 	  addForwardMatch(alignment, i, jBeg + j);
 	}
       }
@@ -487,8 +487,9 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
   for (int i = 0; i <= profile.length; ++i) {
     Float wMidMaxHere = wMidMax;
-    Float *W = scratch + i * rowSize;
-    const Float *X = i ? W - rowSize : Y;
+    Float *X = scratch + i * rowSize;
+    const Float *Xfrom = i ? X - rowSize : Y;
+    const Float *Wbackward = X;  // the forward Xs overwrite the backward Ws
     Float a = profile.values[i * profile.width + 0];
     Float b = profile.values[i * profile.width + 1];
     Float d = profile.values[i * profile.width + 2];
@@ -504,7 +505,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     for (int j = 0; j <= sequenceLength; ++j) {
       Float y = Y[j];
       Float w = x + y + z + scale;
-      Float wMid = w * W[j];
+      Float wMid = w * Wbackward[j];
       if (minProbRatio >= 0) {
 	if (wMid >= minProbRatio) {
 	  if (j - jOld >= minSeparation) {
@@ -515,7 +516,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 	  hitCount = updateInitialSimilarities(hits, hitCount, j, wMid);
 	  if (hitCount == 1) {
 	    jOld = j;
-	    wBegAnchored = W[j];
+	    wBegAnchored = Wbackward[j];
 	    wEndAnchored = w;
 	  }
 	}
@@ -527,13 +528,13 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 	}
 	if (wMid > wMidMaxHere) {
 	  wMidMaxHere = wMid;
-	  wBegAnchored = W[j];
+	  wBegAnchored = Wbackward[j];
 	  wEndAnchored = w;
 	  jMidMax = j;
 	}
       }
-      x = X[j];
-      W[j] = S[sequence[j]] * w;
+      x = Xfrom[j];
+      X[j] = S[sequence[j]] * w;
       Y[j] = d * w + e * y;
       z = a * w + b * z;
     }
