@@ -352,13 +352,58 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment,
   }
 }
 
+bool maybeLocalMaximum(Profile profile, const char *sequence,
+		       int sequenceLength, const Float *scratch,
+		       int anchor1, int anchor2, Float wMidAnchored) {
+  Float X[minSeparation * 2 - 1];
+  Float Y[minSeparation * 2 - 1];
+  long rowSize = sequenceLength + 1;
+
+  int iEnd = std::min(anchor1 + minSeparation - 1, profile.length);
+  int jBeg = std::max(anchor2 - minSeparation + 1, 0);
+  int jEnd = std::min(anchor2 + minSeparation - 1, sequenceLength);
+
+  const char *seq = sequence + jBeg;
+  const Float *Xfrom = scratch + rowSize * anchor1 + jBeg;
+  const Float *Yfrom = scratch + rowSize * (profile.length + 1) + jBeg;
+
+  for (int i = anchor1 + 1; i <= iEnd; ++i) {
+    const Float *Wbackward = scratch + i * rowSize + jBeg;
+    Float a = profile.values[i * profile.width + 0];
+    Float b = profile.values[i * profile.width + 1];
+    Float d = profile.values[i * profile.width + 2];
+    Float e = profile.values[i * profile.width + 3];
+    const Float *S = profile.values + i * profile.width + 4;
+
+    Float x = 0;
+    Float z = 0;
+    for (int j = 0; j <= jEnd - jBeg; ++j) {
+      Float y = Yfrom[j];
+      Float w = x + y + z + scale;
+      if (w * Wbackward[j] > wMidAnchored) return false;  // found higher score
+      x = Xfrom[j];
+      X[j] = S[seq[j]] * w;
+      Y[j] = d * w + e * y;
+      z = a * w + b * z;
+    }
+
+    Xfrom = X;
+    Yfrom = Y;
+  }
+
+  return true;  // maybe there is no higher score nearby
+}
+
 void addMidAnchored(std::vector<AlignedSimilarity> &similarities,
 		    Profile profile, const char *sequence,
 		    int sequenceLength, const Float *scratch,
 		    int anchor1, int anchor2,
 		    Float wBegAnchored, Float wEndAnchored) {
-  AlignedSimilarity s = {wEndAnchored * wBegAnchored / scale, anchor1, anchor2,
-			 wEndAnchored};
+  Float wMidAnchored = wEndAnchored * wBegAnchored;
+  // this local maximum check makes it faster when there are many similarities:
+  if (!maybeLocalMaximum(profile, sequence, sequenceLength, scratch,
+			 anchor1, anchor2, wMidAnchored)) return;
+  AlignedSimilarity s = {wMidAnchored / scale, anchor1, anchor2, wEndAnchored};
   addForwardAlignment(s.alignment, profile, sequence, sequenceLength,
 		      scratch, anchor1, anchor2, wBegAnchored / 2);
   similarities.push_back(s);
