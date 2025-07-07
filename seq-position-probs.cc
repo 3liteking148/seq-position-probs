@@ -1135,7 +1135,16 @@ Options for random sequences:\n\
   std::vector<Float> scratch;
   if (!resizeMem(scratch, maxProfileLength, randomSeqLen + border)) return 1;
 
-  std::cout << "# Length of random sequence: " << randomSeqLen << "\n";
+  std::cout << "# seq-position-probs "
+#include "version.hh"
+    "\n";
+  std::cout << "# Random sequences: trials=" << randomSeqNum
+	    << " length=" << randomSeqLen << " border=" << border << "\n";
+  if (argc - optind > 1) {
+    if (evalueOpt > 0) std::cout << "# E-value <= " << evalueOpt << "\n";
+    if (strandOpt < 2)
+      std::cout << "# Strand: " << (strandOpt ? "forward" : "reverse") << "\n";
+  }
 
   int printVerbosity = (argc - optind < 2) * 2 + (evalueOpt <= 0);
 

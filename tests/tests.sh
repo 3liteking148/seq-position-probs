@@ -13,4 +13,5 @@ PATH=../bin:$PATH
 	seq-position-probs -t50 -b0 -e0 -s1 dfam-test.hmm -
     tr A N < dna-test.fa | seq-position-probs -t50 -b0 -e0 -s0 dfam-test.hmm -
     seq-position-probs -e0.001 -t100 -l400 dfam-test.hmm hg38-chr15-part.fa
-} | diff -u tests.txt -
+} |
+    grep -v seq-position-probs | diff -u tests.txt -
