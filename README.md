@@ -1,15 +1,29 @@
 # seq-position-probs
 
-This software finds similarities between genetic sequences and
+This software aims to find distant relationships between genetic
+sequences (nucleotide or protein).  It's similar to [HMMER][], but
+much simpler, and aspires to be better.
+
+In more detail, it finds similar regions between genetic sequences and
 "profiles".  A profile is a set of position-specific letter, deletion,
-and insertion probabilities.
+and insertion probabilities: typically made from a family of related
+sequences.
 
 This is a proof-of-principle for the paper [A simple way to find
 related sequences with position-specific probabilities][frith2025].
 
-To compile it, just do `make`.
+## Setup
 
-It can compare sequences in FASTA format to profiles in HMMER3/f format:
+You can get the highest version number from
+https://gitlab.com/mcfrith/seq-position-probs/-/tags (or `git clone`
+it).  Using the command line, go into the downloaded directory and do
+`make`.
+
+## Usage
+
+It can compare sequences in FASTA format to profiles in HMMER3/f
+format.  You can get DNA profiles from [Dfam][], or protein profiles
+from [Pfam][], or make profiles with [HMMER][].  Run it like this:
 
     seq-position-probs profiles.hmm sequences.fasta
 
@@ -85,11 +99,9 @@ another &lambda; parameter that isn't used currently).
 * `lamMM` is &lambda; estimated by the method of moments.
 * `kMM` is *K* estimated by the method of moments.
 * `kMM1` is *K* estimated by the method of moments assuming &lambda; = 1.
-
 * `lamML` is &lambda; estimated by maximum-likelihood.
 * `kML` is *K* estimated by maximum-likelihood.
 * `kML1` is *K* estimated by maximum-likelihood assuming &lambda; = 1.
-
 * `lamLM` is &lambda; estimated by the method of L-moments.
 * `kLM` is *K* estimated by the the method of L-moments.
 
@@ -123,6 +135,9 @@ These options affect the random sequences:
   *K*<sub>tot</sub> is the sum over profiles of *K*, and *N* is the
   sum of sequence lengths.
 
+[Dfam]: https://dfam.org/home
+[Pfam]: https://www.ebi.ac.uk/interpro/entry/pfam/#table
 [frith2025]: https://doi.org/10.1101/2025.03.14.643233
 [edge effects]: https://doi.org/10.1093/nar/29.2.351
+[HMMER]: http://hmmer.org
 [MAF]: https://genome.ucsc.edu/FAQ/FAQformat.html#format5
