@@ -1027,6 +1027,7 @@ position-specific letter, deletion, and insertion probabilities.\n\
 \n\
 Options:\n\
   -h, --help        show this help message and exit\n\
+  -V, --version     show version and exit\n\
   -v, --verbose     show progress messages\n\
 \n\
 Options for real sequences:\n\
@@ -1044,10 +1045,11 @@ Options for random sequences:\n\
     STR(OPT_b) ")\n\
 ";
 
-  const char sOpts[] = "hve:s:t:l:b:";
+  const char sOpts[] = "hVve:s:t:l:b:";
 
   static struct option lOpts[] = {
     {"help",    no_argument,       0, 'h'},
+    {"version", no_argument,       0, 'V'},
     {"verbose", no_argument,       0, 'v'},
     {"evalue",  required_argument, 0, 'e'},
     {"strand",  required_argument, 0, 's'},
@@ -1062,6 +1064,11 @@ Options for random sequences:\n\
     switch (c) {
     case 'h':
       std::cout << help;
+      return 0;
+    case 'V':
+      std::cout << "seq-position-probs "
+#include "version.hh"
+	"\n";
       return 0;
     case 'v':
       ++verbosity;
