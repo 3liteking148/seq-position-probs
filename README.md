@@ -42,10 +42,15 @@ The output shows similar regions in [MAF][] format:
   `sequences.fasta`.
 
 * The `anchor` shows profile,sequence coordinates.  It means there are
-  similar regions around these coordinates.  (These are
-  [mid-anchored][frith2025] similarities.  It tries all possible
-  anchors, and outputs all whose *E*-values are &le; a threshold and
-  are local minima.)
+  similar regions around these coordinates.
+
+In more detail, the score comes from adding the probabilities of all
+possible alignments passing through the anchor:
+
+score = log<sub>2</sub>[ (sum of alignment probabilities) / (probability of length-0 alignment) ]
+
+It tries all possible anchors, and outputs all whose *E*-values are
+&le; a threshold and are local optima.
 
 The `s` lines show a representative alignment.  This aligns letters
 whose probability of being aligned is > 0.5, among all possible
@@ -70,10 +75,10 @@ Get similarities with *E*-value at most (say) 0.01:
     seq-position-probs -e0.01 profiles.hmm sequences.fasta
 
 `-e0` has a special meaning: for each profile versus each strand, it
-shows the maximum [end-anchored][frith2025],
-[start-anchored][frith2025], and [mid-anchored][frith2025] scores (in
-that order).  It gets each kind of score for all possible anchors, and
-shows the maximum.
+shows the maximum end-anchored, start-anchored, and mid-anchored
+scores (in that order).  These scores sum over all alignments ending
+at, starting at, or passing through the anchor.  It gets each kind of
+score for all possible anchors, and shows the maximum.
 
 ## Low-memory version
 
@@ -90,11 +95,10 @@ see details of this, give it a profile file only:
     seq-position-probs profiles.hmm
 
 For each profile versus each sequence, it shows the maximum
-[end-anchored][frith2025], [start-anchored][frith2025], and
-[mid-anchored][frith2025] scores.
+end-anchored, start-anchored, and mid-anchored scores.
 
 For each kind of score, it then shows various estimates of *K* (and
-another &lambda; parameter that isn't used currently).
+another &lambda; parameter that isn't used currently):
 
 * `lamMM` is &lambda; estimated by the method of moments.
 * `kMM` is *K* estimated by the method of moments.
@@ -128,8 +132,6 @@ These options affect the random sequences:
 * A profile's background letter frequencies are set to the geometric
   mean of its position-specific letter probabilities ([Barrett et
   al. 1997](https://doi.org/10.1093/bioinformatics/13.2.191)).
-
-* A score is: log<sub>2</sub>[probability ratio].
 
 * An *E*-value is: *K*<sub>tot</sub> *N* / 2^score, where
   *K*<sub>tot</sub> is the sum over profiles of *K*, and *N* is the
