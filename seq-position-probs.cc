@@ -60,9 +60,7 @@ struct SegmentPair {
 };
 
 struct Triple {
-  double endAnchored;
-  double begAnchored;
-  double midAnchored;
+  double endAnchored, begAnchored, midAnchored;
 };
 
 struct InitialSimilarity {
@@ -981,10 +979,10 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
   }
 
   Float *v = &values[0];
-  for (size_t i = 0; i < profiles.size(); ++i) {
-    profiles[i].values = v;
-    if (!finalizeProfile(profiles[i])) return 0;
-    v += profiles[i].width * (profiles[i].length + 1);
+  for (auto &p : profiles) {
+    p.values = v;
+    if (!finalizeProfile(p)) return 0;
+    v += p.width * (p.length + 1);
   }
 
   return state == 0;
@@ -1153,8 +1151,7 @@ Options for random sequences:\n\
   double totBegK = 0;
   double totMidK = 0;
 
-  for (size_t i = 0; i < numOfProfiles; ++i) {
-    Profile p = profiles[i];
+  for (auto p : profiles) {
     const Float *profileEnd = p.values + p.width * p.length;
     std::cout << "\n";
     std::cout << "# Profile name: " << &charVec[p.nameIdx] << "\n";
