@@ -1224,17 +1224,13 @@ Options for random sequences:\n\
 
   std::cout << "# Total sequence length: " << totSequenceLength << "\n";
 
-  double endKMN = totEndK * totSequenceLength;
-  double begKMN = totBegK * totSequenceLength;
-  double midKMN = totMidK * totSequenceLength;
-
   std::cout.precision(3);
   for (size_t i = 0; i < similarities.size(); ++i) {
     Profile p = profiles[similarities[i].profileNum];
     Sequence s = sequences[similarities[i].strandNum / 2];
-    double kmn = (evalueOpt > 0) ? midKMN :
-      (i % 3 == 0) ? endKMN : (i % 3 == 1) ? begKMN : midKMN;
-    double evalue = kmn / similarities[i].probRatio;
+    double k = (evalueOpt > 0) ? totMidK :
+      (i % 3 == 0) ? totEndK : (i % 3 == 1) ? totBegK : totMidK;
+    double evalue = k * totSequenceLength / similarities[i].probRatio;
     if (evalueOpt <= 0 && i % 3 == 0) std::cout << "\n";
     if (evalueOpt > 0 && evalue > evalueOpt) continue;
     printSimilarity(charVec.data(), p, s, similarities[i], evalue);
