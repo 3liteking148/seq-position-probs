@@ -14,4 +14,4 @@ PATH=../bin:$PATH
     tr A N < dna-test.fa | dummer -t50 -b0 -e0 -s0 dfam-test.hmm -
     dummer -e0.001 -t100 -l400 dfam-test.hmm hg38-chr15-part.fa
 } |
-    grep -v seq-position-probs | diff -u tests.txt -
+    grep -v DUMMER | diff -u tests.txt -

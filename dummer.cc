@@ -1018,7 +1018,7 @@ int main(int argc, char* argv[]) {
   int border = OPT_b;
 
   const char help[] = "\
-usage: seq-position-probs profiles.hmm [sequences.fa]\n\
+usage: dummer profiles.hmm [sequences.fa]\n\
 \n\
 Find similarities between sequences and profiles.   A profile is a set of\n\
 position-specific letter, deletion, and insertion probabilities.\n\
@@ -1064,7 +1064,7 @@ Options for random sequences:\n\
       std::cout << help;
       return 0;
     case 'V':
-      std::cout << "seq-position-probs "
+      std::cout << "DUMMER "
 #include "version.hh"
 	"\n";
       return 0;
@@ -1133,7 +1133,7 @@ Options for random sequences:\n\
   std::vector<Float> scratch;
   if (!resizeMem(scratch, maxProfileLength, randomSeqLen + border)) return 1;
 
-  std::cout << "# seq-position-probs "
+  std::cout << "# DUMMER "
 #include "version.hh"
     "\n";
   std::cout << "# Bytes per floating-point number: " << sizeof(Float) << "\n";
