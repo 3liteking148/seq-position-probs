@@ -1138,6 +1138,7 @@ Options for random sequences:\n\
   std::cout << "# seq-position-probs "
 #include "version.hh"
     "\n";
+  std::cout << "# Bytes per floating-point number: " << sizeof(Float) << "\n";
   std::cout << "# Random sequences: trials=" << randomSeqNum
 	    << " length=" << randomSeqLen << " border=" << border << "\n";
   if (argc - optind > 1) {

@@ -1,3 +1,4 @@
+# Bytes per floating-point number: 8
 # Random sequences: trials=10 length=200 border=0
 
 # Profile name: MIR
@@ -49,6 +50,7 @@
 #kML1	32.5835	31.1961	91.3128
 #lamLM	1.3484	1.37386	1.32296
 #kLM	587.808	736.159	1966.74
+# Bytes per floating-point number: 8
 # Random sequences: trials=50 length=500 border=0
 # Strand: forward
 
@@ -115,6 +117,7 @@ a score=79 E=1.73e-18 anchor=30,91
 s U7        1 61 +  63 agtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccc
 s hg38_dna 62 60 + 500 agtgttacagcacttttagaatttgtctagcaggctttcaggtcttt-gccagaaagcccc
 
+# Bytes per floating-point number: 8
 # Random sequences: trials=50 length=500 border=0
 
 # Profile name: MIR
@@ -232,6 +235,7 @@ a score=22.7 E=0.296 anchor=54,400
 s U7        33 27 +  63 ggctttccggtttttc----accggaaagcc
 s hg38_dna 380 26 - 500 ggctttctggc-----aaagacctgaaagcc
 
+# Bytes per floating-point number: 8
 # Random sequences: trials=50 length=500 border=0
 # Strand: reverse
 
@@ -298,6 +302,7 @@ a score=22.7 E=0.148 anchor=54,400
 s U7        33 27 +  63 ggctttccggtttttc----accggaaagcc
 s hg38_dna 380 26 - 500 ggctttctggc-----aaagacctgaaagcc
 
+# Bytes per floating-point number: 8
 # Random sequences: trials=50 length=500 border=0
 # Strand: forward
 
@@ -364,6 +369,7 @@ a score=79 E=1.73e-18 anchor=30,91
 s U7        1 61 +  63 agtgttacagctcttttagaatttgtctagcaggctttccggtttttcaccggaaagcccc
 s hg38_dna 62 60 + 500 agtgttacagcacttttagaatttgtctagcaggctttcaggtcttt-gccagaaagcccc
 
+# Bytes per floating-point number: 8
 # Random sequences: trials=50 length=500 border=0
 # Strand: reverse
 
@@ -430,6 +436,7 @@ a score=22.7 E=0.148 anchor=54,400
 s U7        33 27 +  63 ggctttccggtttttc----accggaaagcc
 s hg38_dna 380 26 - 500 ggctttctggc-----aaagacctgaaagcc
 
+# Bytes per floating-point number: 8
 # Random sequences: trials=100 length=400 border=100
 # E-value <= 0.001
 
