@@ -4,7 +4,7 @@ This software aims to find distant relationships between genetic
 sequences (nucleotide or protein).  It's similar to [HMMER][], but
 much simpler, and aspires to be better.
 
-In more detail, it finds similar regions between genetic sequences and
+In more detail, it finds similar regions between sequences and
 "profiles".  A profile is a set of position-specific letter, deletion,
 and insertion probabilities: typically made from a family of related
 sequences.
