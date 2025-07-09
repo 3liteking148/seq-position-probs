@@ -1,15 +1,15 @@
 CXXFLAGS = -Wall -O3 -g
 
-all: bin/seq-position-probs bin/seq-position-probs2
+all: bin/dummer bin/dummerl
 
-bin/seq-position-probs: seq-position-probs.cc version.hh
-	$(CXX) -DDOUBLE $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) -o $@ seq-position-probs.cc
+bin/dummer: dummer.cc version.hh
+	$(CXX) -DDOUBLE $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) -o $@ dummer.cc
 
-bin/seq-position-probs2: seq-position-probs.cc version.hh
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) -o $@ seq-position-probs.cc
+bin/dummerl: dummer.cc version.hh
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) -o $@ dummer.cc
 
 clean:
-	rm -f bin/seq-position-probs*
+	rm -f bin/dummer*
 
 VERSION1 = git describe --dirty
 VERSION2 = echo '$Format:%d$ ' | sed -e 's/.*tag: *//' -e 's/[,) ].*//'
