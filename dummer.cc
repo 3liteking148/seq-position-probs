@@ -10,6 +10,7 @@
 #include <vector>
 
 #include <ctype.h>
+#include <float.h>
 #include <limits.h>
 #include <math.h>
 #include <stdlib.h>
@@ -511,6 +512,11 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       Y[j] = w + e * y;
       z = w + b * z;
     }
+  }
+
+  if (wMax > DBL_MAX) {
+    std::cerr << "numbers overflowed to infinity: giving up this comparison\n";
+    return;
   }
 
   AlignedSimilarity begAnchored = {wMax, iMax, jMax};

@@ -50,6 +50,9 @@ too.
   implemented.  Instead, DUMMER (ab)uses HMMER profiles, whose
   defintion doesn't quite fit.
 
+* DUMMER doesn't avoid similarities of unrelated simple sequences,
+  like atatatatatatatat, which evolve frequently and independently.
+
 * It can fail due to overflow (numbers getting too big).  This only
   happens when there are very strong similarities.
 
