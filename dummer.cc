@@ -877,8 +877,10 @@ double geometricMean(const Float *values, int length, int step) {
 int finalizeProfile(Profile p) {
   Float *end = p.values + p.width * p.length;
 
-  // set the final epsilon to the geometric mean of the other epsilons
-  end[3] = geometricMean(p.values + p.width + 3, p.length - 1, p.width);
+  if (end[3] <= 0) {
+    // set the final epsilon to the geometric mean of the other epsilons
+    end[3] = geometricMean(p.values + p.width + 3, p.length - 1, p.width);
+  }
 
   // set the background letter probabilities proportional to the
   // geometric mean of the foreground letter probabilities
