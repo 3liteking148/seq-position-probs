@@ -22,3 +22,8 @@ std::istream &openFile(std::ifstream &file, const char *name) {
   if (!file) std::cerr << "can't open file: " << name << "\n";
   return file;
 }
+
+int badOpt() {
+  std::cerr << "bad option value\n";
+  return 1;
+}

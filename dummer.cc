@@ -993,11 +993,6 @@ int resizeMem(std::vector<Float> &v, int profileLength, int sequenceLength) {
   return 1;
 }
 
-int badOpt(char opt) {
-  std::cerr << "option -" << opt << ": bad value\n";
-  return 1;
-}
-
 int main(int argc, char* argv[]) {
   double evalueOpt = OPT_e;
   int strandOpt = OPT_s;
@@ -1061,23 +1056,23 @@ Options for random sequences:\n\
       break;
     case 'e':
       evalueOpt = strtod(optarg, 0);
-      if (evalueOpt < 0) return badOpt(c);
+      if (evalueOpt < 0) return badOpt();
       break;
     case 's':
       strandOpt = intFromText(optarg);
-      if (strandOpt < 0 || strandOpt > 2) return badOpt(c);
+      if (strandOpt < 0 || strandOpt > 2) return badOpt();
       break;
     case 't':
       randomSeqNum = intFromText(optarg);
-      if (randomSeqNum < 1) return badOpt(c);
+      if (randomSeqNum < 1) return badOpt();
       break;
     case 'l':
       randomSeqLen = intFromText(optarg);
-      if (randomSeqLen < 1 || randomSeqLen == INT_MAX) return badOpt(c);
+      if (randomSeqLen < 1 || randomSeqLen == INT_MAX) return badOpt();
       break;
     case 'b':
       border = intFromText(optarg);
-      if (border < 0) return badOpt(c);
+      if (border < 0) return badOpt();
       break;
     case '?':
       std::cerr << help;
