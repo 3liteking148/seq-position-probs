@@ -3,9 +3,11 @@ CXXFLAGS = -Wall -O3 -g
 all: bin/dummer bin/dummerl
 
 bin/dummer: dummer.cc dummer-util.hh version.hh
+	mkdir -p bin
 	$(CXX) -DDOUBLE $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) -o $@ dummer.cc
 
 bin/dummerl: dummer.cc dummer-util.hh version.hh
+	mkdir -p bin
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) -o $@ dummer.cc
 
 clean:
