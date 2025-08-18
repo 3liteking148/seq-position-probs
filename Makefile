@@ -1,6 +1,6 @@
 CXXFLAGS = -Wall -O3 -g
 
-all: bin/dummer bin/dummerl
+all: bin/dummer bin/dummerl bin/dummer-build
 
 bin/dummer: dummer.cc dummer-util.hh version.hh
 	mkdir -p bin
@@ -9,6 +9,10 @@ bin/dummer: dummer.cc dummer-util.hh version.hh
 bin/dummerl: dummer.cc dummer-util.hh version.hh
 	mkdir -p bin
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) -o $@ dummer.cc
+
+bin/dummer-build: dummer-build.cc dummer-util.hh version.hh priors/gap-priors.hh priors/wheeler4.hh priors/blocks9.hh
+	mkdir -p bin
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) -o $@ dummer-build.cc
 
 clean:
 	rm -f bin/dummer*
