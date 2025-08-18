@@ -48,8 +48,7 @@ too.
   possible", but slow and memory-consuming.
 
 * Making a profile from a family of related sequences isn't
-  implemented (but [progressing
-  rapidly][https://github.com/Padraig20/dmmbuild]).  Instead, DUMMER
+  implemented (but [progressing rapidly][dmmbuild]).  Instead, DUMMER
   (ab)uses HMMER profiles, whose defintion doesn't quite fit.
 
 * DUMMER doesn't avoid similarities of unrelated simple sequences,
@@ -193,10 +192,42 @@ These options affect the random sequences:
 * &lambda; comes from a not-yet-successful attempt to get better
   *E*-values for short profiles.
 
+## dummer-build
+
+New and experimental.  It makes a profile from an aligned family of
+related sequences (in [Stockholm][] format):
+
+    dummer-build alignments.stk > profiles.hmm
+
+It's basically copied from HMMER's hmmbuild, but here are some differences:
+
+* End gaps (gaps beyond the start or end of a sequence) are treated as
+  missing data (like hmmbuild --fragthresh=1).
+
+* It always does Henikoff position-based sequence weighting: no other
+  options.  This down-weights sequences that are similar to each other
+  (e.g. human and chimp versions of a sequence).
+
+* Option `--enone` scales the absolute sequence weights so that the
+  maximum weight is 1.  That seems good for probabilities fitted to
+  the input sequences.
+
+* Often, however, we want probabilities fitted to more-distantly
+  related sequences than those in the input.  It does that by
+  something similar to HMMER's "entropy weighting", but slightly
+  different.  At each position, if the total letter count at that
+  position exceeds an "effective sequence number (EFFN)" threshold,
+  those counts are downscaled so their total equals the threshold.
+  Insertion and deletion counts are treated similarly.
+
+Maybe it works ok?  The plan is to combine it with [dmmbuild][].
+
 [Dfam]: https://dfam.org/home
 [Pfam]: https://www.ebi.ac.uk/interpro/entry/pfam/#table
 [frith2025]: https://doi.org/10.1101/2025.03.14.643233
+[dmmbuild][]: https://github.com/Padraig20/dmmbuild
 [edge effects]: https://doi.org/10.1093/nar/29.2.351
 [HMMER]: http://hmmer.org
 [HMMER's theory]: https://doi.org/10.1371/journal.pcbi.1000069
 [MAF]: https://genome.ucsc.edu/FAQ/FAQformat.html#format5
+[Stockholm]: https://en.wikipedia.org/wiki/Stockholm_format
