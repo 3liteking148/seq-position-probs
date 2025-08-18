@@ -1,0 +1,8 @@
+#! /bin/sh
+
+# Reverse the sequences in Stockholm-format alignments.
+
+awk '
+/^#/ {print}
+!/^#/ {printf "%s  ", $1; print $2 | "rev"; close("rev")}
+' "$@"
