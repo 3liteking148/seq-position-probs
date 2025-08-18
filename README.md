@@ -9,8 +9,9 @@ In more detail, it finds similar regions between sequences and
 and insertion probabilities: typically made from a family of related
 sequences.
 
-This is a proof-of-principle for the paper [A simple way to find
-related sequences with position-specific probabilities][frith2025].
+This is a proof-of-principle for the paper [Simple and thorough
+detection of related sequences with position-varying probabilities of
+substitutions, insertions, and deletions][frith2025].
 
 ## Motivation: HMMER &rarr; DUMMER
 
@@ -47,8 +48,9 @@ too.
   possible", but slow and memory-consuming.
 
 * Making a profile from a family of related sequences isn't
-  implemented.  Instead, DUMMER (ab)uses HMMER profiles, whose
-  defintion doesn't quite fit.
+  implemented (but [progressing
+  rapidly][https://github.com/Padraig20/dmmbuild]).  Instead, DUMMER
+  (ab)uses HMMER profiles, whose defintion doesn't quite fit.
 
 * DUMMER doesn't avoid similarities of unrelated simple sequences,
   like atatatatatatatat, which evolve frequently and independently.
@@ -64,7 +66,7 @@ too.
 You can get the highest version number from
 https://gitlab.com/mcfrith/seq-position-probs/-/tags (or `git clone`
 it).  Using the command line, go into the downloaded directory and do
-`make`.
+`make`.  That puts the programs in a `bin` subdirectory.
 
 ## Usage
 
@@ -103,6 +105,12 @@ The `s` lines show a representative alignment.  This aligns letters
 whose probability of being aligned is > 0.5, among all possible
 alignments with that anchor.
 
+## Low-memory version
+
+`dummerl` uses half as much memory, and is a bit faster, but is more
+prone to numeric overflow.  (It uses single-precision instead of
+double-precision floating-point numbers.)
+
 ## Options
 
 Show all options and default values:
@@ -121,19 +129,17 @@ Get similarities with *E*-value at most (say) 0.01:
 
     dummer -e0.01 profiles.hmm sequences.fasta
 
+## Rarely useful features
+
+### Strongest similarities
+
 `-e0` has a special meaning: for each profile versus each strand, it
 shows the maximum end-anchored, start-anchored, and mid-anchored
 scores (in that order).  These scores sum over all alignments ending
 at, starting at, or passing through the anchor.  DUMMER gets each kind
 of score for all possible anchors, and shows the maximum.
 
-## Low-memory version
-
-`dummerl` uses half as much memory, and is a bit faster, but is more
-prone to numeric overflow.  (It uses single-precision instead of
-double-precision floating-point numbers.)
-
-## Random sequences
+### Random sequences
 
 To calculate *E*-values, it needs to estimate a *K* parameter for each
 profile.  To do that, it compares the profile to random sequences.  To
@@ -183,6 +189,9 @@ These options affect the random sequences:
 * An *E*-value is: *K*<sub>tot</sub> *N* / 2^score, where
   *K*<sub>tot</sub> is the sum over profiles of *K*, and *N* is the
   sum of sequence lengths.
+
+* &lambda; comes from a not-yet-successful attempt to get better
+  *E*-values for short profiles.
 
 [Dfam]: https://dfam.org/home
 [Pfam]: https://www.ebi.ac.uk/interpro/entry/pfam/#table
