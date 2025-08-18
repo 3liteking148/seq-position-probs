@@ -2,10 +2,10 @@ CXXFLAGS = -Wall -O3 -g
 
 all: bin/dummer bin/dummerl
 
-bin/dummer: dummer.cc version.hh
+bin/dummer: dummer.cc dummer-util.hh version.hh
 	$(CXX) -DDOUBLE $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) -o $@ dummer.cc
 
-bin/dummerl: dummer.cc version.hh
+bin/dummerl: dummer.cc dummer-util.hh version.hh
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) -o $@ dummer.cc
 
 clean:
