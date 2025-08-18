@@ -13,5 +13,9 @@ PATH=../bin:$PATH
 	dummer -t50 -b0 -e0 -s1 dfam-test.hmm -
     tr A N < dna-test.fa | dummer -t50 -b0 -e0 -s0 dfam-test.hmm -
     dummer -e0.001 -t100 -l400 dfam-test.hmm hg38-chr15-part.fa
+
+    cat hakoLTR.stk Notch.stk | dummer-build -
+    dummer-build --symfrac=0.15 Notch.stk
+    dummer-build --enone hakoLTR.stk
 } |
     grep -v DUMMER | diff -u tests.txt -
