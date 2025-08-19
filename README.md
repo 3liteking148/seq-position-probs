@@ -225,7 +225,7 @@ Maybe it works ok?  The plan is to combine it with [dmmbuild][].
 [Dfam]: https://dfam.org/home
 [Pfam]: https://www.ebi.ac.uk/interpro/entry/pfam/#table
 [frith2025]: https://doi.org/10.1101/2025.03.14.643233
-[dmmbuild][]: https://github.com/Padraig20/dmmbuild
+[dmmbuild]: https://github.com/Padraig20/dmmbuild
 [edge effects]: https://doi.org/10.1093/nar/29.2.351
 [HMMER]: http://hmmer.org
 [HMMER's theory]: https://doi.org/10.1371/journal.pcbi.1000069
