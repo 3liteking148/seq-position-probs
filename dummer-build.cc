@@ -186,7 +186,7 @@ void countsToProbs(DirichletMixture dmix, const GapPriors &gp,
     applyDirichletMixture(dmix, alphabetSize, maxCountSum, c + 7, p + 7);
   }
 
-  // These probabilities are never used - set them similarly to HMMER:
+  // These gap probabilities are never used - set them similarly to HMMER:
 
   probs[5] = 1;  // delEnd
   probs[6] = 0;  // delExtend
@@ -200,13 +200,14 @@ double relativeEntropy(const double *probs,
 		       int alphabetSize, int profileLength) {
   double bgProbs[32];
   setBackgroundProbs(bgProbs, probs, alphabetSize, profileLength);
+  int probsPerPosition = 7 + alphabetSize;
 
   double r = 0;
   for (int i = 0; i < profileLength; ++i) {
     for (int j = 0; j < alphabetSize; ++j) {
       r += probs[j] * log2(probs[j] / bgProbs[j]);
     }
-    probs += 7 + alphabetSize;
+    probs += probsPerPosition;
   }
   return r;
 }
@@ -456,6 +457,8 @@ void printProfile(const double *probs, const int *columns,
 		  const char *alphabet, int profileLength,
 		  const MultipleAlignment &ma, double neff) {
   int alphabetSize = strlen(alphabet);
+  int width = alphabetSize + 7;
+
   std::cout << "HMMER3/f [DUMMER "
 #include "version.hh"
     "]\n";
@@ -473,7 +476,7 @@ void printProfile(const double *probs, const int *columns,
   std::cout << "\n";
 
   std::cout << "           match   insStart delStart insEnd   insExt   delEnd   delExt\n";
-  int width = alphabetSize + 7;
+
   std::cout.precision(5);
   for (int i = 0; ; ++i) {
     std::cout << "        ";
@@ -488,6 +491,7 @@ void printProfile(const double *probs, const int *columns,
     std::cout << std::setw(7) << columns[i]+1 << "\n";
   }
   std::cout.precision(6);
+
   std::cout << "//\n";
 }
 
