@@ -459,6 +459,7 @@ void printProfile(const double *probs, const int *columns,
 		  const MultipleAlignment &ma, double neff) {
   int alphabetSize = strlen(alphabet);
   int width = alphabetSize + 7;
+  const double *bgProbs = probs + profileLength * width + 7;
 
   std::cout << "HMMER3/f [DUMMER "
 #include "version.hh"
@@ -481,7 +482,7 @@ void printProfile(const double *probs, const int *columns,
   std::cout.precision(5);
   for (int i = 0; ; ++i) {
     std::cout << "        ";
-    for (int j = 0; j < alphabetSize; ++j) printProb(1.0 / alphabetSize);
+    for (int j = 0; j < alphabetSize; ++j) printProb(bgProbs[j]);
     std::cout << "\n";
     std::cout << "        ";
     for (int j = 0; j < 7; ++j) printProb(probs[i * width + j]);

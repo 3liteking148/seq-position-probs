@@ -1,4 +1,5 @@
 // This Dirichlet mixture & description were copied from HMMER 3.4
+// It doesn't satisfy Chargaff parity (A=T, C=G): undesirable for DNA?
 
 // Match emission priors are trained on Rmark3 database
 // Xref: ~wheelert/notebook/2011/0325_nhmmer_new_parameters
