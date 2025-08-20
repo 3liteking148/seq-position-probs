@@ -194,13 +194,14 @@ void countsToProbs(DirichletMixture dmix, const GapPriors &gp,
   double *p = probs + profileLength * countsPerPosition;
   p[0] = 1 - p[1];  // match
   p[2] = 0;         // delStart
+
+  setBackgroundProbs(p + 7, probs + 7, alphabetSize, profileLength);
 }
 
 double relativeEntropy(const double *probs,
 		       int alphabetSize, int profileLength) {
-  double bgProbs[32];
-  setBackgroundProbs(bgProbs, probs, alphabetSize, profileLength);
   int probsPerPosition = 7 + alphabetSize;
+  const double *bgProbs = probs + profileLength * probsPerPosition;
 
   double r = 0;
   for (int i = 0; i < profileLength; ++i) {
@@ -631,7 +632,8 @@ Options for effective sequence number:\n\
 		counts, columns);
     int profileLength = columns.size();
 
-    std::vector<double> probs(counts.size());
+    // the "+ alphabetSize" is space for background letter probabilities:
+    std::vector<double> probs(counts.size() + alphabetSize);
 
     double targetRelEnt = std::max(esigma, myEre * profileLength);
     if (verbosity) std::cerr << "Target relative entropy: "
