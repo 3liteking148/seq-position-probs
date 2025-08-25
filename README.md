@@ -18,7 +18,7 @@ substitutions, insertions, and deletions][frith2025].
 Good features of HMMER (also in DUMMER):
 
 * It uses position-varying probabilities of not only letters, but also
-  of starting and extending insertions and deletions.
+  starting and extending insertions and deletions.
 
 * It integrates evidence from alternative ways of aligning two
   regions.
@@ -190,7 +190,9 @@ These options affect the random sequences:
   sum of sequence lengths.
 
 * &lambda; comes from a not-yet-successful attempt to get better
-  *E*-values for short profiles.
+  *E*-values for short profiles.  Here, the *E*-value for one profile
+  is: *KN* / (2^score)^&lambda;.  That would surely work and give us
+  better *E*-values, if only we could determine a good value for &lambda;.
 
 ## dummer-build
 
