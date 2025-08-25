@@ -137,7 +137,7 @@ std::istream &readSequence(std::istream &in, Sequence &sequence,
   }
 
   size_t seqLen = vec.size() - sequence.nameIdx - word.size() - 1;
-  if (seqLen >= INT_MAX) return fail(in, "the sequence is too long!");
+  if (seqLen > INT_MAX - 2) return fail(in, "the sequence is too long!");
   sequence.length = seqLen;
   vec.push_back(0);  // the algorithms need one arbitrary letter past the end
   return in;
@@ -239,7 +239,7 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
 			 Profile profile, const char *sequence,
 			 int sequenceLength, const Float *scratch,
 			 int iBeg, int jBeg, double half) {
-  long rowSize = sequenceLength + 1;
+  long rowSize = sequenceLength + 2;
   const char *seq = sequence + jBeg;
 
   for (int size = 16; ; size *= 2) {
@@ -287,7 +287,7 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment,
 			 Profile profile, const char *sequence,
 			 int sequenceLength, const Float *scratch,
 			 int iEnd, int jEnd, double half) {
-  long rowSize = sequenceLength + 1;
+  long rowSize = sequenceLength + 2;
   const char *seq = sequence + jEnd;
 
   for (int size = 16; ; size *= 2) {
@@ -336,7 +336,7 @@ bool maybeLocalMaximum(Profile profile, const char *sequence,
 		       int anchor1, int anchor2, Float wMidAnchored) {
   Float X[minSeparation * 2 - 1];
   Float Y[minSeparation * 2 - 1];
-  long rowSize = sequenceLength + 1;
+  long rowSize = sequenceLength + 2;
 
   int iEnd = std::min(anchor1 + minSeparation - 1, profile.length);
   int jBeg = std::max(anchor2 - minSeparation + 1, 0);
@@ -455,8 +455,13 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 		      Profile profile, const char *sequence,
 		      int sequenceLength, Float *scratch,
 		      Float minProbRatio) {
-  long rowSize = sequenceLength + 1;
-  // scratch has space for (sequenceLength + 1) * (profile.length + 2) values
+  long rowSize = sequenceLength + 2;
+
+  // Dynamic programming initialization for forward & backward algorithms:
+  for (int i = 0; i < profile.length + 2; ++i) scratch[i * rowSize] = 0;
+
+  ++scratch;  // it's convenient to set the origin one past the start
+
   Float *Y = scratch + rowSize * (profile.length + 1);
 
   if (verbosity > 1 && minProbRatio >= -1)
@@ -469,17 +474,16 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
   for (int i = profile.length; i >= 0; --i) {
     Float *W = scratch + i * rowSize;
-    const Float *Wfrom = W + rowSize;
+    const Float *Wfrom = (i < profile.length) ? W + rowSize + 1 : Y;
     Float a = profile.values[i * profile.width + 0];
     Float b = profile.values[i * profile.width + 1];
     Float d = profile.values[i * profile.width + 2];
     Float e = profile.values[i * profile.width + 3];
     const Float *S = profile.values + i * profile.width + 4;
 
-    Float wOld = 0;
     Float z = 0;
     for (int j = sequenceLength; j >= 0; --j) {
-      Float x = S[sequence[j]] * wOld;
+      Float x = S[sequence[j]] * Wfrom[j];
       Float y = Y[j];
       Float w = x + d * y + a * z + scale;
       if (w > wMax) {
@@ -487,7 +491,6 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 	iMax = i;
 	jMax = j;
       }
-      wOld = Wfrom[j];
       W[j] = w;
       Y[j] = w + e * y;
       z = w + b * z;
@@ -517,7 +520,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
   for (int i = 0; i <= profile.length; ++i) {
     Float wMidMaxHere = wMidMax;
     Float *X = scratch + i * rowSize;
-    const Float *Xfrom = i ? X - rowSize : Y;
+    const Float *Xfrom = (i > 0) ? X - rowSize - 1 : Y;
     const Float *Wbackward = X;  // the forward Xs overwrite the backward Ws
     Float a = profile.values[i * profile.width + 0];
     Float b = profile.values[i * profile.width + 1];
@@ -529,11 +532,10 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     int hitCount = 0;
     int jOld = INT_MAX;
 
-    Float x = 0;
     Float z = 0;
     for (int j = 0; j <= sequenceLength; ++j) {
       Float y = Y[j];
-      Float w = x + y + z + scale;
+      Float w = Xfrom[j] + y + z + scale;
       Float wMid = w * Wbackward[j];
       if (minProbRatio >= 0) {
 	if (wMid >= minProbRatio) {
@@ -562,7 +564,6 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 	  jMidMax = j;
 	}
       }
-      x = Xfrom[j];
       X[j] = S[sequence[j]] * w;
       Y[j] = d * w + e * y;
       z = a * w + b * z;
@@ -984,7 +985,7 @@ void setCharToNumber(char *charToNumber, const char *alphabet) {
 }
 
 int resizeMem(std::vector<Float> &v, int profileLength, int sequenceLength) {
-  long rowSize = sequenceLength + 1;
+  long rowSize = sequenceLength + 2;
   if (rowSize > LONG_MAX / (profileLength+2)) {
     std::cerr << "too big combination of sequence and profile\n";
     return 0;
@@ -1068,7 +1069,7 @@ Options for random sequences:\n\
       break;
     case 'l':
       randomSeqLen = intFromText(optarg);
-      if (randomSeqLen < 1 || randomSeqLen == INT_MAX) return badOpt();
+      if (randomSeqLen < 1 || randomSeqLen > INT_MAX - 2) return badOpt();
       break;
     case 'b':
       border = intFromText(optarg);
@@ -1085,7 +1086,7 @@ Options for random sequences:\n\
     return 1;
   }
 
-  if (INT_MAX - border <= randomSeqLen) {
+  if (border > INT_MAX - 2 - randomSeqLen) {
     std::cerr << "sequence + border is too big\n";
     return 1;
   }
