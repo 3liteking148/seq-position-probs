@@ -1183,7 +1183,8 @@ Options for random sequences:\n\
       std::cerr << "Sequence: " << &charVec[sequence.nameIdx] << "\n";
     if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
     seqIdx = charVec.size() - sequence.length - 1;
-    totSequenceLength += sequence.length * (strandOpt / 2 + 1);
+    totSequenceLength += sequence.length;
+    if (strandOpt == 2) totSequenceLength += sequence.length;
     Float minProbRatio =
       (evalueOpt > 0) ? totMidK * totSequenceLength / evalueOpt * scale : -1;
     for (int s = 0; s < 2; ++s) {
