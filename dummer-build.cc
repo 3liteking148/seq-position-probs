@@ -489,15 +489,13 @@ void forward(
                / probs[profileLength * width + (7 + letter)];
       if (!std::isfinite(S)) S = 0.0; // if letter has 0 background probability
 
-      double w = X[(i-1) * (seqLength+2) + (j-1)]
-               + Y[(i-1) * (seqLength+2) + j]
-               + z + 1.0;
+      double y = Y[(i-1) * (seqLength+2) + j];
+      double w = X[(i-1) * (seqLength+2) + (j-1)] + y + z + 1.0;
+      z = aPrime * w + bPrime * z;
       *wSum += w;
 
       X[i * (seqLength+2) + j] = S * w;
-      Y[i * (seqLength+2) + j] = dPrime * w
-                               + ePrime * Y[(i-1) * (seqLength+2) + j];
-      z = aPrime * w + bPrime * z;
+      Y[i * (seqLength+2) + j] = dPrime * w + ePrime * y;
       Z[i * (seqLength+2) + j] = z;
     }
   }
@@ -540,13 +538,12 @@ void backward(unsigned char *seq, int seqLength,
       if (!std::isfinite(S)) S = 0.0; // if letter has 0 background probability
 
       double x = S * Wbar[(i+1) * (seqLength+2) + (j+1)];
+      double y = Ybar[(i+1) * (seqLength+2) + j];
+      double w = x + dPrime * y + aPrime * z + 1.0;
+      z = w + bPrime * z;
 
-      Wbar[i * (seqLength+2) + j] = x + dPrime * Ybar[(i+1) * (seqLength+2)+ j]
-                                  + aPrime * z
-                                  + 1.0; // score is 1.0
-      Ybar[i * (seqLength+2) + j] = Wbar[i * (seqLength+2) + j]
-                                  + ePrime * Ybar[(i+1) * (seqLength+2) + j];
-      z = Wbar[i * (seqLength+2) + j] + bPrime * z;
+      Wbar[i * (seqLength+2) + j] = w;
+      Ybar[i * (seqLength+2) + j] = w + ePrime * y;
       Zbar[i * (seqLength+2) + j] = z;
     }
   }
