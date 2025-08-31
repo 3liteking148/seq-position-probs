@@ -47,10 +47,6 @@ too.
 * DUMMER uses no heuristic shortcuts: so it's "as sensitive as
   possible", but slow and memory-consuming.
 
-* Making a profile from a family of related sequences isn't
-  implemented (but [progressing rapidly][dmmbuild]).  Instead, DUMMER
-  (ab)uses HMMER profiles, whose defintion doesn't quite fit.
-
 * DUMMER doesn't avoid similarities of unrelated simple sequences,
   like atatatatatatatat, which evolve frequently and independently.
 
@@ -70,8 +66,10 @@ it).  Using the command line, go into the downloaded directory and do
 ## Usage
 
 DUMMER can compare sequences in FASTA format to profiles in HMMER3/f
-format.  You can get DNA profiles from [Dfam][], or protein profiles
-from [Pfam][], or make profiles with [HMMER][].  Run it like this:
+format.  You can make profiles with `dummer-build` (new and
+lightly-tested).  Or you can (ab)use [HMMER][] profiles, whose
+defintion doesn't quite fit: you can get DNA profiles from [Dfam][],
+or protein profiles from [Pfam][].  Run it like this:
 
     dummer profiles.hmm sequences.fasta
 
@@ -203,6 +201,10 @@ related sequences (in [Stockholm][] format):
 
 It's basically copied from HMMER's hmmbuild, but here are some differences:
 
+* It doesn't assume the alignment is perfect: it optimizes the profile
+  with an iterative algorithm (Baum-Welch, aka Expectation
+  Maximization).
+
 * End gaps (gaps beyond the start or end of a sequence) are treated as
   missing data (like hmmbuild --fragthresh=1).
 
@@ -221,8 +223,6 @@ It's basically copied from HMMER's hmmbuild, but here are some differences:
   position exceeds an "effective sequence number (EFFN)" threshold,
   those counts are downscaled so their total equals the threshold.
   Insertion and deletion counts are treated similarly.
-
-Maybe it works ok?  The plan is to combine it with [dmmbuild][].
 
 [Dfam]: https://dfam.org/home
 [Pfam]: https://www.ebi.ac.uk/interpro/entry/pfam/#table
