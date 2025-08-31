@@ -641,13 +641,13 @@ void calculateTransitionCounts(
 
     // emission probabilities
     if (i == profileLength+1) continue; // no emissions from the end state
+    double emis[32] = {0};
+    for (int j = 1; j <= seqLength; j++) {
+      int letter = seq[j-1];
+      emis[letter] += X[i * (seqLength+2) + j] * Wbar[i * (seqLength+2) + j];
+    }
     for (int letter = 0; letter < alphabetSize; letter++) {
-      double emis = 0.0;
-      for (int j = 1; j <= seqLength; j++) {
-        if (seq[j-1] == letter)
-          emis += X[i * (seqLength+2) + j] * Wbar[i * (seqLength+2) + j];
-      }
-      counts[(i-1) * width + (7 + letter)] += emis * wt;
+      counts[(i-1) * width + (7 + letter)] += emis[letter] * wt;
     }
   }
 }
