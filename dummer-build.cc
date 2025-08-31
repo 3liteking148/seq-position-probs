@@ -477,6 +477,8 @@ void forward(
     ePrime = epsilonProb * (1 - epsilonProb1) / (1 - epsilonProb);
     if (!std::isfinite(ePrime)) ePrime = 0.0; // avoid NaN issues
 
+    Z[i * (seqLength+2)] = 0.0;
+
     for (int j = 1; j <= seqLength+1; j++) {
 
       int letter = j == seqLength+1 ? 0 : seq[j-1];
@@ -524,6 +526,8 @@ void backward(unsigned char *seq, int seqLength,
     dPrime = deltaProb   * (1 - epsilonProb1);
     ePrime = epsilonProb * (1 - epsilonProb1) / (1 - epsilonProb);
     if (!std::isfinite(ePrime)) ePrime = 0.0; // avoid NaN issues
+
+    Zbar[(i+1) * (seqLength+2) - 1] = 0.0;
 
     for (int j = seqLength; j >= 0; j--) {
 
@@ -696,10 +700,8 @@ void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
       // reset the forward and backward matrices
       std::fill(Wbar.begin(), Wbar.end(), 0.0);
       std::fill(Ybar.begin(), Ybar.end(), 0.0);
-      std::fill(Zbar.begin(), Zbar.end(), 0.0);
       std::fill(X.begin(), X.end(), 0.0);
       std::fill(Y.begin(), Y.end(), 0.0);
-      std::fill(Z.begin(), Z.end(), 0.0);
 
       double wt = weights[idx]; // weight for the current sequence
 
