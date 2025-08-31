@@ -477,7 +477,7 @@ void forward(
     ePrime = epsilonProb * (1 - epsilonProb1) / (1 - epsilonProb);
     if (!std::isfinite(ePrime)) ePrime = 0.0; // avoid NaN issues
 
-    Z[i * (seqLength+2)] = 0.0;
+    double z = Z[i * (seqLength+2)] = 0.0;
 
     for (int j = 1; j <= seqLength+1; j++) {
 
@@ -491,14 +491,14 @@ void forward(
 
       double w = X[(i-1) * (seqLength+2) + (j-1)]
                + Y[(i-1) * (seqLength+2) + j]
-               + Z[i * (seqLength+2) + (j-1)] + 1.0;
+               + z + 1.0;
       *wSum += w;
 
       X[i * (seqLength+2) + j] = S * w;
       Y[i * (seqLength+2) + j] = dPrime * w
                                + ePrime * Y[(i-1) * (seqLength+2) + j];
-      Z[i * (seqLength+2) + j] = aPrime * w
-                               + bPrime * Z[i * (seqLength+2) + (j-1)];
+      z = aPrime * w + bPrime * z;
+      Z[i * (seqLength+2) + j] = z;
     }
   }
 }
@@ -527,7 +527,7 @@ void backward(unsigned char *seq, int seqLength,
     ePrime = epsilonProb * (1 - epsilonProb1) / (1 - epsilonProb);
     if (!std::isfinite(ePrime)) ePrime = 0.0; // avoid NaN issues
 
-    Zbar[(i+1) * (seqLength+2) - 1] = 0.0;
+    double z = Zbar[(i+1) * (seqLength+2) - 1] = 0.0;
 
     for (int j = seqLength; j >= 0; j--) {
 
@@ -542,12 +542,12 @@ void backward(unsigned char *seq, int seqLength,
       double x = S * Wbar[(i+1) * (seqLength+2) + (j+1)];
 
       Wbar[i * (seqLength+2) + j] = x + dPrime * Ybar[(i+1) * (seqLength+2)+ j]
-                                  + aPrime * Zbar[i * (seqLength+2) + (j+1)]
+                                  + aPrime * z
                                   + 1.0; // score is 1.0
       Ybar[i * (seqLength+2) + j] = Wbar[i * (seqLength+2) + j]
                                   + ePrime * Ybar[(i+1) * (seqLength+2) + j];
-      Zbar[i * (seqLength+2) + j] = Wbar[i * (seqLength+2) + j]
-                                  + bPrime * Zbar[i * (seqLength+2) + (j+1)];
+      z = Wbar[i * (seqLength+2) + j] + bPrime * z;
+      Zbar[i * (seqLength+2) + j] = z;
     }
   }
 }
