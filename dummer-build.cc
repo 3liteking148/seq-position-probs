@@ -16,6 +16,7 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <float.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -709,6 +710,12 @@ void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
       double v = 0.0; // accumulate the sum of weights
       forward(seqNoGap, seqsLengths[idx], probsOld,
         profileLength, width, &v, X, Y, Z);
+
+      if (v > DBL_MAX) {
+	std::cerr
+	  << "numbers overflowed to infinity in Baum-Welch: quitting\n";
+	exit(1);
+      }
 
       /* Backward pass, calculate Wbar, Ybar, Zbar. */
       backward(seqNoGap, seqsLengths[idx], probsOld,
