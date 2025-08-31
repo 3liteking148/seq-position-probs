@@ -831,7 +831,7 @@ Baum-Welch options:\n\
   --maxdiff X    convergence threshold for Baum-Welch (default: "
     STR(OPT_bw_maxDiff) ")\n\
   --countonly    only count events, do not run Baum-Welch\n\
-  ";
+";
 
   const char sOpts[] = "hVv";
 

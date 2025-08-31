@@ -68,7 +68,7 @@ it).  Using the command line, go into the downloaded directory and do
 DUMMER can compare sequences in FASTA format to profiles in HMMER3/f
 format.  You can make profiles with `dummer-build` (new and
 lightly-tested).  Or you can (ab)use [HMMER][] profiles, whose
-defintion doesn't quite fit: you can get DNA profiles from [Dfam][],
+definition doesn't quite fit: you can get DNA profiles from [Dfam][],
 or protein profiles from [Pfam][].  Run it like this:
 
     dummer profiles.hmm sequences.fasta
