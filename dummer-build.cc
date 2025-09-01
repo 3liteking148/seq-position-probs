@@ -575,6 +575,7 @@ void calculateTransitionCounts(
      std::vector<double> &Y,    std::vector<double> &Z,
      double wt, int width, int alphabetSize, unsigned char *seq) {
 
+  int cols = seqLength + 2;
   double alpha, beta, delta, epsilon;
   double gamma, betap, epsilonp, etap;
 
@@ -589,17 +590,13 @@ void calculateTransitionCounts(
     etap     = 0.0;  // expected count of (1 - eta)
 
     for (int j = 1; j <= seqLength+1; j++) {
-      betap    += Z[i * (seqLength+2) + (j-1)]
-                * Wbar[(i-1) * (seqLength+2) + (j-1)];
-      beta     += Z[i * (seqLength+2) + (j-1)]
-                * Zbar[(i-1) * (seqLength+2) + (j-1)];
-      epsilonp += Y[(i-1) * (seqLength+2) + j]
-                * Wbar[(i-1) * (seqLength+2) + (j-1)];
-      epsilon  += Y[(i-1) * (seqLength+2) + j]
-                * Ybar[(i-1) * (seqLength+2) + (j-1)];
-      etap     += Wbar[(i-1) * (seqLength+2) + (j-1)];
+      betap    += Z[i * cols + (j-1)] * Wbar[(i-1) * cols + (j-1)];
+      beta     += Z[i * cols + (j-1)] * Zbar[(i-1) * cols + (j-1)];
+      epsilonp += Y[(i-1) * cols + j] * Wbar[(i-1) * cols + (j-1)];
+      epsilon  += Y[(i-1) * cols + j] * Ybar[(i-1) * cols + (j-1)];
+      etap     += Wbar[(i-1) * cols + (j-1)];
       int letter = seq[j-1];
-      emis[letter] += X[i * (seqLength+2) + j] * Wbar[i * (seqLength+2) + j];
+      emis[letter] += X[i * cols + j] * Wbar[i * cols + j];
     }
 
     beta  -= betap;
