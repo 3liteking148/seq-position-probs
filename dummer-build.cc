@@ -450,6 +450,7 @@ void getSequenceWithoutGaps(
       }
     }
   }
+  seqNoGap.push_back(0);  // so it's safe to read one letter past the end
 }
 
 void forward(
@@ -580,6 +581,7 @@ void calculateTransitionCounts(
   // estimate counts for every position
   for (int i = 1; i <= profileLength+1; i++) {
 
+    double emis[32] = {0};
     betap    = 0.0;  // expected count of (1 - beta)
     beta     = 0.0;
     epsilonp = 0.0;  // expected count of (1 - epsilon)
@@ -596,6 +598,8 @@ void calculateTransitionCounts(
       epsilon  += Y[(i-1) * (seqLength+2) + j]
                 * Ybar[(i-1) * (seqLength+2) + (j-1)];
       etap     += Wbar[(i-1) * (seqLength+2) + (j-1)];
+      int letter = seq[j-1];
+      emis[letter] += X[i * (seqLength+2) + j] * Wbar[i * (seqLength+2) + j];
     }
 
     beta  -= betap;
@@ -609,8 +613,12 @@ void calculateTransitionCounts(
     // expected count of alpha
     alpha = betap;
 
+    gamma = std::accumulate(emis, emis + alphabetSize + 1, 0.0);
+
     // update the HMM parameters
     counts[(i-1) * width + 0] += etap     * wt;
+    counts[(i-1) * width + 1] += gamma    * wt;
+
     counts[(i-1) * width + 3] += alpha    * wt;
     counts[(i-1) * width + 4] += beta     * wt;
     counts[(i-1) * width + 5] += epsilonp * wt;
@@ -618,16 +626,9 @@ void calculateTransitionCounts(
 
     // emission probabilities
     if (i == profileLength+1) continue; // no emissions from the end state
-    double emis[32] = {0};
-    for (int j = 1; j <= seqLength; j++) {
-      int letter = seq[j-1];
-      emis[letter] += X[i * (seqLength+2) + j] * Wbar[i * (seqLength+2) + j];
-    }
     for (int letter = 0; letter < alphabetSize; letter++) {
       counts[(i-1) * width + (7 + letter)] += emis[letter] * wt;
     }
-    gamma = std::accumulate(emis, emis + alphabetSize + 1, 0.0);
-    counts[(i-1) * width + 1] += gamma    * wt;
   }
 
   for (int i = 1; i <= profileLength; i++) {
