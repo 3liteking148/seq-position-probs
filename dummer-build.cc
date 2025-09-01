@@ -486,7 +486,7 @@ void forward(
 
     for (int j = 1; j <= seqLength+1; j++) {
 
-      int letter = j == seqLength+1 ? 0 : seq[j-1];
+      int letter = seq[j-1];
 
       // letter probs / background probs
       double S = (1 - alphaProb - deltaProb)
@@ -538,7 +538,7 @@ void backward(unsigned char *seq, int seqLength,
 
     for (int j = seqLength; j >= 0; j--) {
 
-      int letter = j == seqLength ? 0 : seq[j];
+      int letter = seq[j];
 
       // letter probs / background probs
       double S = (1 - alphaProb - deltaProb)
