@@ -460,6 +460,9 @@ void forward(
   double aPrime, bPrime, dPrime, ePrime;  // parameters for BW
   double alphaProb, betaProb, deltaProb, epsilonProb, epsilonProb1;
 
+  std::fill_n(&X[0], seqLength+1, 0.0);
+  std::fill_n(&Y[1], seqLength+1, 0.0);
+
   for (int i = 1; i <= profileLength+1; i++) {
 
     alphaProb    = probs[(i-1) * width + 1];  // insStart
@@ -477,6 +480,7 @@ void forward(
     ePrime = epsilonProb * (1 - epsilonProb1) / (1 - epsilonProb);
     if (!std::isfinite(ePrime)) ePrime = 0.0; // avoid NaN issues
 
+    X[(i-1) * (seqLength+2)] = 0.0;
     double z = Z[i * (seqLength+2)] = 0.0;
 
     for (int j = 1; j <= seqLength+1; j++) {
@@ -508,6 +512,9 @@ void backward(unsigned char *seq, int seqLength,
   double aPrime, bPrime, dPrime, ePrime;  // parameters for BW
   double alphaProb, betaProb, deltaProb, epsilonProb, epsilonProb1;
 
+  std::fill_n(&Wbar[(profileLength+1) * (seqLength+2) + 1], seqLength+1, 0.0);
+  std::fill_n(&Ybar[(profileLength+1) * (seqLength+2) + 0], seqLength+1, 0.0);
+
   for (int i = profileLength; i >= 0; i--) {
 
     alphaProb    = probs[i * width + 1];  // insStart
@@ -525,6 +532,7 @@ void backward(unsigned char *seq, int seqLength,
     ePrime = epsilonProb * (1 - epsilonProb1) / (1 - epsilonProb);
     if (!std::isfinite(ePrime)) ePrime = 0.0; // avoid NaN issues
 
+    Wbar[(i+2) * (seqLength+2) - 1] = 0.0;
     double z = Zbar[(i+1) * (seqLength+2) - 1] = 0.0;
 
     for (int j = seqLength; j >= 0; j--) {
@@ -693,13 +701,6 @@ void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
     int seqs_total_length = 0;
 
     for (int idx = 0; idx < ma.sequenceCount; idx++) {
-
-      // reset the forward and backward matrices
-      std::fill(Wbar.begin(), Wbar.end(), 0.0);
-      std::fill(Ybar.begin(), Ybar.end(), 0.0);
-      std::fill(X.begin(), X.end(), 0.0);
-      std::fill(Y.begin(), Y.end(), 0.0);
-
       double wt = weights[idx]; // weight for the current sequence
 
       unsigned char* seqNoGap = seqsNoGap.data() + seqs_total_length;
