@@ -126,8 +126,7 @@ void applyDirichletMixture(DirichletMixture dmix,
 }
 
 void gapCountsToProbs(const GapPriors &gp, double maxCountSum,
-		      const double *counts,
-		      double matchPrev, double alnBegNext, double *probs) {
+		      const double *counts, double *probs) {
   double alnBeg = counts[0]; // etap
   double match  = counts[1]; //gamma
   double delBeg = counts[2]; //delta
@@ -167,10 +166,7 @@ void countsToProbs(DirichletMixture dmix, const GapPriors &gp,
     const double *c = counts + i * countsPerPosition;
     /* */ double *p = probs  + i * countsPerPosition;
 
-    double matchPrev  = (i > 0            ) ? c[1 - countsPerPosition] : 0.0;
-    double alnBegNext = (i < profileLength) ? c[0 + countsPerPosition] : 0.0;
-
-    gapCountsToProbs(gp, maxCountSum, c, matchPrev, alnBegNext, p);
+    gapCountsToProbs(gp, maxCountSum, c, p);
 
     if (i == profileLength) break;
 
