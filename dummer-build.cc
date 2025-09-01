@@ -1,5 +1,6 @@
 // Author: Martin C. Frith 2025
 //         Patrick Styll   2025
+// SPDX-License-Identifier: BSD-3-Clause
 
 #include "dummer-util.hh"
 
