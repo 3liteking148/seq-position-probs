@@ -457,6 +457,7 @@ void forward(
      int profileLength, int width, double *wSum,
      std::vector<double> &X, std::vector<double> &Y, std::vector<double> &Z) {
 
+  int cols = seqLength + 2;
   double aPrime, bPrime, dPrime, ePrime;  // parameters for BW
   double alphaProb, betaProb, deltaProb, epsilonProb, epsilonProb1;
 
@@ -480,8 +481,8 @@ void forward(
     ePrime = epsilonProb * (1 - epsilonProb1) / (1 - epsilonProb);
     if (!std::isfinite(ePrime)) ePrime = 0.0; // avoid NaN issues
 
-    X[(i-1) * (seqLength+2)] = 0.0;
-    double z = Z[i * (seqLength+2)] = 0.0;
+    X[(i-1) * cols] = 0.0;
+    double z = Z[i * cols] = 0.0;
 
     for (int j = 1; j <= seqLength+1; j++) {
 
@@ -493,14 +494,14 @@ void forward(
                / probs[profileLength * width + (7 + letter)];
       if (!std::isfinite(S)) S = 0.0; // if letter has 0 background probability
 
-      double y = Y[(i-1) * (seqLength+2) + j];
-      double w = X[(i-1) * (seqLength+2) + (j-1)] + y + z + 1.0;
+      double y = Y[(i-1) * cols + j];
+      double w = X[(i-1) * cols + (j-1)] + y + z + 1.0;
       z = aPrime * w + bPrime * z;
       *wSum += w;
 
-      X[i * (seqLength+2) + j] = S * w;
-      Y[i * (seqLength+2) + j] = dPrime * w + ePrime * y;
-      Z[i * (seqLength+2) + j] = z;
+      X[i * cols + j] = S * w;
+      Y[i * cols + j] = dPrime * w + ePrime * y;
+      Z[i * cols + j] = z;
     }
   }
 }
@@ -509,11 +510,12 @@ void backward(unsigned char *seq, int seqLength,
      std::vector<double> &probs, int profileLength, int width,
      std::vector<double> &Wbar, std::vector<double> &Ybar, std::vector<double> &Zbar) {
 
+  int cols = seqLength + 2;
   double aPrime, bPrime, dPrime, ePrime;  // parameters for BW
   double alphaProb, betaProb, deltaProb, epsilonProb, epsilonProb1;
 
-  std::fill_n(&Wbar[(profileLength+1) * (seqLength+2) + 1], seqLength+1, 0.0);
-  std::fill_n(&Ybar[(profileLength+1) * (seqLength+2) + 0], seqLength+1, 0.0);
+  std::fill_n(&Wbar[(profileLength+1) * cols + 1], seqLength+1, 0.0);
+  std::fill_n(&Ybar[(profileLength+1) * cols + 0], seqLength+1, 0.0);
 
   for (int i = profileLength; i >= 0; i--) {
 
@@ -532,8 +534,8 @@ void backward(unsigned char *seq, int seqLength,
     ePrime = epsilonProb * (1 - epsilonProb1) / (1 - epsilonProb);
     if (!std::isfinite(ePrime)) ePrime = 0.0; // avoid NaN issues
 
-    Wbar[(i+2) * (seqLength+2) - 1] = 0.0;
-    double z = Zbar[(i+1) * (seqLength+2) - 1] = 0.0;
+    Wbar[(i+2) * cols - 1] = 0.0;
+    double z = Zbar[(i+1) * cols - 1] = 0.0;
 
     for (int j = seqLength; j >= 0; j--) {
 
@@ -545,26 +547,16 @@ void backward(unsigned char *seq, int seqLength,
                / probs[profileLength * width + (7 + letter)];
       if (!std::isfinite(S)) S = 0.0; // if letter has 0 background probability
 
-      double x = S * Wbar[(i+1) * (seqLength+2) + (j+1)];
-      double y = Ybar[(i+1) * (seqLength+2) + j];
+      double x = S * Wbar[(i+1) * cols + (j+1)];
+      double y = Ybar[(i+1) * cols + j];
       double w = x + dPrime * y + aPrime * z + 1.0;
       z = w + bPrime * z;
 
-      Wbar[i * (seqLength+2) + j] = w;
-      Ybar[i * (seqLength+2) + j] = w + ePrime * y;
-      Zbar[i * (seqLength+2) + j] = z;
+      Wbar[i * cols + j] = w;
+      Ybar[i * cols + j] = w + ePrime * y;
+      Zbar[i * cols + j] = z;
     }
   }
-}
-
-int determineTerminationCondition(double bwMaxDiff,
-       std::vector<double> &probsOld, std::vector<double> &probsNew) {
-  double maxDiff = 0.0;
-  for (size_t i = 0; i < probsOld.size(); i++) {
-    double diff = fabs(probsOld[i] - probsNew[i]);
-    if (diff > maxDiff) maxDiff = diff;
-  }
-  return (maxDiff <= bwMaxDiff) ? 1 : 0; // converged or not
 }
 
 void calculateTransitionCounts(
@@ -634,6 +626,16 @@ void calculateTransitionCounts(
       std::cerr << "Warning: Negative delta count at position " << i << "\n";
     counts[(i-1) * width + 2] = delta;
   }
+}
+
+int determineTerminationCondition(double bwMaxDiff,
+       std::vector<double> &probsOld, std::vector<double> &probsNew) {
+  double maxDiff = 0.0;
+  for (size_t i = 0; i < probsOld.size(); i++) {
+    double diff = fabs(probsOld[i] - probsNew[i]);
+    if (diff > maxDiff) maxDiff = diff;
+  }
+  return (maxDiff <= bwMaxDiff) ? 1 : 0; // converged or not
 }
 
 void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
