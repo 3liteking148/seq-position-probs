@@ -609,20 +609,8 @@ void calculateTransitionCounts(
     // expected count of alpha
     alpha = betap;
 
-    // expected count of gamma
-    // gamma_m is arbitrary
-    gamma = 0.0;
-
-    if (i <= profileLength) {
-      for (int j = 1; j <= seqLength; j++) {
-        gamma += X[i * (seqLength+2) + j] * Wbar[i * (seqLength+2) + j];
-      }
-    }
-
     // update the HMM parameters
     counts[(i-1) * width + 0] += etap     * wt;
-    counts[(i-1) * width + 1] += gamma    * wt;
-
     counts[(i-1) * width + 3] += alpha    * wt;
     counts[(i-1) * width + 4] += beta     * wt;
     counts[(i-1) * width + 5] += epsilonp * wt;
@@ -638,6 +626,8 @@ void calculateTransitionCounts(
     for (int letter = 0; letter < alphabetSize; letter++) {
       counts[(i-1) * width + (7 + letter)] += emis[letter] * wt;
     }
+    gamma = std::accumulate(emis, emis + alphabetSize + 1, 0.0);
+    counts[(i-1) * width + 1] += gamma    * wt;
   }
 
   for (int i = 1; i <= profileLength; i++) {
