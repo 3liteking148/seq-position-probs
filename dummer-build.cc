@@ -439,8 +439,7 @@ void countEvents(const MultipleAlignment &ma, int alphabetSize, double symfrac,
 
 void getSequenceWithoutGaps(
      const MultipleAlignment &ma, int alphabetSize,
-     std::vector<unsigned char> &seqNoGap,
-     std::vector<unsigned int> &seqLengths) {
+     std::vector<unsigned char> &seqNoGap, std::vector<int> &seqLengths) {
   for (int i = 0; i < ma.sequenceCount; i++) {
     const unsigned char *seq = ma.alignment.data() + i * ma.alignmentLength;
     for (int j = 0; j < ma.alignmentLength; j++) {
@@ -659,7 +658,7 @@ void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
 
   /* Get gapless sequences and their lengths. */
   std::vector<unsigned char> seqsNoGap;
-  std::vector<unsigned int>  seqsLengths(ma.sequenceCount, 0);
+  std::vector<int>  seqsLengths(ma.sequenceCount, 0);
   getSequenceWithoutGaps(ma, alphabetSize, seqsNoGap, seqsLengths);
 
   countsToProbs(dmix, gp, alphabetSize, 1e37, profileLength,
@@ -674,17 +673,16 @@ void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
     for (size_t i = 0; i < counts.size(); i++) counts[i] = 0.0;
     std::fill(probsNew.begin(), probsNew.end(), 0.0);
 
-    int seqs_total_length = 0;
+    unsigned char* seqNoGap = seqsNoGap.data();
 
     for (int idx = 0; idx < ma.sequenceCount; idx++) {
+      int seqLength = seqsLengths[idx];
       double wt = weights[idx]; // weight for the current sequence
-
-      unsigned char* seqNoGap = seqsNoGap.data() + seqs_total_length;
 
       /* Forward pass, calculate X, Y, Z and
          the aggregated v (i.e. sum of w-values). */
       double v = 0.0; // accumulate the sum of weights
-      forward(seqNoGap, seqsLengths[idx], probsOld,
+      forward(seqNoGap, seqLength, probsOld,
         profileLength, width, &v, X, Y, Z);
 
       if (v > DBL_MAX) {
@@ -694,14 +692,14 @@ void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
       }
 
       /* Backward pass, calculate Wbar, Ybar, Zbar. */
-      backward(seqNoGap, seqsLengths[idx], probsOld,
+      backward(seqNoGap, seqLength, probsOld,
         profileLength, width, Wbar, Ybar, Zbar);
 
       /* Calculate and update parameters in new parameter counts. */
-      calculateTransitionCounts(counts, profileLength, seqsLengths[idx],
+      calculateTransitionCounts(counts, profileLength, seqLength,
           Wbar, Ybar, Zbar, X, Y, Z, wt/v, width, alphabetSize, seqNoGap);
 
-      seqs_total_length += seqsLengths[idx];
+      seqNoGap += seqLength;
     }
 
     /* Turn the parameter counts into probabilities via priors. */
