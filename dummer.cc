@@ -756,9 +756,9 @@ Triple estimateK(Profile profile, const Float *letterFreqs,
   }
 
   for (int i = 0; i < numOfSequences; ++i) {
-    for (int j = 0; j < sequenceLength; ++j) sequence[j] = dist(randGen);
+    // should be "< sequenceLength", but kept for pseudo-random reproducibility
+    for (int j = 0; j <= sequenceLength; ++j) sequence[j] = dist(randGen);
     for (int j = 0; j < border; ++j) sequence[sequenceLength+j] = sequence[j];
-    sequence[sequenceLength + border] = dist(randGen);  // arbitrary letter
     std::vector<AlignedSimilarity> sims;
     findSimilarities(sims, profile, sequence, sequenceLength + border,
 		     scratch, -2);
