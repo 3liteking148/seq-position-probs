@@ -1,12 +1,12 @@
-CXXFLAGS = -Wall -O3 -g
+CXXFLAGS = -Wall -O3 -g -march=native
 
 all: bin/dummer bin/dummerl bin/dummer-build
 
-bin/dummer: dummer.cc dummer-util.hh version.hh
+bin/dummer: dummer.cc dummer-util.hh version.hh can_i_haz_simd.hh
 	mkdir -p bin
 	$(CXX) -DDOUBLE $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) -o $@ dummer.cc
 
-bin/dummerl: dummer.cc dummer-util.hh version.hh
+bin/dummerl: dummer.cc dummer-util.hh version.hh can_i_haz_simd.hh
 	mkdir -p bin
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(LDFLAGS) -o $@ dummer.cc
 

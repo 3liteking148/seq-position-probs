@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include "dummer-util.hh"
+#include "can_i_haz_simd.hh"
 
 #include <algorithm>
 #include <iomanip>
@@ -27,9 +28,37 @@
 
 #ifdef DOUBLE
 typedef double Float;
+typedef SimdDbl SimdFloat;
+const int simdLen = simdDblLen;
 #else
 typedef float Float;
+typedef SimdFlt SimdFloat;
+const int simdLen = simdFltLen;
 #endif
+
+int simdRoundUp(int x) {  // lowest multiple of simdLen >= x
+  return x - 1 - (x - 1) % simdLen + simdLen;
+}
+
+Float simdHorizontalMax(SimdFloat x) {  // assuming it doesn't need to be fast
+  Float y[simdLen];
+  simdStore(y, x);
+  return *std::max_element(y, y + simdLen);
+}
+
+SimdFloat simdPowersFwd(Float x) {
+  Float a[simdLen];
+  a[0] = x;
+  for (int i = 1; i < simdLen; ++i) a[i] = a[i-1] * x;
+  return simdLoad(a);
+}
+
+SimdFloat simdPowersRev(Float x) {
+  Float a[simdLen];
+  a[simdLen-1] = x;
+  for (int i = simdLen-1; i > 0; --i) a[i-1] = a[i] * x;
+  return simdLoad(a);
+}
 
 // Only consider similarities that are local maxima.  If 2
 // similarities have identical 1st anchor coordinates, and their 2nd
@@ -138,9 +167,11 @@ std::istream &readSequence(std::istream &in, Sequence &sequence,
   }
 
   size_t seqLen = vec.size() - sequence.nameIdx - word.size() - 1;
-  if (seqLen > INT_MAX - 2) return fail(in, "the sequence is too long!");
+  if (seqLen > INT_MAX - 2 * simdLen) return fail(in, "sequence is too long!");
   sequence.length = seqLen;
-  vec.push_back(0);  // the algorithms need one arbitrary letter past the end
+  // The algorithms need one arbitrary letter past the end
+  // Then round up to a multiple of the SIMD length
+  vec.insert(vec.end(), simdRoundUp(seqLen + 1) - seqLen, 0);
   return in;
 }
 
@@ -240,7 +271,7 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
 			 Profile profile, const char *sequence,
 			 int sequenceLength, const Float *scratch,
 			 int iBeg, int jBeg, double half) {
-  long rowSize = sequenceLength + 2;
+  long rowSize = simdRoundUp(sequenceLength + 1) + simdLen;
   const char *seq = sequence + jBeg;
 
   for (int size = 16; ; size *= 2) {
@@ -288,7 +319,7 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment,
 			 Profile profile, const char *sequence,
 			 int sequenceLength, const Float *scratch,
 			 int iEnd, int jEnd, double half) {
-  long rowSize = sequenceLength + 2;
+  long rowSize = simdRoundUp(sequenceLength + 1) + simdLen;
   const char *seq = sequence + jEnd;
 
   for (int size = 16; ; size *= 2) {
@@ -337,7 +368,7 @@ bool maybeLocalMaximum(Profile profile, const char *sequence,
 		       int anchor1, int anchor2, Float wMidAnchored) {
   Float X[minSeparation * 2 - 1];
   Float Y[minSeparation * 2 - 1];
-  long rowSize = sequenceLength + 2;
+  long rowSize = simdRoundUp(sequenceLength + 1) + simdLen;
 
   int iEnd = std::min(anchor1 + minSeparation - 1, profile.length);
   int jBeg = std::max(anchor2 - minSeparation + 1, 0);
@@ -456,13 +487,17 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 		      Profile profile, const char *sequence,
 		      int sequenceLength, Float *scratch,
 		      Float minProbRatio) {
-  const int seqEnd = sequenceLength + 1;
-  const long rowSize = seqEnd + 1;
+  const Float zero = 0;
+  SimdFloat simdScale = simdFill(scale);
+  const int seqEnd = simdRoundUp(sequenceLength + 1);
+  const long rowSize = seqEnd + simdLen;
 
   // Dynamic programming initialization for forward & backward algorithms:
-  for (int i = 0; i < profile.length + 2; ++i) scratch[i * rowSize] = 0;
+  for (int i = 0; i < profile.length + 2; ++i) {
+    std::fill_n(scratch + i * rowSize, simdLen, 0);
+  }
 
-  ++scratch;  // it's convenient to set the origin one past the start
+  scratch += simdLen;  // it's convenient to set the origin after 1st zero pad
 
   Float *Y = scratch + rowSize * (profile.length + 1);
 
@@ -477,25 +512,39 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
   for (int i = profile.length; i >= 0; --i) {
     Float *W = scratch + i * rowSize;
     const Float *Wfrom = (i < profile.length) ? W + rowSize + 1 : Y;
-    Float a = profile.values[i * profile.width + 0];
-    Float b = profile.values[i * profile.width + 1];
-    Float d = profile.values[i * profile.width + 2];
-    Float e = profile.values[i * profile.width + 3];
-    const Float *S = profile.values + i * profile.width + 4;
+    const Float *params = profile.values + i * profile.width;
+    const Float *S = params + 4;
+    SimdFloat a = simdFill(params[0]);  // insert open
+    SimdFloat d = simdFill(params[2]);  // delete open
+    SimdFloat e = simdFill(params[3]);  // delete extend
+    SimdFloat g = simdFill(params[0] + params[1]);  // insert open + extend
+    SimdFloat gPowers = simdPowersRev(params[0] + params[1]);
+    SimdFloat wMaxHere = simdFill(zero);
 
-    Float z = 0;
-    for (int j = seqEnd - 1; j >= 0; --j) {
-      Float x = S[sequence[j]] * Wfrom[j];
-      Float y = Y[j];
-      Float w = x + d * y + a * z + scale;
-      if (w > wMax) {
-	wMax = w;
-	iMax = i;
-	jMax = j;
-      }
-      W[j] = w;
-      Y[j] = w + e * y;
-      z = w + b * z;
+    Float scaleNow[simdLen] = {0};
+    std::fill_n(scaleNow, simdLen - (seqEnd - (sequenceLength+1)), scale);
+    SimdFloat simdScaleNow = simdLoad(scaleNow);
+
+    SimdFloat z = simdFill(zero);
+    for (int j = seqEnd - simdLen; j >= 0; j -= simdLen) {
+      SimdFloat x = simdMul(simdLookup(S, sequence+j), simdLoad(Wfrom+j));
+      SimdFloat y = simdLoad(Y+j);
+      SimdFloat u = simdAdd(simdAdd(x, simdMul(d, y)), simdScaleNow);
+      SimdFloat s = simdCumulateRev(u, g);
+      s = simdAdd(s, simdMul(gPowers, z));
+      z = simdShiftRev(z, s);
+      SimdFloat w = simdAdd(u, simdMul(a, z));
+      wMaxHere = simdMax(wMaxHere, w);
+      simdStore(W+j, w);
+      simdStore(Y+j, simdAdd(w, simdMul(e, y)));
+      z = simdLowItem(s);
+      simdScaleNow = simdScale;
+    }
+
+    Float theMaxHere = simdHorizontalMax(wMaxHere);
+    if (theMaxHere > wMax) {
+      wMax = theMaxHere;
+      iMax = i;
     }
   }
 
@@ -503,6 +552,9 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     std::cerr << "numbers overflowed to infinity: giving up this comparison\n";
     return;
   }
+
+  const Float *maxRow = scratch + iMax * rowSize;
+  jMax = std::find(maxRow, maxRow + seqEnd, wMax) - maxRow;
 
   AlignedSimilarity begAnchored = {wMax, iMax, jMax};
   addForwardAlignment(begAnchored.alignment, profile, sequence,
@@ -524,53 +576,67 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     Float *X = scratch + i * rowSize;
     const Float *Xfrom = (i > 0) ? X - rowSize - 1 : Y;
     const Float *Wbackward = X;  // the forward Xs overwrite the backward Ws
-    Float a = profile.values[i * profile.width + 0];
-    Float b = profile.values[i * profile.width + 1];
-    Float d = profile.values[i * profile.width + 2];
-    Float e = profile.values[i * profile.width + 3];
-    const Float *S = profile.values + i * profile.width + 4;
+    const Float *params = profile.values + i * profile.width;
+    const Float *S = params + 4;
+    SimdFloat a = simdFill(params[0]);  // insert open
+    SimdFloat d = simdFill(params[2]);  // delete open
+    SimdFloat e = simdFill(params[3]);  // delete extend
+    SimdFloat g = simdFill(params[0] + params[1]);  // insert open + extend
+    SimdFloat gPowers = simdPowersFwd(params[0] + params[1]);
 
     InitialSimilarity hits[minSeparation];
     int hitCount = 0;
     int jOld = INT_MAX;
 
-    Float z = 0;
-    for (int j = 0; j < seqEnd; ++j) {
-      Float y = Y[j];
-      Float w = Xfrom[j] + y + z + scale;
-      Float wMid = w * Wbackward[j];
+    SimdFloat z = simdFill(zero);
+    for (int j = 0; j < seqEnd; j += simdLen) {
+      SimdFloat y = simdLoad(Y + j);
+      SimdFloat u = simdAdd(simdAdd(simdLoad(Xfrom + j), y), simdScale);
+      SimdFloat s = simdCumulateFwd(simdMul(a, u), g);
+      s = simdAdd(s, simdMul(gPowers, z));
+      z = simdShiftFwd(z, s);
+      SimdFloat w = simdAdd(u, z);
+      SimdFloat wMid = simdMul(w, simdLoad(Wbackward + j));
 
-      if (minProbRatio >= 0) {
-	if (wMid >= minProbRatio) {
-	  if (j - jOld >= minSeparation) {
-	    addMidAnchored(similarities, profile, sequence, sequenceLength,
-			   scratch, i, jOld, wBegAnchored, wEndAnchored);
-	    jOld = INT_MAX;
+      Float ws[simdLen];
+      Float wMids[simdLen];
+      simdStore(ws, w);
+      simdStore(wMids, wMid);
+      for (int k = 0; k < simdLen; ++k) {
+	int jk = j + k;
+	if (jk > sequenceLength) break;
+	if (minProbRatio >= 0) {
+	  if (wMids[k] >= minProbRatio) {
+	    if (jk - jOld >= minSeparation) {
+	      addMidAnchored(similarities, profile, sequence, sequenceLength,
+			     scratch, i, jOld, wBegAnchored, wEndAnchored);
+	      jOld = INT_MAX;
+	    }
+	    hitCount = updateInitialSimilarities(hits, hitCount, jk, wMids[k]);
+	    if (hitCount == 1) {
+	      jOld = jk;
+	      wBegAnchored = Wbackward[jk];
+	      wEndAnchored = ws[k];
+	    }
 	  }
-	  hitCount = updateInitialSimilarities(hits, hitCount, j, wMid);
-	  if (hitCount == 1) {
-	    jOld = j;
-	    wBegAnchored = Wbackward[j];
-	    wEndAnchored = w;
+	} else {
+	  if (ws[k] > wMax) {
+	    wMax = ws[k];
+	    iMax = i;
+	    jMax = jk;
 	  }
-	}
-      } else {
-	if (w > wMax) {
-	  wMax = w;
-	  iMax = i;
-	  jMax = j;
-	}
-	if (wMid > wMidMaxHere) {
-	  wMidMaxHere = wMid;
-	  wBegAnchored = Wbackward[j];
-	  wEndAnchored = w;
-	  jMidMax = j;
+	  if (wMids[k] > wMidMaxHere) {
+	    wMidMaxHere = wMids[k];
+	    wBegAnchored = Wbackward[jk];
+	    wEndAnchored = ws[k];
+	    jMidMax = jk;
+	  }
 	}
       }
 
-      X[j] = S[sequence[j]] * w;
-      Y[j] = d * w + e * y;
-      z = a * w + b * z;
+      simdStore(X+j, simdMul(simdLookup(S, sequence+j), w));
+      simdStore(Y+j, simdAdd(simdMul(d, w), simdMul(e, y)));
+      z = simdHighItem(s);
     }
 
     if (wMidMaxHere > wMidMax) {
@@ -989,7 +1055,7 @@ void setCharToNumber(char *charToNumber, const char *alphabet) {
 }
 
 int resizeMem(std::vector<Float> &v, int profileLength, int sequenceLength) {
-  long rowSize = sequenceLength + 2;
+  long rowSize = simdRoundUp(sequenceLength + 1) + simdLen;
   if (rowSize > LONG_MAX / (profileLength+2)) {
     std::cerr << "too big combination of sequence and profile\n";
     return 0;
@@ -1073,7 +1139,8 @@ Options for random sequences:\n\
       break;
     case 'l':
       randomSeqLen = intFromText(optarg);
-      if (randomSeqLen < 1 || randomSeqLen > INT_MAX - 2) return badOpt();
+      if (randomSeqLen < 1 || randomSeqLen > INT_MAX - 2 * simdLen)
+	return badOpt();
       break;
     case 'b':
       border = intFromText(optarg);
@@ -1090,7 +1157,7 @@ Options for random sequences:\n\
     return 1;
   }
 
-  if (border > INT_MAX - 2 - randomSeqLen) {
+  if (border > INT_MAX - 2 * simdLen - randomSeqLen) {
     std::cerr << "sequence + border is too big\n";
     return 1;
   }
@@ -1117,7 +1184,7 @@ Options for random sequences:\n\
   }
 
   size_t seqIdx = charVec.size();
-  charVec.resize(seqIdx + randomSeqLen + border + 1);
+  charVec.resize(seqIdx + simdRoundUp(randomSeqLen + border + 1));
   std::vector<Float> scratch;
   if (!resizeMem(scratch, maxProfileLength, randomSeqLen + border)) return 1;
 
@@ -1187,7 +1254,7 @@ Options for random sequences:\n\
     if (verbosity > 0)
       std::cerr << "Sequence: " << &charVec[sequence.nameIdx] << "\n";
     if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
-    seqIdx = charVec.size() - sequence.length - 1;
+    seqIdx = charVec.size() - simdRoundUp(sequence.length + 1);
     totSequenceLength += sequence.length;
     if (strandOpt == 2) totSequenceLength += sequence.length;
     Float minProbRatio =
