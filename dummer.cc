@@ -456,7 +456,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 		      Profile profile, const char *sequence,
 		      int sequenceLength, Float *scratch,
 		      Float minProbRatio) {
-  long rowSize = sequenceLength + 2;
+  const int seqEnd = sequenceLength + 1;
+  const long rowSize = seqEnd + 1;
 
   // Dynamic programming initialization for forward & backward algorithms:
   for (int i = 0; i < profile.length + 2; ++i) scratch[i * rowSize] = 0;
@@ -471,7 +472,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
   Float wMax = 0;
   int iMax, jMax;
 
-  for (int j = 0; j <= sequenceLength; ++j) Y[j] = 0;
+  for (int j = 0; j < seqEnd; ++j) Y[j] = 0;
 
   for (int i = profile.length; i >= 0; --i) {
     Float *W = scratch + i * rowSize;
@@ -483,7 +484,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     const Float *S = profile.values + i * profile.width + 4;
 
     Float z = 0;
-    for (int j = sequenceLength; j >= 0; --j) {
+    for (int j = seqEnd - 1; j >= 0; --j) {
       Float x = S[sequence[j]] * Wfrom[j];
       Float y = Y[j];
       Float w = x + d * y + a * z + scale;
@@ -516,7 +517,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
   int iMidMax, jMidMax;
   std::vector<SegmentPair> alignment;
 
-  for (int j = 0; j <= sequenceLength; ++j) Y[j] = 0;
+  for (int j = 0; j < seqEnd; ++j) Y[j] = 0;
 
   for (int i = 0; i <= profile.length; ++i) {
     Float wMidMaxHere = wMidMax;
@@ -534,10 +535,11 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     int jOld = INT_MAX;
 
     Float z = 0;
-    for (int j = 0; j <= sequenceLength; ++j) {
+    for (int j = 0; j < seqEnd; ++j) {
       Float y = Y[j];
       Float w = Xfrom[j] + y + z + scale;
       Float wMid = w * Wbackward[j];
+
       if (minProbRatio >= 0) {
 	if (wMid >= minProbRatio) {
 	  if (j - jOld >= minSeparation) {
@@ -565,6 +567,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 	  jMidMax = j;
 	}
       }
+
       X[j] = S[sequence[j]] * w;
       Y[j] = d * w + e * y;
       z = a * w + b * z;
