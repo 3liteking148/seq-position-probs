@@ -36,6 +36,13 @@ SimdDbl simdAdd(SimdDbl x, SimdDbl y) { return _mm512_add_pd(x, y); }
 SimdFlt simdMul(SimdFlt x, SimdFlt y) { return _mm512_mul_ps(x, y); }
 SimdDbl simdMul(SimdDbl x, SimdDbl y) { return _mm512_mul_pd(x, y); }
 
+int simdGe(SimdFlt x, SimdFlt y) {  // greater or equal: x >= y
+  return _mm512_mask2int(_mm512_cmp_ps_mask(x, y, 29));
+}
+int simdGe(SimdDbl x, SimdDbl y) {  // greater or equal: x >= y
+  return _mm512_mask2int(_mm512_cmp_pd_mask(x, y, 29));
+}
+
 SimdFlt simdLowItem(SimdFlt x) {
   return _mm512_broadcastss_ps(_mm512_castps512_ps128(x));
 }
@@ -168,6 +175,13 @@ SimdDbl simdAdd(SimdDbl x, SimdDbl y) { return _mm256_add_pd(x, y); }
 SimdFlt simdMul(SimdFlt x, SimdFlt y) { return _mm256_mul_ps(x, y); }
 SimdDbl simdMul(SimdDbl x, SimdDbl y) { return _mm256_mul_pd(x, y); }
 
+int simdGe(SimdFlt x, SimdFlt y) {  // greater or equal: x >= y
+  return _mm256_movemask_ps(_mm256_cmp_ps(x, y, 29));
+}
+int simdGe(SimdDbl x, SimdDbl y) {  // greater or equal: x >= y
+  return _mm256_movemask_pd(_mm256_cmp_pd(x, y, 29));
+}
+
 SimdFlt simdLowItem(SimdFlt x) {
   return _mm256_broadcastss_ps(_mm256_castps256_ps128(x));
 }
@@ -286,6 +300,13 @@ SimdDbl simdAdd(SimdDbl x, SimdDbl y) { return _mm_add_pd(x, y); }
 SimdFlt simdMul(SimdFlt x, SimdFlt y) { return _mm_mul_ps(x, y); }
 SimdDbl simdMul(SimdDbl x, SimdDbl y) { return _mm_mul_pd(x, y); }
 
+int simdGe(SimdFlt x, SimdFlt y) {  // greater or equal: x >= y
+  return _mm_movemask_ps(_mm_cmpge_ps(x, y));
+}
+int simdGe(SimdDbl x, SimdDbl y) {  // greater or equal: x >= y
+  return _mm_movemask_pd(_mm_cmpge_pd(x, y));
+}
+
 SimdFlt simdLowItem(SimdFlt x) { return _mm_shuffle_ps(x, x, 0); }
 SimdDbl simdLowItem(SimdDbl x) { return _mm_shuffle_pd(x, x, 0); }
 
@@ -368,6 +389,13 @@ SimdDbl simdAdd(SimdDbl x, SimdDbl y) { return vaddq_f64(x, y); }
 
 SimdFlt simdMul(SimdFlt x, SimdFlt y) { return vmulq_f32(x, y); }
 SimdDbl simdMul(SimdDbl x, SimdDbl y) { return vmulq_f64(x, y); }
+
+uint64_t simdGe(SimdFlt x, SimdFlt y) {  // greater or equal: x >= y
+  return vget_lane_u64(vreinterpret_u64_u16(vmovn_u32(vcgeq_f32(x, y))), 0);
+}
+uint64_t simdGe(SimdDbl x, SimdDbl y) {  // greater or equal: x >= y
+  return vget_lane_u64(vreinterpret_u64_u32(vmovn_u64(vcgeq_f64(x, y))), 0);
+}
 
 SimdFlt simdLowItem(SimdFlt x) { return vdupq_laneq_f32(x, 0); }
 SimdDbl simdLowItem(SimdDbl x) { return vdupq_laneq_f64(x, 0); }
@@ -453,6 +481,9 @@ SimdDbl simdAdd(SimdDbl x, SimdDbl y) { return x + y; }
 
 SimdFlt simdMul(SimdFlt x, SimdFlt y) { return x * y; }
 SimdDbl simdMul(SimdDbl x, SimdDbl y) { return x * y; }
+
+bool simdGe(SimdFlt x, SimdFlt y) { return x >= y; }
+bool simdGe(SimdDbl x, SimdDbl y) { return x >= y; }
 
 SimdFlt simdLowItem(SimdFlt x) { return x; }
 SimdDbl simdLowItem(SimdDbl x) { return x; }

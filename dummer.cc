@@ -568,6 +568,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
   Float wBegAnchored, wEndAnchored;
   int iMidMax, jMidMax;
   std::vector<SegmentPair> alignment;
+  SimdFloat simdMinProbRatio = simdFill(minProbRatio);
 
   for (int j = 0; j < seqEnd; ++j) Y[j] = 0;
 
@@ -600,25 +601,31 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
       Float ws[simdLen];
       Float wMids[simdLen];
-      simdStore(ws, w);
-      simdStore(wMids, wMid);
-      for (int k = 0; k < simdLen && k <= sequenceLength - j; ++k) {
-	if (minProbRatio >= 0) {
-	  if (wMids[k] >= minProbRatio) {
-	    if (j+k - jOld >= minSeparation) {
-	      addMidAnchored(similarities, profile, sequence, sequenceLength,
-			     scratch, i, jOld, wBegAnchored, wEndAnchored);
-	      jOld = INT_MAX;
-	    }
-	    hitCount = updateInitialSimilarities(hits, hitCount,
-						 j+k, wMids[k]);
-	    if (hitCount == 1) {
-	      jOld = j+k;
-	      wBegAnchored = Wbackward[j+k];
-	      wEndAnchored = ws[k];
+      if (minProbRatio >= 0) {
+	if (simdGe(wMid, simdMinProbRatio)) {
+	  simdStore(ws, w);
+	  simdStore(wMids, wMid);
+	  for (int k = 0; k < simdLen && k <= sequenceLength - j; ++k) {
+	    if (wMids[k] >= minProbRatio) {
+	      if (j+k - jOld >= minSeparation) {
+		addMidAnchored(similarities, profile, sequence, sequenceLength,
+			       scratch, i, jOld, wBegAnchored, wEndAnchored);
+		jOld = INT_MAX;
+	      }
+	      hitCount = updateInitialSimilarities(hits, hitCount,
+						   j+k, wMids[k]);
+	      if (hitCount == 1) {
+		jOld = j+k;
+		wBegAnchored = Wbackward[j+k];
+		wEndAnchored = ws[k];
+	      }
 	    }
 	  }
-	} else {
+	}
+      } else {
+	simdStore(ws, w);
+	simdStore(wMids, wMid);
+	for (int k = 0; k < simdLen && k <= sequenceLength - j; ++k) {
 	  if (ws[k] > wMax) {
 	    wMax = ws[k];
 	    iMax = i;
