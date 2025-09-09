@@ -1060,14 +1060,21 @@ void setCharToNumber(char *charToNumber, const char *alphabet) {
   }
 }
 
-int resizeMem(std::vector<Float> &v, int profileLength, int sequenceLength) {
+Float *resizeMem(Float *v, size_t &size,
+		 int profileLength, int sequenceLength) {
   long rowSize = simdRoundUp(sequenceLength + 1) + simdLen;
   if (rowSize > LONG_MAX / (profileLength+2)) {
     std::cerr << "too big combination of sequence and profile\n";
     return 0;
   }
-  v.resize(rowSize * (profileLength+2));
-  return 1;
+  size_t s = rowSize * (profileLength+2);
+  if (s > size) {
+    size = s;
+    free(v);
+    v = (Float *)calloc(s, sizeof(Float));
+    // this memory allocation doesn't get "free"-d at the end: that is ok!
+  }
+  return v;
 }
 
 int main(int argc, char* argv[]) {
@@ -1191,8 +1198,11 @@ Options for random sequences:\n\
 
   size_t seqIdx = charVec.size();
   charVec.resize(seqIdx + simdRoundUp(randomSeqLen + border + 1));
-  std::vector<Float> scratch;
-  if (!resizeMem(scratch, maxProfileLength, randomSeqLen + border)) return 1;
+  Float *scratch = 0;
+  size_t scratchSize = 0;
+  scratch = resizeMem(scratch, scratchSize,
+		      maxProfileLength, randomSeqLen + border);
+  if (!scratch) return 1;
 
   std::cout << "# DUMMER "
 #include "version.hh"
@@ -1221,7 +1231,7 @@ Options for random sequences:\n\
     for (int j = 4; j < p.width - 1; ++j) std::cout << " " << profileEnd[j];
     std::cout << std::endl;
     Triple r = estimateK(p, profileEnd+4, &charVec[seqIdx], randomSeqLen,
-			 border, randomSeqNum, &scratch[0], printVerbosity);
+			 border, randomSeqNum, scratch, printVerbosity);
     totEndK += r.endAnchored;
     totBegK += r.begAnchored;
     totMidK += r.midAnchored;
@@ -1259,7 +1269,9 @@ Options for random sequences:\n\
   for (size_t i = 0; readSequence(in, sequence, charVec, charToNumber); ++i) {
     if (verbosity > 0)
       std::cerr << "Sequence: " << &charVec[sequence.nameIdx] << "\n";
-    if (!resizeMem(scratch, maxProfileLength, sequence.length)) return 1;
+    scratch = resizeMem(scratch, scratchSize,
+			maxProfileLength, sequence.length);
+    if (!scratch) return 1;
     seqIdx = charVec.size() - simdRoundUp(sequence.length + 1);
     totSequenceLength += sequence.length;
     if (strandOpt == 2) totSequenceLength += sequence.length;
@@ -1272,7 +1284,7 @@ Options for random sequences:\n\
 	  if (verbosity > 1)
 	    std::cerr << "Profile: " << &charVec[profiles[j].nameIdx] << "\n";
 	  findFinalSimilarities(similarities, profiles[j], &charVec[seqIdx],
-				sequence.length, &scratch[0], j, strandNum,
+				sequence.length, scratch, j, strandNum,
 				minProbRatio);
 	}
       }
