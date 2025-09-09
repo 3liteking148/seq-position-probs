@@ -1071,7 +1071,7 @@ Float *resizeMem(Float *v, size_t &size,
   if (s > size) {
     size = s;
     free(v);
-    v = (Float *)calloc(s, sizeof(Float));
+    v = (Float *)aligned_alloc(simdLen * sizeof(Float), s * sizeof(Float));
     // this memory allocation doesn't get "free"-d at the end: that is ok!
   }
   return v;
