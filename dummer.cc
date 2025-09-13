@@ -150,7 +150,6 @@ std::istream &readSequence(std::istream &in, Sequence &sequence,
   char x;
   if (!(in >> x)) return in;
   if (x != '>') return fail(in, "bad sequence data: no '>'");
-
   std::string line, word;
   getline(in, line);
   std::istringstream iss(line);
@@ -158,6 +157,7 @@ std::istream &readSequence(std::istream &in, Sequence &sequence,
   sequence.nameIdx = vec.size();
   const char *name = word.c_str();
   vec.insert(vec.end(), name, name + word.size() + 1);
+  if (verbosity > 0) std::cerr << "Sequence: " << name << "\n";
 
   std::streambuf *buf = in.rdbuf();
   int c = buf->sgetc();
@@ -1267,8 +1267,6 @@ Options for random sequences:\n\
   if (!file) return 1;
   Sequence sequence;
   for (size_t i = 0; readSequence(in, sequence, charVec, charToNumber); ++i) {
-    if (verbosity > 0)
-      std::cerr << "Sequence: " << &charVec[sequence.nameIdx] << "\n";
     scratch = resizeMem(scratch, scratchSize,
 			maxProfileLength, sequence.length);
     if (!scratch) return 1;
