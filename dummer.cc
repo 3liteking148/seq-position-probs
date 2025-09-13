@@ -147,26 +147,30 @@ void reverseComplement(char *beg, char *end) {
 
 std::istream &readSequence(std::istream &in, Sequence &sequence,
 			   std::vector<char> &vec, const char *charToNumber) {
-  char x;
-  if (!(in >> x)) return in;
-  if (x != '>') return fail(in, "bad sequence data: no '>'");
-  std::string line, word;
-  getline(in, line);
-  std::istringstream iss(line);
-  if (!(iss >> word)) return fail(in, "bad sequence data: no name");
-  sequence.nameIdx = vec.size();
-  const char *name = word.c_str();
-  vec.insert(vec.end(), name, name + word.size() + 1);
-  if (verbosity > 0) std::cerr << "Sequence: " << name << "\n";
+  {
+    char x;
+    if (!(in >> x)) return in;
+    if (x != '>') return fail(in, "bad sequence data: no '>'");
+    std::string line, word;
+    getline(in, line);
+    std::istringstream iss(line);
+    if (!(iss >> word)) return fail(in, "bad sequence data: no name");
+    sequence.nameIdx = vec.size();
+    const char *name = word.c_str();
+    vec.insert(vec.end(), name, name + word.size() + 1);
+    if (verbosity > 0) std::cerr << "Sequence: " << name << "\n";
+  }
 
+  size_t seqIdx = vec.size();
   std::streambuf *buf = in.rdbuf();
   int c = buf->sgetc();
+
   while (c != std::streambuf::traits_type::eof() && c != '>') {
     if (c > ' ') vec.push_back(charToNumber[c]);
     c = buf->snextc();
   }
 
-  size_t seqLen = vec.size() - sequence.nameIdx - word.size() - 1;
+  size_t seqLen = vec.size() - seqIdx;
   if (seqLen > INT_MAX - 2 * simdLen) return fail(in, "sequence is too long!");
   sequence.length = seqLen;
   // The algorithms need one arbitrary letter past the end
