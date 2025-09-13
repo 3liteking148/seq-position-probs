@@ -1266,7 +1266,7 @@ Options for random sequences:\n\
   std::istream &in = openFile(file, argv[optind + 1]);
   if (!file) return 1;
   Sequence sequence;
-  for (size_t i = 0; readSequence(in, sequence, charVec, charToNumber); ++i) {
+  while (readSequence(in, sequence, charVec, charToNumber)) {
     scratch = resizeMem(scratch, scratchSize,
 			maxProfileLength, sequence.length);
     if (!scratch) return 1;
@@ -1277,7 +1277,7 @@ Options for random sequences:\n\
       (evalueOpt > 0) ? totMidK * totSequenceLength / evalueOpt * scale : -1;
     for (int s = 0; s < 2; ++s) {
       if (s != strandOpt) {
-	size_t strandNum = i * 2 + s;
+	size_t strandNum = sequences.size() * 2 + s;
 	for (size_t j = 0; j < numOfProfiles; ++j) {
 	  if (verbosity > 1)
 	    std::cerr << "Profile: " << &charVec[profiles[j].nameIdx] << "\n";
