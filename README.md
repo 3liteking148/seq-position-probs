@@ -104,7 +104,7 @@ alignments with that anchor.
 
 ## Low-memory version
 
-`dummerl` uses half as much memory, and is a bit faster, but is more
+`dummerl` uses half as much memory, and is faster, but is more
 prone to numeric overflow.  (It uses single-precision instead of
 double-precision floating-point numbers.)
 
