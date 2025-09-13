@@ -448,6 +448,85 @@ a score=73.1 E=4.79e-15 anchor=130,29371
 s MIR                             18 175 +   262 taagagcacggactctggagccagactgcctgggttcgaa-tcccggctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagtacctacctcatagggttgttgtgaggattaaatgagt
 s hg38.chr15:90050000-90080000 29292 138 - 30000 tcagggcatgggccgcagggtcagactgc-----------agtctggccccaccactcac----------accttgg-------------tctgtgtgtgcctcagtctcctcatctgtggcatgag----ataatggttctcacttcctggagttgttagggggtttaactgagc
 
+# Bytes per floating-point number: 4
+# Random sequences: trials=100 length=400 border=100
+# E-value <= 0.01
+
+# Profile name: MIR
+# Profile length: 262
+# Background letter probabilities: 0.293416 0.189391 0.202994 0.314198
+# K: 742.127
+
+# Profile name: U7
+# Profile length: 63
+# Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
+# K: 92.9442
+
+# Total sequence length: 60000
+a score=51.3 E=1.79e-08 anchor=126,1755
+s MIR                            59 185 +   262 cccggctctgccac---ttactagctgt----------------gtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagtacctacctcatagggt-------tgttgtgaggattaaatgagttaatacatgtaaagcgcttagaa-------------------------------cagtgcctggcacatagtaagcgctcaa
+s hg38.chr15:90050000-90080000 1685 162 + 30000 cccaactc------cactta--------ttctctggtgtacctggtaaccgtgggtgaatcactcaactc--ctgtgccttggtttcctcctctgtaaa---------------------------------tacgttttgttgtcaagatt-------------------------------ctgtgctgtataaaaatgatctcaacaggcacaactccaggctgaaaggaagggctcag
+
+a score=71.8 E=1.19e-14 anchor=122,2607
+s MIR                            51 100 +   262 gttcgaatcccggctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataata
+s hg38.chr15:90050000-90080000 2539  97 + 30000 gctccaatcctgcctttatctcttactggctctgtgacgt-agacaaatcac--agcttctctaagactcagtttgctcatctgtaaaatgaaaattaaa
+
+a score=46.6 E=4.8e-07 anchor=123,4545
+s MIR                            48 131 +   262 tgggttcgaatcccggctctgccacttac------------------tagctgtgtgaccttgggcaagttact-----taacctctctg--------tgcctcagtttcctcatctgtaaaatggggataataatag----tacctacctcatagggttgttgtg
+s hg38.chr15:90050000-90080000 4479 119 + 30000 tgggt------------------------ctcggccctgggcccacccagctg---------gggcc-------tgctctatcctgcctgcaggggactgcctcagtttccacgtctgtataatggaaatg-------gtaccccccatcccagaggactgccccg
+
+a score=87.8 E=1.91e-19 anchor=88,9409
+s MIR                            26 135 +   262 cggactctggagccagact-gcctgggttcgaatcccggctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataata----------atagtaccta
+s hg38.chr15:90050000-90080000 9348 133 + 30000 ggggctgcggggccgga--gacctgcattctagcccttgctcccccaccgtctcactgtgtgaccttggaccattcccttcccctccctgggcctcagtttcctcatctgttaac-----------agggccgggtatggtgcgca
+
+a score=40.2 E=4.03e-05 anchor=127,13335
+s MIR                             29 161 +   262 actctggagccagactg-cctgggttcgaatcccggctctgc-cacttactagctgtgtgacc----ttgggcaagttacttaacctctct------------gtgcctcagtttcctcatctgtaaaatggggataataatagtacctacctcat----------------agggttgttgtgaggattaaatg
+s hg38.chr15:90050000-90080000 13247 154 + 30000 gctgtggggccacacgggcctggctgcaga-cccaactc---ccccttcattgatggg-----gcacttggg-------------------agtgtgttattcaagcctggatttcctggggcgtgaggtggggagcgcacta-------------ccccacccctgccccccgggttgttcctagtattaaatg
+
+a score=67.3 E=2.67e-13 anchor=96,29156
+s MIR                             79 172 +   262 gctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagtacctacctcatagggttgttgtgaggattaaatgagttaatacatgtaaagcgcttagaacagtgcctggcacatagtaagcgctcaataaatgt
+s hg38.chr15:90050000-90080000 29139 133 + 30000 gctgggtgacctttggcaagttgattcacctctctaaacctcagccttctgagctgctaaatggg--------------------------gctgttgtgattgctggatgaggcgaggcctgcgaa------------gtggctggcatgcagcaggtgct-aatgagtgc
+
+a score=43.1 E=5.42e-06 anchor=11,26434
+s U7                               1 27 +    63 agtgttacagctcttttagaatttgtc
+s hg38.chr15:90050000-90080000 26424 27 + 30000 agtgttacagctcttttagaatttgtt
+
+a score=40.8 E=2.69e-05 anchor=34,26773
+s U7                              21 36 +    63 atttgtctagcaggctttccggtttttcaccggaaa
+s hg38.chr15:90050000-90080000 26760 35 + 30000 attcatttagcaggttttccagttttt-accagaaa
+
+a score=105 E=1.32e-24 anchor=134,5381
+s MIR                            65 196 +   262 tctgccacttactagctgtg---tgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagtacctacctcatagggttg-ttgtgaggattaaatgagttaatacatgtaaagcgcttagaacagt---gcctggcacatagtaagcgctcaataaatgttagctattat
+s hg38.chr15:90050000-90080000 5310 171 - 30000 tctgtcacctcct-gctgtgttgtcatcttgcatgagctatctaagttctctgttcttcagtttctgcatctgtaaaacgatgacaatgacagagccaacctc---------gctttgaggatcacatgagttaata----------------------aaggcctggcacacagttagcactcaataaatgttagttatgat
+
+a score=36.6 E=0.000487 anchor=133,10502
+s MIR                            112 41 +   262 ctgt-gcctcagtttcctcatctgtaaaatggggataataat
+s hg38.chr15:90050000-90080000 10482 40 - 30000 ct--ggcctctgtcctcccatctagaaaatagggagggtaag
+
+a score=43 E=5.88e-06 anchor=122,13136
+s MIR                             63 83 +   262 gctctgccacttactag--ctgtgtgaccttg-ggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatgggga
+s hg38.chr15:90050000-90080000 13080 80 - 30000 tctcctccatct-----ccctgggagatcctggggtaagctctgcccccttgctg-gcctcagtcttcccatctgtacaacaggga
+
+a score=68.1 E=1.64e-13 anchor=122,15083
+s MIR                             52 189 +   262 ttcgaatcccggctctgccacttactagctgtg-tgacctt-gggcaagttacttaacc-----tctctgtgcctcagtttcctcatctgtaaaatggggataataatagtacc-tacctcatagggttgttgtgaggattaaatgagttaatacatgtaaagcgcttagaacagt-gcctggcacatagtaagcgct
+s hg38.chr15:90050000-90080000 15026 161 - 30000 ctcgagtgccagctcagtcacttgcaa------gtgac---taagcaa-----------agtcatgccagtggctcagtttccctatctgaaaaacggggatgaaaaca-----ctcacccatggaagggttgtgagggcccacggtcctaacacaggtgaagc------------agcttggttcattataaggccc
+
+a score=47.9 E=1.87e-07 anchor=66,16015
+s MIR                             48 48 +   262 tgggttcgaatcccggctctgccacttactagctgtgtgaccttgggc
+s hg38.chr15:90050000-90080000 15998 47 - 30000 tgagttc-aatccaggctctgccgtctactagccgtgtgacatcaggt
+
+a score=52 E=1.14e-08 anchor=134,18174
+s MIR                             29 132 +   262 actctggagccagactgcctgggttcgaatc-------------------ccggctctgccacttactagctgtgtgacc----ttgggcaagttacttaacctctctg----tgcctcagtttcctcatctgtaaaatggggataataatagtac---cta
+s hg38.chr15:90050000-90080000 18069 127 - 30000 gctctggaatc--------------------tctaactgtgacttcacctacggctttgccccatgggtcctgta-----aaggctgggcaagtcgcctggctcctc--cacctgtctccatttcctgatctgtaaaatgggcacaag--------agccta
+
+a score=75.2 E=1.14e-15 anchor=69,28060
+s MIR                             37 105 +   262 gccagactgcctgggttcgaatcccggctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatg
+s hg38.chr15:90050000-90080000 28028 105 - 30000 tccagcagacctgtcctccacccccagctctgccacttaggagctgtacaccctcaggcaagtgtctcaacctccctgggatttggtttccttgtctgtatagtg
+
+a score=73.1 E=4.79e-15 anchor=130,29371
+s MIR                             18 175 +   262 taagagcacggactctggagccagactgcctgggttcgaa-tcccggctctgccacttactagctgtgtgaccttgggcaagttacttaacctctctgtgcctcagtttcctcatctgtaaaatggggataataatagtacctacctcatagggttgttgtgaggattaaatgagt
+s hg38.chr15:90050000-90080000 29292 138 - 30000 tcagggcatgggccgcagggtcagactgc-----------agtctggccccaccactcac----------accttgg-------------tctgtgtgtgcctcagtctcctcatctgtggcatgag----ataatggttctcacttcctggagttgttagggggtttaactgagc
+
 # Bytes per floating-point number: 8
 # Random sequences: trials=1000 length=500 border=100
 # E-value <= 10

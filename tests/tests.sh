@@ -12,6 +12,8 @@ PATH=../bin:$PATH
     sed '2s/^/N/' dna-test.fa |
 	dummer -t50 -b0 -e0 -s1 dfam-test.hmm -
     dummer -e0.001 -t100 -l400 dfam-test.hmm hg38-chr15-part.fa
+    sed 's/aaaaaaaaaa/nnnnnnnnnn/' hg38-chr15-part.fa |
+	dummerl -e0.01 -t100 -l400 dfam-test.hmm -
     dummer PF05369.hmm mtmb1.fa
 
     cat hakoLTR.stk Notch.stk | dummer-build --countonly -
