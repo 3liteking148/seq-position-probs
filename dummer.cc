@@ -83,6 +83,11 @@ struct Sequence {
   int length;
 };
 
+struct Contig {
+  int start;
+  int length;
+};
+
 struct SegmentPair {
   int start1, start2, length;
 };
@@ -145,9 +150,9 @@ void reverseComplement(char *beg, char *end) {
   }
 }
 
-std::istream &readSequence(std::istream &in, Sequence &sequence,
-			   std::vector<char> &vec, const char *charToNumber) {
-  {
+std::istream &readContig(std::istream &in, Sequence &sequence, Contig &contig,
+			 std::vector<char> &vec, const char *charToNumber) {
+  if (contig.length == 0) {
     char x;
     if (!(in >> x)) return in;
     if (x != '>') return fail(in, "bad sequence data: no '>'");
@@ -156,6 +161,7 @@ std::istream &readSequence(std::istream &in, Sequence &sequence,
     std::istringstream iss(line);
     if (!(iss >> word)) return fail(in, "bad sequence data: no name");
     sequence.nameIdx = vec.size();
+    sequence.length = 0;
     const char *name = word.c_str();
     vec.insert(vec.end(), name, name + word.size() + 1);
     if (verbosity > 0) std::cerr << "Sequence: " << name << "\n";
@@ -166,16 +172,24 @@ std::istream &readSequence(std::istream &in, Sequence &sequence,
   int c = buf->sgetc();
 
   while (c != std::streambuf::traits_type::eof() && c != '>') {
+    if (charToNumber[c] < 125) break;  // found a contig symbol
+    if (c > ' ') ++sequence.length;  // skip over non-contig symbols
+    c = buf->snextc();
+  }
+
+  while (c != std::streambuf::traits_type::eof() && charToNumber[c] < 126) {
     if (c > ' ') vec.push_back(charToNumber[c]);
     c = buf->snextc();
   }
 
   size_t seqLen = vec.size() - seqIdx;
   if (seqLen > INT_MAX - 2 * simdLen) return fail(in, "sequence is too long!");
-  sequence.length = seqLen;
+  contig.start = sequence.length;
+  contig.length = seqLen;
+  sequence.length += seqLen;
   // The algorithms need one arbitrary letter past the end
   // Then round up to a multiple of the SIMD length
-  vec.insert(vec.end(), simdRoundUp(seqLen + 1) - seqLen, 0);
+  if (seqLen > 0) vec.insert(vec.end(), simdRoundUp(seqLen + 1) - seqLen, 0);
   return in;
 }
 
@@ -218,6 +232,10 @@ void addAlignedSequence(std::vector<char> &gappedSeq,
   }
 }
 
+int strandPosition(size_t strandNum, int seqLength, int position) {
+  return (strandNum % 2) ? seqLength - position : position;
+}
+
 void printSimilarity(const char *names, Profile p, Sequence s,
 		     const FinalSimilarity &sim, double evalue) {
   char strand = "+-"[sim.strandNum % 2];
@@ -225,12 +243,14 @@ void printSimilarity(const char *names, Profile p, Sequence s,
   int length = sim.alignedSequences.size() / 2;
   int span1 = length - std::count(seq, seq + length, '-');
   int span2 = length - std::count(seq + length, seq + length * 2, '-');
+  int start2 = strandPosition(sim.strandNum, s.length, sim.start2);
+  int anchor2 = strandPosition(sim.strandNum, s.length, sim.anchor2);
   int w1 = std::max(strlen(names + p.nameIdx), strlen(names + s.nameIdx));
-  int w2 = std::max(numOfDigits(sim.start1), numOfDigits(sim.start2));
+  int w2 = std::max(numOfDigits(sim.start1), numOfDigits(start2));
   int w3 = std::max(numOfDigits(span1), numOfDigits(span2));
   int w4 = std::max(numOfDigits(p.length), numOfDigits(s.length));
   std::cout << "a score=" << log2(sim.probRatio)+shift << " E=" << evalue
-	    << " anchor=" << sim.anchor1 << "," << sim.anchor2 << "\n";
+	    << " anchor=" << sim.anchor1 << "," << anchor2 << "\n";
   std::cout << "s " << std::left << std::setw(w1) << names + p.nameIdx << " "
 	    << std::right << std::setw(w2) << sim.start1 << " "
 	    << std::setw(w3) << span1 << " " << '+' << " "
@@ -238,7 +258,7 @@ void printSimilarity(const char *names, Profile p, Sequence s,
   std::cout.write(seq, length);
   std::cout << "\n";
   std::cout << "s " << std::left << std::setw(w1) << names + s.nameIdx << " "
-	    << std::right << std::setw(w2) << sim.start2 << " "
+	    << std::right << std::setw(w2) << start2 << " "
 	    << std::setw(w3) << span2 << " " << strand << " "
 	    << std::setw(w4) << s.length << " ";
   std::cout.write(seq + length, length);
@@ -693,24 +713,29 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
   }
 }
 
+int contigToSequencePos(Contig contig, size_t strandNum, int posInContig) {
+  return contig.start + strandPosition(strandNum, contig.length, posInContig);
+}
+
 void findFinalSimilarities(std::vector<FinalSimilarity> &similarities,
 			   Profile profile, const char *sequence,
-			   int sequenceLength, Float *scratch,
+			   Contig contig, Float *scratch,
 			   size_t profileNum, size_t strandNum,
 			   Float minProbRatio) {
   const char *alphabet =
     (profile.width == 9) ? "acgtn" : "ACDEFGHIKLMNPQRSTVWYX";
 
   std::vector<AlignedSimilarity> sims;
-  findSimilarities(sims, profile, sequence, sequenceLength, scratch,
+  findSimilarities(sims, profile, sequence, contig.length, scratch,
 		   minProbRatio);
 
   for (const auto &x : sims) {
+    int anchor2 = contigToSequencePos(contig, strandNum, x.anchor2);
     FinalSimilarity s = {x.probRatio, profileNum, strandNum,
-			 x.anchor1, x.anchor2, x.anchor1, x.anchor2};
+			 x.anchor1, anchor2, x.anchor1, anchor2};
     if (!x.alignment.empty()) {
       s.start1 = x.alignment[0].start1;
-      s.start2 = x.alignment[0].start2;
+      s.start2 = contigToSequencePos(contig, strandNum, x.alignment[0].start2);
       addAlignedProfile(s.alignedSequences, x.alignment, alphabet, profile);
       addAlignedSequence(s.alignedSequences, x.alignment, alphabet, sequence);
     }
@@ -1249,17 +1274,20 @@ Options for random sequences:\n\
     if (profiles[i].width != width) width = 0;
   }
   char charToNumber[256];
-  memset(charToNumber, width - 5, 256);
   if (width == 9) {
+    memset(charToNumber, 127, 256);
     setCharToNumber(charToNumber, "ACGT");
     setCharToNumber(charToNumber, "ACGU");
   } else if (width == 25) {
+    memset(charToNumber, width - 5, 256);
     setCharToNumber(charToNumber, "ACDEFGHIKLMNPQRSTVWY");
     strandOpt = 1;
   } else {
     std::cerr << "the profiles should be all protein, or all nucleotide\n";
     return 1;
   }
+  memset(charToNumber, 125, ' '+1);  // map "space characters" (<= ' ') to 125
+  charToNumber['>'] = 126;
 
   charVec.resize(seqIdx);
   std::vector<Sequence> sequences;
@@ -1270,13 +1298,17 @@ Options for random sequences:\n\
   std::istream &in = openFile(file, argv[optind + 1]);
   if (!file) return 1;
   Sequence sequence;
-  while (readSequence(in, sequence, charVec, charToNumber)) {
-    scratch = resizeMem(scratch, scratchSize,
-			maxProfileLength, sequence.length);
+  Contig contig = {0, 0};
+  while (readContig(in, sequence, contig, charVec, charToNumber)) {
+    if (contig.length == 0) {
+      sequences.push_back(sequence);
+      continue;
+    }
+    scratch = resizeMem(scratch, scratchSize, maxProfileLength, contig.length);
     if (!scratch) return 1;
-    seqIdx = charVec.size() - simdRoundUp(sequence.length + 1);
-    totSequenceLength += sequence.length;
-    if (strandOpt == 2) totSequenceLength += sequence.length;
+    seqIdx = charVec.size() - simdRoundUp(contig.length + 1);
+    totSequenceLength += contig.length;
+    if (strandOpt == 2) totSequenceLength += contig.length;
     Float minProbRatio =
       (evalueOpt > 0) ? totMidK * totSequenceLength / evalueOpt * scale : -1;
     for (int s = 0; s < 2; ++s) {
@@ -1286,13 +1318,11 @@ Options for random sequences:\n\
 	  if (verbosity > 1)
 	    std::cerr << "Profile: " << &charVec[profiles[j].nameIdx] << "\n";
 	  findFinalSimilarities(similarities, profiles[j], &charVec[seqIdx],
-				sequence.length, scratch, j, strandNum,
-				minProbRatio);
+				contig, scratch, j, strandNum, minProbRatio);
 	}
       }
-      reverseComplement(&charVec[seqIdx], &charVec[seqIdx] + sequence.length);
+      reverseComplement(&charVec[seqIdx], &charVec[seqIdx] + contig.length);
     }
-    sequences.push_back(sequence);
     charVec.resize(seqIdx);
   }
 
