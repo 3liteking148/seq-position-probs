@@ -10,7 +10,7 @@
 #include <arm_neon.h>
 #endif
 
-#if defined __AVX512F__XXX  // turned off for now, because it's slower
+#if defined __AVX512F__
 
 typedef __m512  SimdFlt;
 typedef __m512d SimdDbl;
@@ -66,6 +66,14 @@ SimdFlt simdLookup(const float  *v, const char *i) {
 SimdDbl simdLookup(const double *v, const char *i) {
   return _mm512_set_pd(v[i[7]], v[i[6]], v[i[5]], v[i[4]],
 		       v[i[3]], v[i[2]], v[i[1]], v[i[0]]);
+}
+
+SimdFlt simdLookup(SimdFlt v, const char *i) {
+  const __m128i *j = (const __m128i *)i;
+  return _mm512_permutevar_ps(v, _mm512_cvtepi8_epi32(_mm_loadu_si128(j)));
+}
+SimdDbl simdLookup(SimdDbl v, const char *i) {
+  return _mm512_permutexvar_pd(_mm512_cvtepi8_epi64(_mm_loadu_si64(i)), v);
 }
 
 // shift high item of zOld into low position of zNew
@@ -202,6 +210,11 @@ SimdDbl simdLookup(const double *v, const char *i) {
   return _mm256_set_pd(v[i[3]], v[i[2]], v[i[1]], v[i[0]]);
 }
 
+SimdFlt simdLookup(SimdFlt v, const char *i) {
+  return _mm256_permutevar_ps(v, _mm256_cvtepi8_epi32(_mm_loadu_si64(i)));
+}
+SimdDbl simdLookup(SimdDbl v, const char *i) { return v; }  // not implemented
+
 // shift high item of zOld into low position of zNew
 SimdFlt simdShiftFwd(SimdFlt zOld, SimdFlt zNew) {
   SimdFlt a = _mm256_permute2f128_ps(zNew, zOld, 3);
@@ -320,6 +333,9 @@ SimdDbl simdLookup(const double *v, const char *i) {
   return _mm_set_pd(v[i[1]], v[i[0]]);
 }
 
+SimdFlt simdLookup(SimdFlt v, const char *i) { return v; }  // not implemented
+SimdDbl simdLookup(SimdDbl v, const char *i) { return v; }  // not implemented
+
 // shift high item of zOld into low position of zNew
 SimdFlt simdShiftFwd(SimdFlt zOld, SimdFlt zNew) {  // SSSE3
   return _mm_castsi128_ps(_mm_alignr_epi8(_mm_castps_si128(zNew),
@@ -412,6 +428,9 @@ SimdDbl simdLookup(const double *v, const char *i) {
   return simdLoad(a);
 }
 
+SimdFlt simdLookup(SimdFlt v, const char *i) { return v; }  // not implemented
+SimdDbl simdLookup(SimdDbl v, const char *i) { return v; }  // not implemented
+
 // shift high item of zOld into low position of zNew
 SimdFlt simdShiftFwd(SimdFlt zOld, SimdFlt zNew) {
   return vextq_f32(zOld, zNew, 3);
@@ -493,6 +512,9 @@ SimdDbl simdHighItem(SimdDbl x) { return x; }
 
 SimdFlt simdLookup(const float  *v, const char *i) { return v[*i]; }
 SimdDbl simdLookup(const double *v, const char *i) { return v[*i]; }
+
+SimdFlt simdLookup(SimdFlt v, const char *i) { return v; }  // not implemented
+SimdDbl simdLookup(SimdDbl v, const char *i) { return v; }  // not implemented
 
 SimdFlt simdShiftFwd(SimdFlt zOld, SimdFlt zNew) { return zOld; }
 SimdDbl simdShiftFwd(SimdDbl zOld, SimdDbl zNew) { return zOld; }

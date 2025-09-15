@@ -46,6 +46,12 @@ Float simdHorizontalMax(SimdFloat x) {  // assuming it doesn't need to be fast
   return *std::max_element(y, y + simdLen);
 }
 
+SimdFloat simdLookupTable(const Float *table) {  // assume 4 items in the table
+  Float s[simdLen];
+  for (int i = 0; i < simdLen; ++i) s[i] = table[i % 4];
+  return simdLoad(s);
+}
+
 SimdFloat simdPowersFwd(Float x) {
   Float a[simdLen];
   a[0] = x;
@@ -511,6 +517,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 		      Profile profile, const char *sequence,
 		      int sequenceLength, Float *scratch,
 		      Float minProbRatio) {
+  const bool isSimdLookup = (simdLen > 4 && profile.width <= 9);
   const Float zero = 0;
   SimdFloat simdScale = simdFill(scale);
   const int seqEnd = simdRoundUp(sequenceLength + 1);
@@ -538,6 +545,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     const Float *Wfrom = (i < profile.length) ? W + rowSize + 1 : Y;
     const Float *params = profile.values + i * profile.width;
     const Float *S = params + 4;
+    SimdFloat simdS = simdLookupTable(S);
     SimdFloat a = simdFill(params[0]);  // insert open
     SimdFloat d = simdFill(params[2]);  // delete open
     SimdFloat e = simdFill(params[3]);  // delete extend
@@ -551,7 +559,9 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
     SimdFloat z = simdFill(zero);
     for (int j = seqEnd - simdLen; j >= 0; j -= simdLen) {
-      SimdFloat x = simdMul(simdLookup(S, sequence+j), simdLoad(Wfrom+j));
+      const char *seq = sequence + j;
+      SimdFloat t = isSimdLookup ? simdLookup(simdS, seq) : simdLookup(S, seq);
+      SimdFloat x = simdMul(t, simdLoad(Wfrom+j));
       SimdFloat y = simdLoad(Y+j);
       SimdFloat u = simdAdd(simdAdd(x, simdMul(d, y)), simdScaleNow);
       SimdFloat s = simdCumulateRev(u, g);
@@ -603,6 +613,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     const Float *Wbackward = X;  // the forward Xs overwrite the backward Ws
     const Float *params = profile.values + i * profile.width;
     const Float *S = params + 4;
+    SimdFloat simdS = simdLookupTable(S);
     SimdFloat a = simdFill(params[0]);  // insert open
     SimdFloat d = simdFill(params[2]);  // delete open
     SimdFloat e = simdFill(params[3]);  // delete extend
@@ -664,7 +675,9 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 	}
       }
 
-      simdStore(X+j, simdMul(simdLookup(S, sequence+j), w));
+      const char *seq = sequence + j;
+      SimdFloat t = isSimdLookup ? simdLookup(simdS, seq) : simdLookup(S, seq);
+      simdStore(X+j, simdMul(t, w));
       simdStore(Y+j, simdAdd(simdMul(d, w), simdMul(e, y)));
       z = simdHighItem(s);
     }
