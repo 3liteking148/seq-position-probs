@@ -20,5 +20,6 @@ PATH=../bin:$PATH
     dummer-build --countonly --symfrac=0.15 Notch.stk
     dummer-build --countonly --enone hakoLTR.stk
     cat hakoLTR.stk Notch.stk | dummer-build --maxiter=5 -
+    dummer-build --countonly PF05369.alignment.seed
 } |
     grep -v DUMMER | diff -u tests.txt -
