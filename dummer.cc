@@ -625,10 +625,10 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     for (int j = 0; j < seqEnd; j += simdLen) {
       SimdFloat y = simdLoad(Y + j);
       SimdFloat u = simdAdd(simdAdd(simdLoad(Xfrom + j), y), simdScale);
-      SimdFloat s = simdCumulateFwd(simdMul(a, u), g);
+      SimdFloat s = simdCumulateFwd(u, g);
       s = simdAdd(s, simdMul(gPowers, z));
       z = simdShiftFwd(z, s);
-      SimdFloat w = simdAdd(u, z);
+      SimdFloat w = simdAdd(u, simdMul(a, z));
       SimdFloat wMid = simdMul(w, simdLoad(Wbackward + j));
 
       Float ws[simdLen];
