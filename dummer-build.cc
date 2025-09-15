@@ -102,6 +102,7 @@ void applyDirichletMixture(DirichletMixture dmix,
   double countSum = std::accumulate(counts, counts + alphabetSize, 0.0);
   double rescale = (countSum > maxCountSum) ? maxCountSum / countSum : 1.0;
   std::vector<double> logs(dmix.componentCount);
+  std::fill_n(probEstimate, alphabetSize, 0.0);
 
   for (int i = 0; i < dmix.componentCount; ++i) {
     const double *alphas = dmix.params + i * componentSize + 1;
@@ -670,7 +671,6 @@ void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
 
     /* We aggregate the expected counts over all sequences. */
     for (size_t i = 0; i < counts.size(); i++) counts[i] = 0.0;
-    std::fill(probsNew.begin(), probsNew.end(), 0.0);
 
     unsigned char* seqNoGap = seqsNoGap.data();
 
@@ -798,8 +798,8 @@ Options:\n\
     STR(OPT_symfrac) ")\n\
 \n\
 Options for effective sequence number:\n\
-  --enone        ignore relative entroy: set maximum sequence weight to 1\n\
-  --ere E        aim for this relative entroy per position (default:\n\
+  --enone        ignore relative entropy: set maximum sequence weight to 1\n\
+  --ere E        aim for this relative entropy per position (default:\n\
                      " STR(OPT_ere_aa) " for protein, "
     STR(OPT_ere_nt) " for nucleotide)\n\
   --esigma E     aim for this relative entropy (default: "
