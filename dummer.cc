@@ -193,9 +193,6 @@ std::istream &readContig(std::istream &in, Sequence &sequence, Contig &contig,
   contig.start = sequence.length;
   contig.length = seqLen;
   sequence.length += seqLen;
-  // The algorithms need one arbitrary letter past the end
-  // Then round up to a multiple of the SIMD length
-  if (seqLen > 0) vec.insert(vec.end(), simdRoundUp(seqLen + 1) - seqLen, 0);
   return in;
 }
 
@@ -1320,9 +1317,12 @@ Options for random sequences:\n\
       sequences.push_back(sequence);
       continue;
     }
+    seqIdx = charVec.size() - contig.length;
+    // The algorithms need one arbitrary letter past the end
+    // Then round up to a multiple of the SIMD length
+    charVec.resize(seqIdx + simdRoundUp(contig.length + 1));
     scratch = resizeMem(scratch, scratchSize, maxProfileLength, contig.length);
     if (!scratch) return 1;
-    seqIdx = charVec.size() - simdRoundUp(contig.length + 1);
     totSequenceLength += contig.length;
     if (strandOpt == 2) totSequenceLength += contig.length;
     Float minProbRatio =
