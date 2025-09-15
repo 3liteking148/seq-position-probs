@@ -79,7 +79,7 @@ int verbosity = 0;
 
 struct Profile {  // position-specific (insert, delete, letter) probabilities
   Float *values;  // probabilities or probability ratios
-  int width;  // values per position: 4 + alphabetSize + 1
+  int width;  // values per position: 4 + alphabetSize + 2
   int length;  // number of positions
   size_t nameIdx;
 };
@@ -201,7 +201,7 @@ std::istream &readContig(std::istream &in, Sequence &sequence, Contig &contig,
 
 int consensusLetter(Profile profile, int position) {
   const Float *S = profile.values + position * profile.width + 4;
-  return std::max_element(S, S + profile.width - 5) - S;
+  return std::max_element(S, S + profile.width - 6) - S;
 }
 
 void addAlignedProfile(std::vector<char> &gappedSeq,
@@ -517,7 +517,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 		      Profile profile, const char *sequence,
 		      int sequenceLength, Float *scratch,
 		      Float minProbRatio) {
-  const bool isSimdLookup = (simdLen > 4 && profile.width <= 9);
+  const bool isSimdLookup = (simdLen > 4 && profile.width <= 10);
   const Float zero = 0;
   SimdFloat simdScale = simdFill(scale);
   const int seqEnd = simdRoundUp(sequenceLength + 1);
@@ -736,7 +736,7 @@ void findFinalSimilarities(std::vector<FinalSimilarity> &similarities,
 			   size_t profileNum, size_t strandNum,
 			   Float minProbRatio) {
   const char *alphabet =
-    (profile.width == 9) ? "acgtn" : "ACDEFGHIKLMNPQRSTVWYX";
+    (profile.width == 10) ? "acgt" : "ACDEFGHIKLMNPQRSTVWYUO";
 
   std::vector<AlignedSimilarity> sims;
   findSimilarities(sims, profile, sequence, contig.length, scratch,
@@ -858,7 +858,7 @@ Triple estimateK(Profile profile, const Float *letterFreqs,
 		 char *sequence, int sequenceLength, int border,
 		 int numOfSequences, Float *scratch, int printVerbosity) {
   std::mt19937_64 randGen;
-  int alphabetSize = profile.width - 5;
+  int alphabetSize = profile.width - 6;
   std::discrete_distribution<> dist(letterFreqs, letterFreqs + alphabetSize);
 
   std::vector<double> scores(numOfSequences * 3);
@@ -984,13 +984,13 @@ int finalizeProfile(Profile p) {
   // set the background letter probabilities proportional to the
   // geometric mean of the foreground letter probabilities
   double sum = 0;
-  for (int k = 4; k < p.width - 1; ++k) {
+  for (int k = 4; k < p.width - 2; ++k) {
     double m = geometricMean(p.values + k, p.length, p.width);
     if (m <= 0) return 0;
     end[k] = m;
     sum += m;
   }
-  for (int k = 4; k < p.width - 1; ++k) end[k] /= sum;
+  for (int k = 4; k < p.width - 2; ++k) end[k] /= sum;
 
   for (int i = 0; ; ++i) {
     Float *probs = p.values + i * p.width;
@@ -1007,8 +1007,12 @@ int finalizeProfile(Profile p) {
     if (epsilon >= 1) return 0;
     probs[2] = delta * (1 - epsilon1);
     probs[3] = epsilon * (1 - epsilon1) / (1 - epsilon);
-    for (int k = 4; k < p.width - 1; ++k) {
+    for (int k = 4; k < p.width - 2; ++k) {
       probs[k] = c * probs[k] / end[k];
+    }
+    if (p.width == 26) {
+      probs[4 + 20] = probs[4 + 1];  // selenocysteine = cysteine
+      probs[4 + 21] = probs[4 + 8];  // pyrrolysine = lysine
     }
   }
 
@@ -1067,15 +1071,15 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
 	profile.width = profile.length = 0;
 	state = 0;
       } else {
-	int k = 5;
+	int k = 6;
 	while (iss >> word && strchr(word.c_str(), '.')) {  // xxx "*"?
 	  double prob = probFromText(word.c_str());
 	  if (prob > 1) return 0;
 	  values.push_back(prob);
 	  ++k;
 	}
-	values.push_back(0);
-	if (k == 5) return 0;
+	values.insert(values.end(), 2, 0.0);  // allow for 2 unusual letters
+	if (k == 6) return 0;
 	if (profile.width > 0 && k != profile.width) return 0;
 	profile.width = k;
 	profile.length += 1;
@@ -1270,7 +1274,7 @@ Options for random sequences:\n\
     std::cout << "# Profile name: " << &charVec[p.nameIdx] << "\n";
     std::cout << "# Profile length: " << p.length << "\n";
     std::cout << "# Background letter probabilities:";
-    for (int j = 4; j < p.width - 1; ++j) std::cout << " " << profileEnd[j];
+    for (int j = 4; j < p.width - 2; ++j) std::cout << " " << profileEnd[j];
     std::cout << std::endl;
     Triple r = estimateK(p, profileEnd+4, &charVec[seqIdx], randomSeqLen,
 			 border, randomSeqNum, scratch, printVerbosity);
@@ -1287,13 +1291,12 @@ Options for random sequences:\n\
     if (profiles[i].width != width) width = 0;
   }
   char charToNumber[256];
-  if (width == 9) {
-    memset(charToNumber, 127, 256);
+  memset(charToNumber, 127, 256);
+  if (width == 10) {
     setCharToNumber(charToNumber, "ACGT");
     setCharToNumber(charToNumber, "ACGU");
-  } else if (width == 25) {
-    memset(charToNumber, width - 5, 256);
-    setCharToNumber(charToNumber, "ACDEFGHIKLMNPQRSTVWY");
+  } else if (width == 26) {
+    setCharToNumber(charToNumber, "ACDEFGHIKLMNPQRSTVWYUO");
     strandOpt = 1;
   } else {
     std::cerr << "the profiles should be all protein, or all nucleotide\n";

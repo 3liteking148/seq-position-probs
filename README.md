@@ -102,7 +102,7 @@ The `s` lines show a representative alignment.  This aligns letters
 whose probability of being aligned is > 0.5, among all possible
 alignments with that anchor.
 
-## Low-memory version
+## Fast, low-memory version
 
 `dummerl` uses half as much memory, and is faster, but is more
 prone to numeric overflow.  (It uses single-precision instead of
@@ -126,11 +126,21 @@ Get similarities with *E*-value at most (say) 0.01:
 
     dummer -e0.01 profiles.hmm sequences.fasta
 
+## Unusual symbols in sequences
+
+Capital/lowercase letters are treated the same.  For nucleotide
+sequences, `U` (uracil) is converted to `T` (thymine).  For proteins,
+`U` (selenocysteine) is treated the same as `C` (cysteine), and `O`
+(pyrrolysine) the same as `K` (lysine).
+
+`dummer` treats other unusual symbols as barriers that break the
+sequence into contigs (contiguous sequence).
+
 ## Rarely useful features
 
 ### Strongest similarities
 
-`-e0` has a special meaning: for each profile versus each strand, it
+`-e0` has a special meaning: for each profile versus each contig strand, it
 shows the maximum end-anchored, start-anchored, and mid-anchored
 scores (in that order).  These scores sum over all alignments ending
 at, starting at, or passing through the anchor.  DUMMER gets each kind

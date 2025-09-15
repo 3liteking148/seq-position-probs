@@ -895,7 +895,7 @@ Baum-Welch options:\n\
     int alphabetSize = strlen(alphabet);
     memset(charToNumber, alphabetSize, 256);
     setCharToNumber(charToNumber, alphabet);
-    if (!isProtein) setCharToNumber(charToNumber, "ACGU");
+    setCharToNumber(charToNumber, isProtein ? "AUDEFGHIO" : "ACGU");
     charToNumber['-'] = charToNumber['.']
       = charToNumber['_'] = charToNumber['~'] = alphabetSize + 1;
 
