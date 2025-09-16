@@ -629,13 +629,21 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       s = simdAdd(s, simdMul(gPowers, z));
       z = simdShiftFwd(z, s);
       SimdFloat w = simdAdd(u, simdMul(a, z));
-      SimdFloat wMid = simdMul(w, simdLoad(Wbackward + j));
+      SimdFloat wBck = simdLoad(Wbackward + j);
+      SimdFloat wMid = simdMul(w, wBck);
+      const char *seq = sequence + j;
+      SimdFloat t = isSimdLookup ? simdLookup(simdS, seq) : simdLookup(S, seq);
+      simdStore(X+j, simdMul(t, w));
+      simdStore(Y+j, simdAdd(simdMul(d, w), simdMul(e, y)));
+      z = simdHighItem(s);
 
       Float ws[simdLen];
+      Float wBcks[simdLen];
       Float wMids[simdLen];
       if (minProbRatio >= 0) {
 	if (simdGe(wMid, simdMinProbRatio)) {
 	  simdStore(ws, w);
+	  simdStore(wBcks, wBck);
 	  simdStore(wMids, wMid);
 	  for (int k = 0; k < simdLen && k <= sequenceLength - j; ++k) {
 	    if (wMids[k] >= minProbRatio) {
@@ -648,7 +656,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 						   j+k, wMids[k]);
 	      if (hitCount == 1) {
 		jOld = j+k;
-		wBegAnchored = Wbackward[j+k];
+		wBegAnchored = wBcks[k];
 		wEndAnchored = ws[k];
 	      }
 	    }
@@ -656,6 +664,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 	}
       } else {
 	simdStore(ws, w);
+	simdStore(wBcks, wBck);
 	simdStore(wMids, wMid);
 	for (int k = 0; k < simdLen && k <= sequenceLength - j; ++k) {
 	  if (ws[k] > wMax) {
@@ -665,18 +674,12 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 	  }
 	  if (wMids[k] > wMidMaxHere) {
 	    wMidMaxHere = wMids[k];
-	    wBegAnchored = Wbackward[j+k];
+	    wBegAnchored = wBcks[k];
 	    wEndAnchored = ws[k];
 	    jMidMax = j+k;
 	  }
 	}
       }
-
-      const char *seq = sequence + j;
-      SimdFloat t = isSimdLookup ? simdLookup(simdS, seq) : simdLookup(S, seq);
-      simdStore(X+j, simdMul(t, w));
-      simdStore(Y+j, simdAdd(simdMul(d, w), simdMul(e, y)));
-      z = simdHighItem(s);
     }
 
     if (wMidMaxHere > wMidMax) {

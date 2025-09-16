@@ -528,6 +528,28 @@ s MIR                             79 172 +   262 gctgtgtgaccttgggcaagttacttaacct
 s hg38.chr15:90050000-90080000 29139 133 + 30000 gctgggtgacctttggcaagttgattcacctctctaaacctcagccttctgagctgctaaatggg--------------------------gctgttgtgattgctggatgaggcgaggcctgcgaa------------gtggctggcatgcagcaggtgct-aatgagtgc
 
 # Bytes per floating-point number: 8
+# Random sequences: trials=100 length=200 border=100
+# E-value <= 0.01
+
+# Profile name: MIR1_Amn
+# Profile length: 230
+# Background letter probabilities: 0.282748 0.187722 0.235083 0.294447
+# K: 759.093
+
+# Total sequence length: 2000
+a score=52.3 E=2.69e-10 anchor=102,235
+s MIR1_Amn      57 124 +  230 gttctaatcccggctctgccactgacctgctgtgtgaccttgggcaagtcacttcacctctctgagcctcagtttcctcatc-tgtaaaatggggataatgatactgacct------cctttgtaaagtgc
+s NC_000022.11 190 117 + 1000 gttcaaatcctagtttctcccctacccagccctgtagccctaagcaagttaccaaactccacaatgcctcag----------atgcaaggcggggctcacactcctg----tttattccatcttagggttt
+
+a score=36.3 E=1.78e-05 anchor=136,494
+s MIR1_Amn      58 80 +  230 ttctaatcccggctctgccactgacctg----ctgtgtgaccttgggcaagtcacttcac--------ctctctgagcctcagtttcctcat
+s NC_000022.11 411 85 - 1000 ttctcaacttgactcagactccagcat-gtacctgtgagattttggtgaagttc------tgttgcagagttttgagcctcagttttttcat
+
+a score=51.9 E=3.61e-10 anchor=126,517
+s MIR1_Amn     111 80 +  230 cacctctctgagcctcagtttcctcatctgtaaaatggggataatgatactga--cctcctttgtaaag-----tgctttgagatct
+s NC_000022.11 502 74 - 1000 cagctttttgagcctcagttttttcatttgtgaaacagagataa-aata----tgcctcct--------agaattgctgtgcgggtt
+
+# Bytes per floating-point number: 8
 # Random sequences: trials=1000 length=500 border=100
 # E-value <= 10
 
