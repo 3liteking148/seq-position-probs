@@ -34,6 +34,10 @@
 #define OPT_bw_maxiter 1000
 #define OPT_bw_maxDiff 1e-6
 
+// down-scale probabilities by this amount, to delay overflow:
+const double scale1 = 1.0 / (1<<30) / (1<<30) / (1<<30) / (1<<30);
+const double scale = scale1 * scale1 * scale1 * scale1;
+
 int verbosity = 0;
 
 struct DirichletMixture {
@@ -493,7 +497,7 @@ void forward(
       if (!std::isfinite(S)) S = 0.0; // if letter has 0 background probability
 
       double y = Y[(i-1) * cols + j];
-      double w = X[(i-1) * cols + (j-1)] + y + z + 1.0;
+      double w = X[(i-1) * cols + (j-1)] + y + z + scale;
       z = aPrime * w + bPrime * z;
       *wSum += w;
 
@@ -547,7 +551,7 @@ void backward(unsigned char *seq, int seqLength,
 
       double x = S * Wbar[(i+1) * cols + (j+1)];
       double y = Ybar[(i+1) * cols + j];
-      double w = x + dPrime * y + aPrime * z + 1.0;
+      double w = x + dPrime * y + aPrime * z + scale;
       z = w + bPrime * z;
 
       Wbar[i * cols + j] = w;
@@ -602,7 +606,7 @@ void calculateTransitionCounts(
     gamma = std::accumulate(emis, emis + alphabetSize + 1, 0.0);
 
     // update the HMM parameters
-    counts[(i-1) * width + 0] += etap     * wt;
+    counts[(i-1) * width + 0] += etap * scale * wt;
     counts[(i-1) * width + 1] += gamma    * wt;
 
     counts[(i-1) * width + 3] += alpha    * wt;
@@ -676,7 +680,6 @@ void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
 
     for (int idx = 0; idx < ma.sequenceCount; idx++) {
       int seqLength = seqsLengths[idx];
-      double wt = weights[idx]; // weight for the current sequence
 
       /* Forward pass, calculate X, Y, Z and
          the aggregated v (i.e. sum of w-values). */
@@ -694,9 +697,11 @@ void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
       backward(seqNoGap, seqLength, probsOld,
         profileLength, width, Wbar, Ybar, Zbar);
 
+      double wt = weights[idx] / (v * scale); // weight for this sequence
+
       /* Calculate and update parameters in new parameter counts. */
       calculateTransitionCounts(counts, profileLength, seqLength,
-          Wbar, Ybar, Zbar, X, Y, Z, wt/v, width, alphabetSize, seqNoGap);
+          Wbar, Ybar, Zbar, X, Y, Z, wt, width, alphabetSize, seqNoGap);
 
       seqNoGap += seqLength;
     }
