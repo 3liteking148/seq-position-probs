@@ -1,6 +1,10 @@
 // Author: Martin C. Frith 2025
 // SPDX-License-Identifier: BSD-3-Clause
 
+// See [Frith2025]: "Simple and thorough detection of related
+// sequences with position-varying probabilities of substitutions,
+// insertions, and deletions", MC Frith 2025
+
 #include "dummer-util.hh"
 #include "can_i_haz_simd.hh"
 
@@ -36,7 +40,7 @@ typedef SimdFlt SimdFloat;
 const int simdLen = simdFltLen;
 #endif
 
-int simdRoundUp(int x) {  // lowest multiple of simdLen >= x
+int simdRoundUp(int x) {  // lowest multiple of simdLen that is >= x
   return x - 1 - (x - 1) % simdLen + simdLen;
 }
 
@@ -562,6 +566,17 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
   if (verbosity > 1 && minProbRatio >= -1)
     std::cerr << "Backward algorithm...\n";
 
+  // This is algorithm S5 from [Frith2025]:
+  // x       <-  S[i](Q[j]) W[i+1,j+1]
+  // W[i,j]  <-  x  +  d[i] Y[i+1,j]  +  a[i] Z[i,j+1]  +  1
+  // Y[i,j]  <-  W[i,j]  +  e[i] Y[i+1,j]
+  // Z[i,j]  <-  W[i,j]  +  b[i] Z[i,j+1]
+
+  // Here, it is rearranged like this:
+  // u       <-  x  +  d[i] Y[i+1,j]  +  scale
+  // w       <-  u  +  a[i] Z[i,j+1]
+  // Z[i,j]  <-  u  +  (a[i] + b[i]) Z[i,j+1]    (using SIMD "cumulation")
+
   Float wMax = 0;
   int iMax, jMax;
 
@@ -592,8 +607,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       SimdFloat y = simdLoad(Y+j);
       SimdFloat u = simdAdd(simdAdd(x, simdMul(d, y)), simdScaleNow);
       SimdFloat s = simdCumulateRev(u, g);
-      s = simdAdd(s, simdMul(gPowers, z));
-      z = simdShiftRev(z, s);
+      s = simdAdd(s, simdMul(gPowers, z));  // now s has the Z[i,j] values
+      z = simdShiftRev(z, s);               // shift to get the Z[i,j+1] values
       SimdFloat w = simdAdd(u, simdMul(a, z));
       wMaxHere = simdMax(wMaxHere, w);
       simdStore(W+j, w);
@@ -623,6 +638,17 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
   if (verbosity > 1 && minProbRatio >= -1)
     std::cerr << "Forward algorithm...\n";
+
+  // This is algorithm 3 from [Frith2025]:
+  // w       <-  X[i-1,j-1]  +  Y[i-1,j]  +  Z[i,j-1]  +  1
+  // X[i,j]  <-  S[i](Q[j]) w
+  // Y[i,j]  <-  d[i] w  + e[i] Y[i-1,j]
+  // Z[i,j]  <-  a[i] w  + b[i] Z[i,j-1]
+
+  // Here, it is rearranged like this:
+  // u       <-  X[i-1,j-1]  +  Y[i-1,j]  +  scale
+  // w       <-  u  +  a[i] Z[i,j-1]
+  // Z[i,j]  <-  u  +  (a[i] + b[i]) Z[i,j-1]    (using SIMD "cumulation")
 
   wMax = 0;
   Float wMidMax = 0;
@@ -656,8 +682,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       SimdFloat y = simdLoad(Y + j);
       SimdFloat u = simdAdd(simdAdd(simdLoad(Xfrom + j), y), simdScale);
       SimdFloat s = simdCumulateFwd(u, g);
-      s = simdAdd(s, simdMul(gPowers, z));
-      z = simdShiftFwd(z, s);
+      s = simdAdd(s, simdMul(gPowers, z));  // now s has the Z[i,j] values
+      z = simdShiftFwd(z, s);               // shift to get the Z[i,j-1] values
       SimdFloat w = simdAdd(u, simdMul(a, z));
       SimdFloat wBck = simdLoad(Wbackward + j);
       SimdFloat wMid = simdMul(w, wBck);
