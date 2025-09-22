@@ -397,6 +397,7 @@ bool maybeLocalMaximum(Profile profile, const char *sequence,
   Float Y[minSeparation * 2 - 1];
   long rowSize = simdRoundUp(sequenceLength + 1) + simdLen;
 
+  int iBeg = std::max(anchor1 - minSeparation + 1, 0);
   int iEnd = std::min(anchor1 + minSeparation - 1, profile.length);
   int jBeg = std::max(anchor2 - minSeparation + 1, 0);
   int jEnd = std::min(anchor2 + minSeparation - 1, sequenceLength);
@@ -427,6 +428,35 @@ bool maybeLocalMaximum(Profile profile, const char *sequence,
 
     Xfrom = X;
     Yfrom = Y;
+  }
+
+  Float *W = X;
+  const Float *Wfrom =
+    (anchor1 < profile.length) ? scratch + rowSize * (anchor1 + 1) + jBeg : Y;
+  std::fill_n(Y, minSeparation * 2 - 1, 0);
+
+  for (int i = anchor1; i >= iBeg; --i) {
+    const Float *Xforward = scratch + i * rowSize + jBeg;
+    Float a = profile.values[i * profile.width + 0];
+    Float b = profile.values[i * profile.width + 1];
+    Float d = profile.values[i * profile.width + 2];
+    Float e = profile.values[i * profile.width + 3];
+    const Float *S = profile.values + i * profile.width + 4;
+
+    Float wOld = 0;
+    Float z = 0;
+    for (int j = jEnd - jBeg; j >= 0; --j) {
+      Float y = Y[j];
+      Float t = S[seq[j]];
+      Float w = t * wOld + d * y + a * z + scale;
+      if (i < anchor1 && w * (Xforward[j] / t) > wMidAnchored) return false;
+      wOld = Wfrom[j];
+      W[j] = w;
+      Y[j] = w + e * y;
+      z = w + b * z;
+    }
+
+    Wfrom = W;
   }
 
   return true;  // maybe there is no higher score nearby
