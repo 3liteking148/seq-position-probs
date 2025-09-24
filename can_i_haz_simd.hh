@@ -36,11 +36,11 @@ SimdDbl simdAdd(SimdDbl x, SimdDbl y) { return _mm512_add_pd(x, y); }
 SimdFlt simdMul(SimdFlt x, SimdFlt y) { return _mm512_mul_ps(x, y); }
 SimdDbl simdMul(SimdDbl x, SimdDbl y) { return _mm512_mul_pd(x, y); }
 
-int simdGe(SimdFlt x, SimdFlt y) {  // greater or equal: x >= y
-  return _mm512_mask2int(_mm512_cmp_ps_mask(x, y, 29));
+__mmask16 simdGe(SimdFlt x, SimdFlt y) {  // greater or equal: x >= y
+  return _mm512_cmp_ps_mask(x, y, 29);
 }
-int simdGe(SimdDbl x, SimdDbl y) {  // greater or equal: x >= y
-  return _mm512_mask2int(_mm512_cmp_pd_mask(x, y, 29));
+__mmask8 simdGe(SimdDbl x, SimdDbl y) {  // greater or equal: x >= y
+  return _mm512_cmp_pd_mask(x, y, 29);
 }
 
 SimdFlt simdLowItem(SimdFlt x) {
