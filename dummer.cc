@@ -548,11 +548,13 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 		      Profile profile, const char *sequence,
 		      int sequenceLength, Float *scratch,
 		      Float minProbRatio) {
-  const bool isSimdLookup = (simdLen > 4 && profile.width <= 10);
+  const int lookupType = (simdLen > 4 && profile.width <= 10) ? 1
+    :                    (simdLen > 8)                        ? 2 : 0;
   const Float zero = 0;
   SimdFloat simdScale = simdFill(scale);
   const int seqEnd = simdRoundUp(sequenceLength + 1);
   const long rowSize = seqEnd + simdLen;
+  SimdFloat S1, S2;  // lookup tables for each type of letter
 
   // Dynamic programming initialization for forward & backward algorithms:
   for (int i = 0; i < profile.length + 2; ++i) {
@@ -587,7 +589,12 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     const Float *Wfrom = (i < profile.length) ? W + rowSize + 1 : Y;
     const Float *params = profile.values + i * profile.width;
     const Float *S = params + 4;
-    SimdFloat simdS = simdLookupTable(S);
+    if (lookupType == 1) {
+      S1 = simdLookupTable(S);
+    } else if (lookupType == 2) {
+      S1 = simdLoad(S);
+      S2 = simdLoad(S + simdLen);
+    }
     SimdFloat a = simdFill(params[0]);  // insert open
     SimdFloat d = simdFill(params[2]);  // delete open
     SimdFloat e = simdFill(params[3]);  // delete extend
@@ -602,7 +609,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     SimdFloat z = simdFill(zero);
     for (int j = seqEnd - simdLen; j >= 0; j -= simdLen) {
       const char *seq = sequence + j;
-      SimdFloat t = isSimdLookup ? simdLookup(simdS, seq) : simdLookup(S, seq);
+      SimdFloat t = (lookupType < 1) ? simdLookup(S, seq)
+	: (lookupType < 2) ? simdLookup(S1, seq) : simdLookup(S1, S2, seq);
       SimdFloat x = simdMul(t, simdLoad(Wfrom+j));
       SimdFloat y = simdLoad(Y+j);
       SimdFloat u = simdAdd(simdAdd(x, simdMul(d, y)), simdScaleNow);
@@ -666,7 +674,12 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     const Float *Wbackward = X;  // the forward Xs overwrite the backward Ws
     const Float *params = profile.values + i * profile.width;
     const Float *S = params + 4;
-    SimdFloat simdS = simdLookupTable(S);
+    if (lookupType == 1) {
+      S1 = simdLookupTable(S);
+    } else if (lookupType == 2) {
+      S1 = simdLoad(S);
+      S2 = simdLoad(S + simdLen);
+    }
     SimdFloat a = simdFill(params[0]);  // insert open
     SimdFloat d = simdFill(params[2]);  // delete open
     SimdFloat e = simdFill(params[3]);  // delete extend
@@ -688,7 +701,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       SimdFloat wBck = simdLoad(Wbackward + j);
       SimdFloat wMid = simdMul(w, wBck);
       const char *seq = sequence + j;
-      SimdFloat t = isSimdLookup ? simdLookup(simdS, seq) : simdLookup(S, seq);
+      SimdFloat t = (lookupType < 1) ? simdLookup(S, seq)
+	: (lookupType < 2) ? simdLookup(S1, seq) : simdLookup(S1, S2, seq);
       simdStore(X+j, simdMul(t, w));
       simdStore(Y+j, simdAdd(simdMul(d, w), simdMul(e, y)));
       z = simdHighItem(s);

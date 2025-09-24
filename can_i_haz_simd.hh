@@ -76,6 +76,12 @@ SimdDbl simdLookup(SimdDbl v, const char *i) {
   return _mm512_permutexvar_pd(_mm512_cvtepi8_epi64(_mm_loadu_si64(i)), v);
 }
 
+SimdFlt simdLookup(SimdFlt a, SimdFlt b, const char *i) {
+  __m512i k = _mm512_cvtepi8_epi32(_mm_loadu_si128((const __m128i *)i));
+  return _mm512_permutex2var_ps(a, k, b);
+}
+SimdDbl simdLookup(SimdDbl a, SimdDbl b, const char *i) { return a; }  // unimp
+
 // shift high item of zOld into low position of zNew
 SimdFlt simdShiftFwd(SimdFlt zOld, SimdFlt zNew) {
   return _mm512_castsi512_ps(_mm512_alignr_epi32(_mm512_castps_si512(zNew),
@@ -214,6 +220,8 @@ SimdFlt simdLookup(SimdFlt v, const char *i) {
   return _mm256_permutevar_ps(v, _mm256_cvtepi8_epi32(_mm_loadu_si64(i)));
 }
 SimdDbl simdLookup(SimdDbl v, const char *i) { return v; }  // not implemented
+SimdFlt simdLookup(SimdFlt a, SimdFlt b, const char *i) { return a; }
+SimdDbl simdLookup(SimdDbl a, SimdDbl b, const char *i) { return a; }
 
 // shift high item of zOld into low position of zNew
 SimdFlt simdShiftFwd(SimdFlt zOld, SimdFlt zNew) {
@@ -335,6 +343,8 @@ SimdDbl simdLookup(const double *v, const char *i) {
 
 SimdFlt simdLookup(SimdFlt v, const char *i) { return v; }  // not implemented
 SimdDbl simdLookup(SimdDbl v, const char *i) { return v; }  // not implemented
+SimdFlt simdLookup(SimdFlt a, SimdFlt b, const char *i) { return a; }
+SimdDbl simdLookup(SimdDbl a, SimdDbl b, const char *i) { return a; }
 
 // shift high item of zOld into low position of zNew
 SimdFlt simdShiftFwd(SimdFlt zOld, SimdFlt zNew) {  // SSSE3
@@ -430,6 +440,8 @@ SimdDbl simdLookup(const double *v, const char *i) {
 
 SimdFlt simdLookup(SimdFlt v, const char *i) { return v; }  // not implemented
 SimdDbl simdLookup(SimdDbl v, const char *i) { return v; }  // not implemented
+SimdFlt simdLookup(SimdFlt a, SimdFlt b, const char *i) { return a; }
+SimdDbl simdLookup(SimdDbl a, SimdDbl b, const char *i) { return a; }
 
 // shift high item of zOld into low position of zNew
 SimdFlt simdShiftFwd(SimdFlt zOld, SimdFlt zNew) {
@@ -515,6 +527,8 @@ SimdDbl simdLookup(const double *v, const char *i) { return v[*i]; }
 
 SimdFlt simdLookup(SimdFlt v, const char *i) { return v; }  // not implemented
 SimdDbl simdLookup(SimdDbl v, const char *i) { return v; }  // not implemented
+SimdFlt simdLookup(SimdFlt a, SimdFlt b, const char *i) { return a; }
+SimdDbl simdLookup(SimdDbl a, SimdDbl b, const char *i) { return a; }
 
 SimdFlt simdShiftFwd(SimdFlt zOld, SimdFlt zNew) { return zOld; }
 SimdDbl simdShiftFwd(SimdDbl zOld, SimdDbl zNew) { return zOld; }
