@@ -149,7 +149,7 @@ int numOfDigits(int x) {
 }
 
 char complement(char c) {
-  return (c > 3) ? c : 3 - c;
+  return 3 ^ c;
 }
 
 void reverseComplement(char *beg, char *end) {
