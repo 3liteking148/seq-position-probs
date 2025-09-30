@@ -227,6 +227,34 @@ double entropyWeight(DirichletMixture dmix, const GapPriors &gp,
   }
 }
 
+std::istream &readGapPriors(std::istream &in, GapPriors &gp) {
+  in >> gp.match >> gp.insStart >> gp.delStart
+     >> gp.insEnd >> gp.insExtend >> gp.delEnd >> gp.delExtend;
+  if (!in) std::cerr << "can't read the gap pseudocounts\n";
+  return in;
+}
+
+std::istream &readDirichletMixture(std::istream &in, DirichletMixture &dmix,
+				   std::vector<double> &params) {
+  int alphabetSize = 0;
+  int componentCount = 0;
+  double d = 0;
+  in >> alphabetSize >> componentCount;
+  for (int i = 0; i < componentCount; ++i) {
+    in >> d;
+    params.push_back(d);
+    for (int j = 0; j < alphabetSize; ++j) {
+      in >> d;
+      params.push_back(d);
+    }
+  }
+  dmix.params = params.data();
+  dmix.componentCount = componentCount;
+  if (componentCount < 1) in.setstate(std::ios::failbit);
+  if (!in) std::cerr << "can't read the Dirichlet mixture file\n";
+  return in;
+}
+
 std::istream &checkAlignmentBlock(std::istream &in, MultipleAlignment &ma,
 				  int lineCount) {
   if (lineCount) {
@@ -788,6 +816,9 @@ int main(int argc, char* argv[]) {
   double bwMaxDiff = OPT_bw_maxDiff;
   bool   countOnly   = false;
 
+  const char *dirichletMixtureFileName = 0;
+  const char *gapPriorsFileName = 0;
+
   const char help[] = "\
 usage: dummer-build alignments.stk\n\
 \n\
@@ -809,13 +840,18 @@ Options for effective sequence number:\n\
     STR(OPT_ere_nt) " for nucleotide)\n\
   --esigma E     aim for this relative entropy (default: "
     STR(OPT_esigma) ")\n\
-  \n\
+\n\
 Baum-Welch options:\n\
   --maxiter N    maximum number of Baum-Welch iterations (default: "
     STR(OPT_bw_maxiter) ")\n\
   --maxdiff X    convergence threshold for Baum-Welch (default: "
     STR(OPT_bw_maxDiff) ")\n\
   --countonly    only count events, do not run Baum-Welch\n\
+\n\
+Prior probability options:\n\
+  --dmix         Dirichlet mixture file (esl-mixdchlet format)\n\
+  --gapprior     file with 7 gap pseudocounts:\n\
+                     match insStart delStart insEnd insExtend delEnd delExtend\n\
 ";
 
   const char sOpts[] = "hVv";
@@ -831,6 +867,8 @@ Baum-Welch options:\n\
     {"maxiter",   required_argument, 0, 'N'},
     {"maxdiff",   required_argument, 0, 'X'},
     {"countonly", no_argument,       0, 'c'},
+    {"dmix",      required_argument, 0, 'D'},
+    {"gapprior",  required_argument, 0, 'G'},
     {0, 0, 0, 0}
   };
 
@@ -874,6 +912,12 @@ Baum-Welch options:\n\
     case 'c':
       countOnly = true;
       break;
+    case 'D':
+      dirichletMixtureFileName = optarg;
+      break;
+    case 'G':
+      gapPriorsFileName = optarg;
+      break;
     case '?':
       std::cerr << help;
       return 1;
@@ -883,6 +927,21 @@ Baum-Welch options:\n\
   if (argc - optind != 1) {
     std::cerr << help;
     return 1;
+  }
+
+  DirichletMixture dmix;
+  std::vector<double> dmixParameters;
+  if (dirichletMixtureFileName) {
+    std::ifstream file;
+    std::istream &in = openFile(file, dirichletMixtureFileName);
+    if (!file || !readDirichletMixture(in, dmix, dmixParameters)) return 1;
+  }
+
+  GapPriors gapPriors;
+  if (gapPriorsFileName) {
+    std::ifstream file;
+    std::istream &in = openFile(file, gapPriorsFileName);
+    if (!file || !readGapPriors(in, gapPriors)) return 1;
   }
 
   std::ifstream file;
@@ -906,12 +965,19 @@ Baum-Welch options:\n\
 
     double myEre = (ere > 0) ? ere : isProtein ? OPT_ere_aa : OPT_ere_nt;
 
-    DirichletMixture dmix;
-    dmix.params = isProtein ? blocks9 : wheeler4;
-    dmix.componentCount = (isProtein ? sizeof blocks9 : sizeof wheeler4)
-      / sizeof(double) / (1 + alphabetSize);
+    if (dirichletMixtureFileName) {
+      int dmixAlphabetSize = dmixParameters.size() / dmix.componentCount - 1;
+      if (dmixAlphabetSize != alphabetSize) {
+	std::cerr << "the Dirichlet mixture file has wrong alphabet size\n";
+	return 1;
+      }
+    } else {
+      dmix.params = isProtein ? blocks9 : wheeler4;
+      dmix.componentCount = (isProtein ? sizeof blocks9 : sizeof wheeler4)
+	/ sizeof(double) / (1 + alphabetSize);
+    }
 
-    const GapPriors &gp =
+    const GapPriors &gp = gapPriorsFileName ? gapPriors :
       isProtein ? mitchisonAaGapPriors : wheelerNtGapPriors;
 
     if (verbosity) std::cerr << "Alignment length: "
