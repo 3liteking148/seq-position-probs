@@ -795,15 +795,16 @@ void printProfile(const double *probs, const int *columns,
 
   std::cout.precision(5);
   for (int i = 0; ; ++i) {
+    const double *p = probs + i * width;
     std::cout << "        ";
     for (int j = 0; j < alphabetSize; ++j) printProb(bgProbs[j]);
     std::cout << "\n";
     std::cout << "        ";
-    for (int j = 0; j < 7; ++j) printProb(probs[i * width + j]);
+    for (int j = 0; j < 7; ++j) printProb(p[j]);
     std::cout << "\n";
     if (i == profileLength) break;
     std::cout << std::setw(7) << i+1 << " ";
-    for (int j = 0; j < alphabetSize; ++j) printProb(probs[i * width + 7 + j]);
+    for (int j = 0; j < alphabetSize; ++j) printProb(p[7 + j]);
     std::cout << std::setw(7) << columns[i]+1 << "\n";
   }
   std::cout.precision(6);
