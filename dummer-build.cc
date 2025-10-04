@@ -760,8 +760,10 @@ void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
 
 }
 
-void printProb(double prob) {
-  if (prob > 0) {
+void printProb(bool isCount, double prob) {
+  if (isCount) {
+    std::cout << "  " << std::left << std::setw(8) << prob << std::right;
+  } else if (prob > 0) {
     std::cout << "  " << abs(log(prob));
   } else {
     std::cout << "        *";
@@ -770,7 +772,7 @@ void printProb(double prob) {
 
 void printProfile(const double *probs, const int *columns,
 		  const char *alphabet, int profileLength,
-		  const MultipleAlignment &ma, double neff) {
+		  const MultipleAlignment &ma, double neff, bool isCounts) {
   int alphabetSize = strlen(alphabet);
   int width = alphabetSize + 7;
   const double *bgProbs = probs + profileLength * width + 7;
@@ -787,24 +789,27 @@ void printProfile(const double *probs, const int *columns,
 
   std::cout << "HMM     ";
   for (int i = 0; alphabet[i]; ++i) {
-    std::cout << "     " << alphabet[i] << "   ";
+    std::cout << "     " << alphabet[i] << (isCounts ? "    " : "   ");
   }
   std::cout << "\n";
 
-  std::cout << "           match   insStart delStart insEnd   insExt   delEnd   delExt\n";
+  std::cout << "           match   " <<
+    (isCounts ? " notIns    delStart  insEnd    insExt    delEnd    delExt\n"
+     :          "insStart delStart insEnd   insExt   delEnd   delExt\n");
 
-  std::cout.precision(5);
+  if (isCounts) std::cout << std::defaultfloat;
+  std::cout.precision(isCounts ? 3 : 5);
   for (int i = 0; ; ++i) {
     const double *p = probs + i * width;
     std::cout << "        ";
-    for (int j = 0; j < alphabetSize; ++j) printProb(bgProbs[j]);
+    for (int j = 0; j < alphabetSize; ++j) printProb(isCounts, bgProbs[j]);
     std::cout << "\n";
     std::cout << "        ";
-    for (int j = 0; j < 7; ++j) printProb(p[j]);
+    for (int j = 0; j < 7; ++j) printProb(isCounts, p[j]);
     std::cout << "\n";
     if (i == profileLength) break;
     std::cout << std::setw(7) << i+1 << " ";
-    for (int j = 0; j < alphabetSize; ++j) printProb(p[7 + j]);
+    for (int j = 0; j < alphabetSize; ++j) printProb(isCounts, p[7 + j]);
     std::cout << std::setw(7) << columns[i]+1 << "\n";
   }
   std::cout.precision(6);
@@ -813,6 +818,7 @@ void printProfile(const double *probs, const int *columns,
 }
 
 int main(int argc, char* argv[]) {
+  bool isCounts = false;
   double symfrac = OPT_symfrac;
   double ere     = 0;
   double esigma  = OPT_esigma;
@@ -837,6 +843,7 @@ Options:\n\
   --symfrac F    minimum (weighted) non-gap fraction to define a non-insert\n\
                      position (default: "
     STR(OPT_symfrac) ")\n\
+  --counts       output weighted counts instead of -log probs (implies --enone)\n\
 \n\
 Options for effective sequence number:\n\
   --enone        ignore relative entropy: set maximum sequence weight to 1\n\
@@ -866,6 +873,7 @@ Prior probability options:\n\
     {"version",   no_argument,       0, 'V'},
     {"verbose",   no_argument,       0, 'v'},
     {"symfrac",   required_argument, 0, 's'},
+    {"counts",    no_argument,       0, 'C'},
     {"enone",     no_argument,       0, 'n'},
     {"ere",       required_argument, 0, 'p'},
     {"esigma",    required_argument, 0, 'e'},
@@ -894,6 +902,9 @@ Prior probability options:\n\
     case 's':
       symfrac = strtod(optarg, 0);
       if (symfrac < 0 || symfrac > 1) return badOpt();
+      break;
+    case 'C':
+      isCounts = true;
       break;
     case 'n':
       esigma = 1e37;
@@ -956,9 +967,8 @@ Prior probability options:\n\
   unsigned char charToNumber[256];
   MultipleAlignment ma;
 
-  std::cout << std::fixed;
-
   while (readMultipleAlignment(in, ma)) {
+    std::cout << std::fixed;
     bool isProtein = isProteinAlignment(ma);
     const char *alphabet = isProtein ? "ACDEFGHIKLMNPQRSTVWY" : "ACGT";
     int alphabetSize = strlen(alphabet);
@@ -1016,6 +1026,12 @@ Prior probability options:\n\
           profileLength, weights.data(), bwMaxiter, bwMaxDiff);
     }
 
+    if (isCounts) {
+      printProfile(counts.data(), columns.data(), alphabet, profileLength,
+		   ma, weightSum, isCounts);
+      continue;
+    }
+
     std::vector<double> probs(counts.size());
 
     double targetRelEnt = std::max(esigma, myEre * profileLength);
@@ -1026,6 +1042,6 @@ Prior probability options:\n\
 				profileLength, counts.data(), probs.data());
 
     printProfile(probs.data(), columns.data(), alphabet, profileLength,
-		 ma, neff);
+		 ma, neff, isCounts);
   }
 }

@@ -24,5 +24,6 @@ PATH=../bin:$PATH
     dummer-build --countonly PF05369.alignment.seed
     dummer-build --maxdiff 0.02 ABC_tran_2.stk
     dummer-build --countonly --enone --dmix hakoLTR.mixdchlet --gapprior my.gapPrior hakoLTR.stk
+    dummer-build --counts --maxiter=5 hakoLTR.stk
 } |
     grep -v DUMMER | diff -u tests.txt -
