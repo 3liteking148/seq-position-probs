@@ -459,6 +459,7 @@ void countEvents(const MultipleAlignment &ma, int alphabetSize, double symfrac,
   allCounts.push_back(0.0);
   allCounts.push_back(notIns);
   allCounts.insert(allCounts.end(), 5, 0.0);  // final gap counts must be 0
+  allCounts.insert(allCounts.end(), alphabetSize, 0.0);
 
   // We'll estimate probabilities from these counts, but there are 2 problems:
   // 1. Adjacent inserts (or deletes) are assumed to be extension, not restart.
@@ -678,8 +679,8 @@ void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
 
   // transitions + alphabet
   int width = 7 + alphabetSize;
-  std::vector<double> probsOld(counts.size() + alphabetSize);
-  std::vector<double> probsNew(counts.size() + alphabetSize);
+  std::vector<double> probsOld(counts.size());
+  std::vector<double> probsNew(counts.size());
 
   int rows = profileLength      + 2;
   int cols = ma.alignmentLength + 2;
@@ -1014,8 +1015,7 @@ Prior probability options:\n\
           profileLength, weights.data(), bwMaxiter, bwMaxDiff);
     }
 
-    // the "+ alphabetSize" is space for background letter probabilities:
-    std::vector<double> probs(counts.size() + alphabetSize);
+    std::vector<double> probs(counts.size());
 
     double targetRelEnt = std::max(esigma, myEre * profileLength);
     if (verbosity) std::cerr << "Target relative entropy: "
