@@ -133,8 +133,8 @@ void applyDirichletMixture(DirichletMixture dmix,
 
 void gapCountsToProbs(const GapPriors &gp, double maxCountSum,
 		      const double *counts, double *probs) {
-  double alnBeg = counts[0]; // etap
-  double match  = counts[1]; //gamma
+  double match  = counts[0]; //gamma
+  double alnBeg = counts[1]; // etap
   double delBeg = counts[2]; //delta
   double insBeg = counts[3]; //alpha
   double insEnd = insBeg;    //betap
@@ -435,8 +435,8 @@ void countEvents(const MultipleAlignment &ma, int alphabetSize, double symfrac,
 	  states[j] = 'd';
 	}
       }
-      allCounts.push_back(alnBeg);
       allCounts.push_back(nonGapCount);
+      allCounts.push_back(alnBeg);
       allCounts.push_back(delBeg);
       allCounts.push_back(insBeg);  // insEnd = insBeg
       allCounts.push_back(insExt);
@@ -634,8 +634,8 @@ void calculateTransitionCounts(
     gamma = std::accumulate(emis, emis + alphabetSize + 1, 0.0);
 
     // update the HMM parameters
-    counts[(i-1) * width + 0] += etap * scale * wt;
-    counts[(i-1) * width + 1] += gamma    * wt;
+    counts[(i-1) * width + 0] += gamma    * wt;
+    counts[(i-1) * width + 1] += etap * scale * wt;
 
     counts[(i-1) * width + 3] += alpha    * wt;
     counts[(i-1) * width + 4] += beta     * wt;
