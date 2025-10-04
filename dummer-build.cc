@@ -134,17 +134,13 @@ void applyDirichletMixture(DirichletMixture dmix,
 void gapCountsToProbs(const GapPriors &gp, double maxCountSum,
 		      const double *counts, double *probs) {
   double match  = counts[0]; //gamma
-  double alnBeg = counts[1]; // etap
+  double notIns = counts[1]; //gamma + delta + tau = etap + oldGamma + epsilonp
   double delBeg = counts[2]; //delta
   double insBeg = counts[3]; //alpha
   double insEnd = insBeg;    //betap
   double insExt = counts[4]; //beta
   double delEnd = counts[5]; //epsilonp
   double delExt = counts[6]; //epsilon
-
-  // The "- alnBeg" avoids the insertion start probability changing
-  // if the aligned sequences are reversed:
-  double notIns = match + delBeg - alnBeg;
 
   double gpNotIns = gp.match + gp.delStart;
   double a = getProb(insBeg, notIns, gp.insStart, gpNotIns, maxCountSum);
@@ -404,7 +400,7 @@ void countEvents(const MultipleAlignment &ma, int alphabetSize, double symfrac,
   const int midGap = alphabetSize + 1;
   const int endGap = alphabetSize + 2;
   std::vector<char> states(ma.sequenceCount);
-  double alnBeg = 0;
+  double notIns = 0;
   double insBeg = 0;
   double insExt = 0;
   double delEnd = 0;
@@ -425,7 +421,7 @@ void countEvents(const MultipleAlignment &ma, int alphabetSize, double symfrac,
       for (int j = 0; j < ma.sequenceCount; ++j) {
 	int x = seq[j * ma.alignmentLength];
 	if (x <= alphabetSize) {  // an aligned letter in a "match" column
-	  if (states[j] ==  0 )	alnBeg += weights[j];
+	  if (states[j] <= 'd')	notIns += weights[j];
 	  if (states[j] == 'd') delEnd += weights[j];
 	  states[j] = 'm';
 	} else if (x == midGap) {  // a gap in a "match" column
@@ -436,19 +432,20 @@ void countEvents(const MultipleAlignment &ma, int alphabetSize, double symfrac,
 	}
       }
       allCounts.push_back(nonGapCount);
-      allCounts.push_back(alnBeg);
+      allCounts.push_back(notIns);
       allCounts.push_back(delBeg);
       allCounts.push_back(insBeg);  // insEnd = insBeg
       allCounts.push_back(insExt);
       allCounts.push_back(delEnd);
       allCounts.push_back(delExt);
       allCounts.insert(allCounts.end(), counts, counts + alphabetSize);
-      alnBeg = insBeg = insExt = delEnd = 0;
+      insBeg = insExt = delEnd = 0;
+      notIns = nonGapCount;
     } else {  // this position is defined as "insertion"
       for (int j = 0; j < ma.sequenceCount; ++j) {
 	int x = seq[j * ma.alignmentLength];
 	if (x <= alphabetSize) {  // a non-gap symbol
-	  if (states[j] ==  0 ) alnBeg += weights[j];
+	  if (states[j] <= 'd') notIns += weights[j];
 	  if (states[j] == 'd') delEnd += weights[j];
 	  if (states[j] != 'i') insBeg += weights[j];
 	  // xxx assumes extension (not restart) of an insertion:
@@ -459,7 +456,9 @@ void countEvents(const MultipleAlignment &ma, int alphabetSize, double symfrac,
     }
   }
 
-  allCounts.insert(allCounts.end(), 7, 0.0);  // final gap counts must all be 0
+  allCounts.push_back(0.0);
+  allCounts.push_back(notIns);
+  allCounts.insert(allCounts.end(), 5, 0.0);  // final gap counts must be 0
 
   // We'll estimate probabilities from these counts, but there are 2 problems:
   // 1. Adjacent inserts (or deletes) are assumed to be extension, not restart.
@@ -599,6 +598,7 @@ void calculateTransitionCounts(
   int cols = seqLength + 2;
   double alpha, beta, delta, epsilon;
   double gamma, betap, epsilonp, etap;
+  double oldGamma = 0;
 
   // estimate counts for every position
   for (int i = 1; i <= profileLength+1; i++) {
@@ -633,9 +633,12 @@ void calculateTransitionCounts(
 
     gamma = std::accumulate(emis, emis + alphabetSize + 1, 0.0);
 
+    double notIns = etap * scale + oldGamma + epsilonp;
+    oldGamma = gamma;
+
     // update the HMM parameters
     counts[(i-1) * width + 0] += gamma    * wt;
-    counts[(i-1) * width + 1] += etap * scale * wt;
+    counts[(i-1) * width + 1] += notIns   * wt;
 
     counts[(i-1) * width + 3] += alpha    * wt;
     counts[(i-1) * width + 4] += beta     * wt;
