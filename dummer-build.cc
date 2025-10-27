@@ -65,10 +65,20 @@ void normalize(double *x, int n) {
   for (int i = 0; i < n; ++i) x[i] /= s;
 }
 
+// some MSAs (if --pnone is used) may have zero probabilities
+// log(0)/log(NaN) would produce errors, so skip those values
 double geometricMean(const double *values, int length, int step) {
-  double s = 0;
-  for (int i = 0; i < length; ++i) s += log(values[i * step]);
-  return exp(s / length);
+  double s = 0.0;
+  int cnt = 0;
+  for (int i = 0; i < length; ++i) {
+    double v = values[i * step];
+    if (std::isfinite(v) && v > 0.0) {
+      s += log(v);
+      ++cnt;
+    }
+  }
+  assert(cnt >= 0);
+  return exp(s / cnt);
 }
 
 void setBackgroundProbs(double *bgProbs, const double *probs,
@@ -95,6 +105,12 @@ void setBackgroundProbs(double *bgProbs, const double *probs,
 double getProb(double count1, double count2,
 	       double pseudocount1, double pseudocount2, double maxCountSum) {
   double s = count1 + count2;
+  // avoid zero division when pnone removes priors
+  if (s == 0.0) {
+    double ps = pseudocount1 + pseudocount2;
+    if (ps == 0.0) return 0.0;
+    return pseudocount1 / ps;
+  }
   double r = (s > maxCountSum) ? maxCountSum / s : 1.0;
   return (count1 * r + pseudocount1) / (s * r + (pseudocount1 + pseudocount2));
 }
@@ -143,18 +159,27 @@ void gapCountsToProbs(const GapPriors &gp, double maxCountSum,
   double delExt = counts[6]; //epsilon
 
   double gpNotIns = gp.match + gp.delStart;
+
   double a = getProb(insBeg, notIns, gp.insStart, gpNotIns, maxCountSum);
-  probs[1] = a;  // insertion start probability
-
-  double b = getProb(insExt, insEnd, gp.insExtend, gp.insEnd, maxCountSum);
-  probs[3] = 1 - b;
-  probs[4] = b;  // insertion extend probability
-
   double d = getProb(delBeg, match, gp.delStart, gp.match, maxCountSum);
+  // enforce uniform probabilities if no evidence and no priors
+  if ((insBeg + notIns) == 0.0 && (gp.insStart + gpNotIns) == 0.0)
+    a = 1.0 / 3.0;
+  if ((delBeg + match) == 0.0 && (gp.delStart + gp.match) == 0.0)
+    d = 0.5;
+  probs[1] = a;  // insertion start probability
   probs[0] = (1 - a) * (1 - d);
   probs[2] = (1 - a) * d;  // deletion start probability
 
+  double b = getProb(insExt, insEnd, gp.insExtend, gp.insEnd, maxCountSum);
+  if ((insExt + insEnd) == 0.0 && (gp.insExtend + gp.insEnd) == 0.0)
+    b = 0.5;
+  probs[3] = 1 - b;
+  probs[4] = b;  // insertion extend probability
+
   double e = getProb(delExt, delEnd, gp.delExtend, gp.delEnd, maxCountSum);
+  if (e == 0.0 && (delExt + delEnd) == 0.0 && (gp.delExtend + gp.delEnd) == 0.0)
+    e = 0.5;
   probs[5] = 1 - e;
   probs[6] = e;  // deletion extend probability
 }
@@ -622,12 +647,10 @@ void calculateTransitionCounts(
     }
 
     beta  -= betap;
-    if (beta < -__DBL_EPSILON__)
-      std::cerr << "Warning: Negative beta count at position " << i << "\n";
+    assert(beta >= 0);
 
     epsilon  -= epsilonp;
-    if (epsilon < -__DBL_EPSILON__)
-      std::cerr << "Warning: Negative epsilon count at position " << i << "\n";
+    assert(epsilon >= 0);
 
     // expected count of alpha
     alpha = betap;
@@ -656,8 +679,7 @@ void calculateTransitionCounts(
   for (int i = 1; i <= profileLength; i++) {
     delta = counts[i * width + 5] + counts[i * width + 6]
       - counts[(i-1) * width + 6];
-    if (delta < -__DBL_EPSILON__)
-      std::cerr << "Warning: Negative delta count at position " << i << "\n";
+    delta = std::max(delta, 0.0);
     counts[(i-1) * width + 2] = delta;
   }
 }
@@ -719,7 +741,7 @@ void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
       forward(seqNoGap, seqLength, probsOld,
         profileLength, width, &v, X, Y, Z);
 
-      if (v > DBL_MAX) {
+      if (v > DBL_MAX || !std::isfinite(v)) {
 	std::cerr
 	  << "numbers overflowed to infinity in Baum-Welch: quitting\n";
 	exit(1);
@@ -829,6 +851,7 @@ int main(int argc, char* argv[]) {
 
   const char *dirichletMixtureFileName = 0;
   const char *gapPriorsFileName = 0;
+  bool pnone = false;
 
   const char help[] = "\
 usage: dummer-build alignments.stk\n\
@@ -864,6 +887,7 @@ Prior probability options:\n\
   --dmix         Dirichlet mixture file (esl-mixdchlet format)\n\
   --gapprior     file with 7 gap pseudocounts:\n\
                      match insStart delStart insEnd insExtend delEnd delExtend\n\
+  --pnone        Don't use gap priors (i.e. sets gap priors to zero)\n\
 ";
 
   const char sOpts[] = "hVv";
@@ -882,6 +906,7 @@ Prior probability options:\n\
     {"countonly", no_argument,       0, 'c'},
     {"dmix",      required_argument, 0, 'D'},
     {"gapprior",  required_argument, 0, 'G'},
+    {"pnone",     no_argument,       0, 'P'},
     {0, 0, 0, 0}
   };
 
@@ -934,6 +959,9 @@ Prior probability options:\n\
     case 'G':
       gapPriorsFileName = optarg;
       break;
+    case 'P':
+      pnone = true;
+      break;
     case '?':
       std::cerr << help;
       return 1;
@@ -967,8 +995,10 @@ Prior probability options:\n\
   unsigned char charToNumber[256];
   MultipleAlignment ma;
 
+  unsigned long msa_count = 0;
   while (readMultipleAlignment(in, ma)) {
     std::cout << std::fixed;
+    std::cerr << "MSA #" << ++msa_count << ": " << ma.name << std::endl;
     bool isProtein = isProteinAlignment(ma);
     const char *alphabet = isProtein ? "ACDEFGHIKLMNPQRSTVWY" : "ACGT";
     int alphabetSize = strlen(alphabet);
@@ -994,6 +1024,9 @@ Prior probability options:\n\
 
     const GapPriors &gp = gapPriorsFileName ? gapPriors :
       isProtein ? mitchisonAaGapPriors : wheelerNtGapPriors;
+
+    GapPriors noGapPriors{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    const GapPriors &gpUsed = pnone ? noGapPriors : gp;
 
     if (verbosity) std::cerr << "Alignment length: "
 			     << ma.alignmentLength << "\n";
@@ -1022,7 +1055,7 @@ Prior probability options:\n\
     int profileLength = columns.size();
 
     if (!countOnly) {
-      baumWelch(counts, ma, alphabetSize, dmix, gp,
+      baumWelch(counts, ma, alphabetSize, dmix, gpUsed,
           profileLength, weights.data(), bwMaxiter, bwMaxDiff);
     }
 
@@ -1037,7 +1070,7 @@ Prior probability options:\n\
     double targetRelEnt = std::max(esigma, myEre * profileLength);
     if (verbosity) std::cerr << "Target relative entropy: "
 			     << targetRelEnt << "\n";
-    double neff = entropyWeight(dmix, gp, alphabetSize,
+    double neff = entropyWeight(dmix, gpUsed, alphabetSize,
 				weightSum, targetRelEnt,
 				profileLength, counts.data(), probs.data());
 
