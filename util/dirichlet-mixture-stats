@@ -1,0 +1,67 @@
+#! /usr/bin/env python3
+# Author: Martin C. Frith 2025
+
+"""Read a Dirichlet mixture (a.k.a. mixture Dirichlet): print some information about it."""
+
+import argparse
+import math
+import sys
+
+def openFile(fileName):
+    if fileName == "-":
+        return sys.stdin
+    return open(fileName)
+
+def readDirichletMixture(lines):
+    for line in lines:
+        w = line.split()
+        if line[0] != "#" and len(w) > 2:
+            x = list(map(float, w))
+            yield x[0], x[1:]
+
+def letterProbability(dmix, i):
+    return sum(q * alphas[i] / sum(alphas) for q, alphas in dmix)
+
+def dirichletPairProb(alphas, i, j):
+    a = sum(alphas)
+    return (alphas[i] + (i==j)) * alphas[j] / ((a + 1) * a)
+
+def pairProbability(dmix, i, j):
+    return sum(q * dirichletPairProb(alphas, i, j) for q, alphas in dmix)
+
+def main(args):
+    dmix = list(readDirichletMixture(openFile(args.filename)))
+    if not dmix: raise RuntimeError("zero mixture components")
+    print("Sum of component weights (should be 1):", sum(q for q, _ in dmix))
+    print()
+    alphabetSize = len(dmix[0][1])
+    r = range(alphabetSize)
+
+    lp = [letterProbability(dmix, i) for i in r]
+    print("Letter probabilities:")
+    for i in lp: print(format(i, '.3'))
+    print("Sum (should be 1):", sum(lp))
+    print()
+
+    pp = [[pairProbability(dmix, i, j) for j in r] for i in r]
+    print("Pair probabilities:")
+    for row in pp:
+        print(*(format(x, '.3') for x in row), sep="\t")
+    print("Sum (should be 1):", sum(map(sum, pp)))
+    print()
+
+    identity = sum(pp[i][i] for i in r)
+    print("Matches / (matches + mismatches):", format(identity, '.3'))
+    print()
+
+    sMat = [[3 * math.log2(pp[i][j] / (lp[i] * lp[j])) for j in r] for i in r]
+    print("Substitution score matrix:")
+    for row in sMat:
+        print(*(format(x, '.3') for x in row), sep="\t")
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("filename",
+                    help="Dirichlet mixture file (esl-mixdchlet format)")
+    args = ap.parse_args()
+    main(args)
