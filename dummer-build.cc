@@ -17,7 +17,6 @@
 
 #include <assert.h>
 #include <ctype.h>
-#include <float.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -178,7 +177,7 @@ void gapCountsToProbs(const GapPriors &gp, double maxCountSum,
   probs[4] = b;  // insertion extend probability
 
   double e = getProb(delExt, delEnd, gp.delExtend, gp.delEnd, maxCountSum);
-  if (e == 0.0 && (delExt + delEnd) == 0.0 && (gp.delExtend + gp.delEnd) == 0.0)
+  if ((delExt + delEnd) == 0.0 && (gp.delExtend + gp.delEnd) == 0.0)
     e = 0.5;
   probs[5] = 1 - e;
   probs[6] = e;  // deletion extend probability
@@ -741,7 +740,7 @@ void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
       forward(seqNoGap, seqLength, probsOld,
         profileLength, width, &v, X, Y, Z);
 
-      if (v > DBL_MAX || !std::isfinite(v)) {
+      if (!std::isfinite(v)) {
 	std::cerr
 	  << "numbers overflowed to infinity in Baum-Welch: quitting\n";
 	exit(1);
