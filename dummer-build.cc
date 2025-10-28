@@ -71,7 +71,7 @@ double geometricMean(const double *values, int length, int step) {
   int cnt = 0;
   for (int i = 0; i < length; ++i) {
     double v = values[i * step];
-    if (std::isfinite(v) && v > 0.0) {
+    if (isfinite(v) && v > 0.0) {
       s += log(v);
       ++cnt;
     }
@@ -533,7 +533,7 @@ void forward(
     // can use arbitrary values for S_m, d_m, e_m
     dPrime = deltaProb   * (1 - epsilonProb1);
     ePrime = epsilonProb * (1 - epsilonProb1) / (1 - epsilonProb);
-    if (!std::isfinite(ePrime)) ePrime = 0.0; // avoid NaN issues
+    if (!isfinite(ePrime)) ePrime = 0.0; // avoid NaN issues
 
     X[(i-1) * cols] = 0.0;
     double z = Z[i * cols] = 0.0;
@@ -546,7 +546,7 @@ void forward(
       double S = (1 - alphaProb - deltaProb)
                * probs[(i-1) * width + (7 + letter)]
                / probs[profileLength * width + (7 + letter)];
-      if (!std::isfinite(S)) S = 0.0; // if letter has 0 background probability
+      if (!isfinite(S)) S = 0.0; // if letter has 0 background probability
 
       double y = Y[(i-1) * cols + j];
       double w = X[(i-1) * cols + (j-1)] + y + z + scale;
@@ -586,7 +586,7 @@ void backward(unsigned char *seq, int seqLength,
     // can use arbitrary values for S_m, d_m, e_m
     dPrime = deltaProb   * (1 - epsilonProb1);
     ePrime = epsilonProb * (1 - epsilonProb1) / (1 - epsilonProb);
-    if (!std::isfinite(ePrime)) ePrime = 0.0; // avoid NaN issues
+    if (!isfinite(ePrime)) ePrime = 0.0; // avoid NaN issues
 
     Wbar[(i+2) * cols - 1] = 0.0;
     double z = Zbar[(i+1) * cols - 1] = 0.0;
@@ -599,7 +599,7 @@ void backward(unsigned char *seq, int seqLength,
       double S = (1 - alphaProb - deltaProb)
                * probs[i * width + (7 + letter)]
                / probs[profileLength * width + (7 + letter)];
-      if (!std::isfinite(S)) S = 0.0; // if letter has 0 background probability
+      if (!isfinite(S)) S = 0.0; // if letter has 0 background probability
 
       double x = S * Wbar[(i+1) * cols + (j+1)];
       double y = Ybar[(i+1) * cols + j];
@@ -740,7 +740,7 @@ void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
       forward(seqNoGap, seqLength, probsOld,
         profileLength, width, &v, X, Y, Z);
 
-      if (!std::isfinite(v)) {
+      if (!isfinite(v)) {
 	std::cerr
 	  << "numbers overflowed to infinity in Baum-Welch: quitting\n";
 	exit(1);
