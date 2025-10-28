@@ -873,7 +873,7 @@ Prior probability options:\n\
   --dmix         Dirichlet mixture file (esl-mixdchlet format)\n\
   --gapprior     file with 7 gap pseudocounts:\n\
                      match insStart delStart insEnd insExtend delEnd delExtend\n\
-  --pnone        Don't use gap priors (i.e. sets gap priors to zero)\n\
+  --pnone        don't use gap priors (i.e. sets gap priors to zero)\n\
 ";
 
   const char sOpts[] = "hVv";
@@ -967,7 +967,7 @@ Prior probability options:\n\
     if (!file || !readDirichletMixture(in, dmix, dmixParameters)) return 1;
   }
 
-  GapPriors gapPriors;
+  GapPriors gapPriors = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
   if (gapPriorsFileName) {
     std::ifstream file;
     std::istream &in = openFile(file, gapPriorsFileName);
@@ -1008,11 +1008,8 @@ Prior probability options:\n\
 	/ sizeof(double) / (1 + alphabetSize);
     }
 
-    const GapPriors &gp = gapPriorsFileName ? gapPriors :
+    const GapPriors &gp = (gapPriorsFileName || pnone) ? gapPriors :
       isProtein ? mitchisonAaGapPriors : wheelerNtGapPriors;
-
-    GapPriors noGapPriors{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-    const GapPriors &gpUsed = pnone ? noGapPriors : gp;
 
     if (verbosity) std::cerr << "Alignment length: "
 			     << ma.alignmentLength << "\n";
@@ -1041,7 +1038,7 @@ Prior probability options:\n\
     int profileLength = columns.size();
 
     if (!countOnly) {
-      baumWelch(counts, ma, alphabetSize, dmix, gpUsed,
+      baumWelch(counts, ma, alphabetSize, dmix, gp,
           profileLength, weights.data(), bwMaxiter, bwMaxDiff);
     }
 
@@ -1056,7 +1053,7 @@ Prior probability options:\n\
     double targetRelEnt = std::max(esigma, myEre * profileLength);
     if (verbosity) std::cerr << "Target relative entropy: "
 			     << targetRelEnt << "\n";
-    double neff = entropyWeight(dmix, gpUsed, alphabetSize,
+    double neff = entropyWeight(dmix, gp, alphabetSize,
 				weightSum, targetRelEnt,
 				profileLength, counts.data(), probs.data());
 
