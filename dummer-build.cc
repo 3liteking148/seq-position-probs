@@ -388,7 +388,7 @@ void makeSequenceWeights(const MultipleAlignment &ma, int alphabetSize,
       for (int j = 0; j < ma.sequenceCount; ++j) {
 	int x = seq[j * ma.alignmentLength];
 	if (x < alphabetSize) {
-	  weights[j] += 1.0 / (types * counts[x]);
+	  weights[j] += 1.0 * nonGapCount / (types * counts[x]);
 	  ++positionCounts[j];
 	}
       }
