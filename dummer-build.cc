@@ -406,7 +406,7 @@ void makeSequenceWeights(const MultipleAlignment &ma, int alphabetSize,
 }
 
 void countEvents(const MultipleAlignment &ma, int alphabetSize, double symfrac,
-		 const double *weights, double weightSum,
+		 const double *weights, double weightSum, const GapPriors &gp,
 		 std::vector<double> &allCounts, std::vector<int> &columns) {
   const int midGap = alphabetSize + 1;
   const int endGap = alphabetSize + 2;
@@ -442,13 +442,39 @@ void countEvents(const MultipleAlignment &ma, int alphabetSize, double symfrac,
 	  states[j] = 'd';
 	}
       }
+
+      // Count adjacent inserts, or adjacent deletes, as extensions or restarts
+      double iFrac = 1;  // fraction of adjacent inserts that are extensions
+      double dFrac = 1;  // fraction of adjacent deletes that are extensions
+      double iExt, dExt, iBeg, iEnd, dBeg, dEnd, nIns, iFracOld, dFracOld;
+      do {
+	iExt = insExt * iFrac;
+	dExt = delExt * dFrac;
+	iBeg = insBeg + (insExt - iExt);
+	iEnd = iBeg;  // insert end count = insert begin count
+	dBeg = delBeg + (delExt - dExt);
+	dEnd = delEnd + (delExt - dExt);
+	nIns = notIns + (delExt - dExt);
+	// Estimate the insertion and deletion probabilities from the counts:
+	double gpNotIns = gp.match + gp.delStart;
+	double a = getProb(iBeg, nIns, gp.insStart, gpNotIns, 1e37);
+	double d = getProb(dBeg, nonGapCount, gp.delStart, gp.match, 1e37);
+	double b = getProb(iExt, iEnd, gp.insExtend, gp.insEnd, 1e37);
+	double e = getProb(dExt, dEnd, gp.delExtend, gp.delEnd, 1e37);
+	// Estimate the extension fractions from the probabilities:
+	iFracOld = iFrac;
+	dFracOld = dFrac;
+	if (insExt > 0) iFrac = b / (b + a * (1 - b));
+	if (delExt > 0) dFrac = e / (e + (1 - a) * d * (1 - e));
+      } while (fabs(iFrac - iFracOld) > 1e-6 || fabs(dFrac - dFracOld) > 1e-6);
+
       allCounts.push_back(nonGapCount);
-      allCounts.push_back(notIns);
-      allCounts.push_back(delBeg);
-      allCounts.push_back(insBeg);  // insEnd = insBeg
-      allCounts.push_back(insExt);
-      allCounts.push_back(delEnd);
-      allCounts.push_back(delExt);
+      allCounts.push_back(nIns);
+      allCounts.push_back(dBeg);
+      allCounts.push_back(iEnd);  // insert end count = insert begin count
+      allCounts.push_back(iExt);
+      allCounts.push_back(dEnd);
+      allCounts.push_back(dExt);
       allCounts.insert(allCounts.end(), counts, counts + alphabetSize);
       insBeg = insExt = delEnd = 0;
       notIns = nonGapCount;
@@ -472,10 +498,9 @@ void countEvents(const MultipleAlignment &ma, int alphabetSize, double symfrac,
   allCounts.insert(allCounts.end(), 5, 0.0);  // final gap counts must be 0
   allCounts.insert(allCounts.end(), alphabetSize, 0.0);
 
-  // We'll estimate probabilities from these counts, but there are 2 problems:
-  // 1. Adjacent inserts (or deletes) are assumed to be extension, not restart.
-  // 2. The counts assume the alignment is exactly correct and certain.
-  // We will mitigate both problems by using a Baum-Welch algorithm.
+  // We'll estimate probabilities from these counts, but
+  // the counts assume the alignment is exactly correct and certain.
+  // We will mitigate that by using a Baum-Welch algorithm.
 }
 
 void getSequenceWithoutGaps(
@@ -1033,7 +1058,7 @@ Prior probability options:\n\
 
     std::vector<double> counts;
     std::vector<int> columns;
-    countEvents(ma, alphabetSize, symfrac, weights.data(), weightSum,
+    countEvents(ma, alphabetSize, symfrac, weights.data(), weightSum, gp,
 		counts, columns);
     int profileLength = columns.size();
 
