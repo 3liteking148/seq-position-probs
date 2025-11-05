@@ -120,6 +120,7 @@ void applyDirichletMixture(DirichletMixture dmix,
   std::fill_n(probEstimate, alphabetSize, 0.0);
 
   for (int i = 0; i < dmix.componentCount; ++i) {
+    if (dmix.componentCount == 1) break;  // allows for alpha values that = 0
     const double *alphas = dmix.params + i * componentSize + 1;
     double alphaSum = std::accumulate(alphas, alphas + alphabetSize, 0.0);
     logs[i] = lgamma(alphaSum) - lgamma(countSum * rescale + alphaSum + 1);
@@ -206,7 +207,7 @@ double relativeEntropy(const double *probs,
   double r = 0;
   for (int i = 0; i < profileLength; ++i) {
     for (int j = 0; j < alphabetSize; ++j) {
-      r += probs[j] * log2(probs[j] / bgProbs[j]);
+      if (probs[j] > 0) r += probs[j] * log2(probs[j] / bgProbs[j]);
     }
     probs += probsPerPosition;
   }
@@ -898,7 +899,7 @@ Prior probability options:\n\
   --dmix         Dirichlet mixture file (esl-mixdchlet format)\n\
   --gapprior     file with 7 gap pseudocounts:\n\
                      match insStart delStart insEnd insExtend delEnd delExtend\n\
-  --pnone        don't use gap priors (i.e. sets gap priors to zero)\n\
+  --pnone        don't use any prior probabilities (implies --enone)\n\
 ";
 
   const char sOpts[] = "hVv";
@@ -972,6 +973,7 @@ Prior probability options:\n\
       break;
     case 'P':
       pnone = true;
+      esigma = 1e37;
       break;
     case '?':
       std::cerr << help;
@@ -1027,6 +1029,11 @@ Prior probability options:\n\
 	std::cerr << "the Dirichlet mixture file has wrong alphabet size\n";
 	return 1;
       }
+    } else if (pnone) {
+      dmixParameters.resize(1 + alphabetSize);
+      dmixParameters[0] = 1;
+      dmix.params = dmixParameters.data();
+      dmix.componentCount = 1;
     } else {
       dmix.params = isProtein ? blocks9 : wheeler4;
       dmix.componentCount = (isProtein ? sizeof blocks9 : sizeof wheeler4)
