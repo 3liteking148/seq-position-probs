@@ -224,6 +224,12 @@ double entropyWeight(DirichletMixture dmix, const GapPriors &gp,
   while (1) {
     countsToProbs(dmix, gp, alphabetSize, maxCountSum, profileLength,
 		  counts, probs);
+    if (verbosity > 1) {
+      const double *bgProbs = probs + profileLength * (7 + alphabetSize) + 7;
+      std::cerr << "Background letter probabilities:" << std::setprecision(3);
+      for (int i = 0; i < alphabetSize; ++i) std::cerr << " " << bgProbs[i];
+      std::cerr << std::setprecision(6) << "\n";
+    }
     double r = relativeEntropy(probs + 7, alphabetSize, profileLength);
     if (verbosity) std::cerr << "Max total weight: " << maxCountSum
 			     << "  Relative entropy: " << r << "\n";
