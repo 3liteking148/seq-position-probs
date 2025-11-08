@@ -1043,7 +1043,7 @@ double geometricMean(const Float *values, int length, int step) {
   return exp(mean / length);
 }
 
-int finalizeProfile(Profile p) {
+int finalizeProfile(Profile p, bool isGeometricMeanBackgroundProbs) {
   Float *end = p.values + p.width * p.length;
 
   if (end[3] <= 0) {
@@ -1051,16 +1051,22 @@ int finalizeProfile(Profile p) {
     end[3] = geometricMean(p.values + p.width + 3, p.length - 1, p.width);
   }
 
-  // set the background letter probabilities proportional to the
-  // geometric mean of the foreground letter probabilities
-  double sum = 0;
-  for (int k = 4; k < p.width - 2; ++k) {
-    double m = geometricMean(p.values + k, p.length, p.width);
-    if (m <= 0) return 0;
-    end[k] = m;
-    sum += m;
+  if (isGeometricMeanBackgroundProbs) {
+    double sum = 0;
+    for (int k = 4; k < p.width - 2; ++k) {
+      double m = geometricMean(p.values + k, p.length, p.width);
+      if (m <= 0) return 0;
+      end[k] = m;
+      sum += m;
+    }
+    for (int k = 4; k < p.width - 2; ++k) end[k] /= sum;
+  } else {  // background letter probs = arithmetic mean of positional probs:
+    for (int k = 4; k < p.width - 2; ++k) {
+      double s = 0;
+      for (int i = 0; i < p.length; ++i) s += p.values[i * p.width + k];
+      end[k] = s / p.length;
+    }
   }
-  for (int k = 4; k < p.width - 2; ++k) end[k] /= sum;
 
   for (int i = 0; ; ++i) {
     Float *probs = p.values + i * p.width;
@@ -1090,7 +1096,8 @@ int finalizeProfile(Profile p) {
 }
 
 int readProfiles(std::istream &in, std::vector<Profile> &profiles,
-		 std::vector<Float> &values, std::vector<char> &names) {
+		 std::vector<Float> &values, std::vector<char> &names,
+		 bool isGeometricMeanBackgroundProbs) {
   Profile profile = {0};
   int state = 0;
   std::string line, word;
@@ -1162,7 +1169,7 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
   Float *v = &values[0];
   for (auto &p : profiles) {
     p.values = v;
-    if (!finalizeProfile(p)) return 0;
+    if (!finalizeProfile(p, isGeometricMeanBackgroundProbs)) return 0;
     v += p.width * (p.length + 1);
   }
 
@@ -1199,6 +1206,7 @@ int main(int argc, char* argv[]) {
   int randomSeqNum = OPT_t;
   int randomSeqLen = OPT_l;
   int border = OPT_b;
+  bool isGeometricMeanBackgroundProbs = true;
 
   const char help[] = "\
 usage: dummer profiles.hmm [sequences.fa]\n\
@@ -1224,6 +1232,10 @@ Options for random sequences:\n\
     STR(OPT_l) ")\n\
   -b B, --border B  add this size border to each random sequence (default: "
     STR(OPT_b) ")\n\
+\n\
+Options for background letter probabilities:\n\
+  --barithmetic     arithmetic mean of position-specific probabilities\n\
+  --bgeometric      geometric mean of position-specific probabilities (default)\n\
 ";
 
   const char sOpts[] = "hVve:s:t:l:b:";
@@ -1237,6 +1249,8 @@ Options for random sequences:\n\
     {"trials",  required_argument, 0, 't'},
     {"length",  required_argument, 0, 'l'},
     {"border",  required_argument, 0, 'b'},
+    {"barithmetic", no_argument,   0, 'A'},
+    {"bgeometric",  no_argument,   0, 'G'},
     {0, 0, 0, 0}
   };
 
@@ -1275,6 +1289,12 @@ Options for random sequences:\n\
       border = intFromText(optarg);
       if (border < 0) return badOpt();
       break;
+    case 'A':
+      isGeometricMeanBackgroundProbs = false;
+      break;
+    case 'G':
+      isGeometricMeanBackgroundProbs = true;
+      break;
     case '?':
       std::cerr << help;
       return 1;
@@ -1299,7 +1319,8 @@ Options for random sequences:\n\
     std::ifstream file;
     std::istream &in = openFile(file, argv[optind]);
     if (!file) return 1;
-    if (!readProfiles(in, profiles, profileValues, charVec)) {
+    if (!readProfiles(in, profiles, profileValues, charVec,
+		      isGeometricMeanBackgroundProbs)) {
       std::cerr << "can't read the profile data\n";
       return 1;
     }
