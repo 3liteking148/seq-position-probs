@@ -1033,11 +1033,13 @@ double probFromText(const char *text) {
 }
 
 double geometricMean(const Float *values, int length, int step) {
+  // Geometric mean is bad for zero (or very low) probabilities
+  // All letter probs in Dfam-curated_only 3.9 and Pfam-A 38.0 are > 1e-6
+  const double minProb = 1e-6;
   double mean = 0;
   for (int i = 0; i < length; ++i) {
     double v = values[i * step];
-    if (v <= 0) std::cerr << "zero probability at position " << i << "\n";
-    if (v <= 0) return 0;
+    v = std::max(v, minProb);
     mean += log(v);
   }
   return exp(mean / length);
@@ -1055,7 +1057,6 @@ int finalizeProfile(Profile p, bool isGeometricMeanBackgroundProbs) {
     double sum = 0;
     for (int k = 4; k < p.width - 2; ++k) {
       double m = geometricMean(p.values + k, p.length, p.width);
-      if (m <= 0) return 0;
       end[k] = m;
       sum += m;
     }

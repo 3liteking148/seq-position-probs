@@ -65,19 +65,17 @@ void normalize(double *x, int n) {
 }
 
 // some MSAs (if --pnone is used) may have zero probabilities
-// log(0)/log(NaN) would produce errors, so skip those values
+// log(0)/log(NaN) would produce errors
 double geometricMean(const double *values, int length, int step) {
+  const double minProb = 1e-6;
   double s = 0.0;
-  int cnt = 0;
   for (int i = 0; i < length; ++i) {
     double v = values[i * step];
-    if (isfinite(v) && v > 0.0) {
-      s += log(v);
-      ++cnt;
-    }
+    assert(isfinite(v));
+    v = std::max(v, minProb);
+    s += log(v);
   }
-  assert(cnt >= 0);
-  return exp(s / cnt);
+  return exp(s / length);
 }
 
 void setBackgroundProbs(double *bgProbs, const double *probs,
