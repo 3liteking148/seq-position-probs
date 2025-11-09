@@ -1045,7 +1045,7 @@ double geometricMean(const Float *values, int length, int step) {
   return exp(mean / length);
 }
 
-int finalizeProfile(Profile p, bool isGeometricMeanBackgroundProbs) {
+int finalizeProfile(Profile p, int backgroundProbsType) {
   Float *end = p.values + p.width * p.length;
 
   if (end[3] <= 0) {
@@ -1053,7 +1053,7 @@ int finalizeProfile(Profile p, bool isGeometricMeanBackgroundProbs) {
     end[3] = geometricMean(p.values + p.width + 3, p.length - 1, p.width);
   }
 
-  if (isGeometricMeanBackgroundProbs) {
+  if (backgroundProbsType == 'G') {  // geometric mean of positional probs
     double sum = 0;
     for (int k = 4; k < p.width - 2; ++k) {
       double m = geometricMean(p.values + k, p.length, p.width);
@@ -1098,7 +1098,7 @@ int finalizeProfile(Profile p, bool isGeometricMeanBackgroundProbs) {
 
 int readProfiles(std::istream &in, std::vector<Profile> &profiles,
 		 std::vector<Float> &values, std::vector<char> &names,
-		 bool isGeometricMeanBackgroundProbs) {
+		 int backgroundProbsType) {
   Profile profile = {0};
   int state = 0;
   std::string line, word;
@@ -1170,7 +1170,7 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
   Float *v = &values[0];
   for (auto &p : profiles) {
     p.values = v;
-    if (!finalizeProfile(p, isGeometricMeanBackgroundProbs)) return 0;
+    if (!finalizeProfile(p, backgroundProbsType)) return 0;
     v += p.width * (p.length + 1);
   }
 
@@ -1207,7 +1207,7 @@ int main(int argc, char* argv[]) {
   int randomSeqNum = OPT_t;
   int randomSeqLen = OPT_l;
   int border = OPT_b;
-  bool isGeometricMeanBackgroundProbs = true;
+  int backgroundProbsType = 'G';
 
   const char help[] = "\
 usage: dummer profiles.hmm [sequences.fa]\n\
@@ -1291,10 +1291,10 @@ Options for background letter probabilities:\n\
       if (border < 0) return badOpt();
       break;
     case 'A':
-      isGeometricMeanBackgroundProbs = false;
+      backgroundProbsType = 'A';
       break;
     case 'G':
-      isGeometricMeanBackgroundProbs = true;
+      backgroundProbsType = 'G';
       break;
     case '?':
       std::cerr << help;
@@ -1321,7 +1321,7 @@ Options for background letter probabilities:\n\
     std::istream &in = openFile(file, argv[optind]);
     if (!file) return 1;
     if (!readProfiles(in, profiles, profileValues, charVec,
-		      isGeometricMeanBackgroundProbs)) {
+		      backgroundProbsType)) {
       std::cerr << "can't read the profile data\n";
       return 1;
     }
