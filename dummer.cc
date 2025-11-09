@@ -1061,12 +1061,22 @@ int finalizeProfile(Profile p, int backgroundProbsType) {
       sum += m;
     }
     for (int k = 4; k < p.width - 2; ++k) end[k] /= sum;
-  } else {  // background letter probs = arithmetic mean of positional probs:
+  } else if (backgroundProbsType == 'A') {  // arithmetic mean
     for (int k = 4; k < p.width - 2; ++k) {
       double s = 0;
       for (int i = 0; i < p.length; ++i) s += p.values[i * p.width + k];
       end[k] = s / p.length;
     }
+  } else {  // median of positional probs
+    std::vector<Float> probs(p.length);
+    double sum = 0;
+    for (int k = 4; k < p.width - 2; ++k) {
+      for (int i = 0; i < p.length; ++i) probs[i] = p.values[i * p.width + k];
+      sort(probs.begin(), probs.end());
+      end[k] = probs[p.length / 2];
+      sum += end[k];
+    }
+    for (int k = 4; k < p.width - 2; ++k) end[k] /= sum;
   }
 
   for (int i = 0; ; ++i) {
@@ -1237,6 +1247,7 @@ Options for random sequences:\n\
 Options for background letter probabilities:\n\
   --barithmetic     arithmetic mean of position-specific probabilities\n\
   --bgeometric      geometric mean of position-specific probabilities (default)\n\
+  --bmedian         median of position-specific probabilities\n\
 ";
 
   const char sOpts[] = "hVve:s:t:l:b:";
@@ -1252,6 +1263,7 @@ Options for background letter probabilities:\n\
     {"border",  required_argument, 0, 'b'},
     {"barithmetic", no_argument,   0, 'A'},
     {"bgeometric",  no_argument,   0, 'G'},
+    {"bmedian",     no_argument,   0, 'M'},
     {0, 0, 0, 0}
   };
 
@@ -1295,6 +1307,9 @@ Options for background letter probabilities:\n\
       break;
     case 'G':
       backgroundProbsType = 'G';
+      break;
+    case 'M':
+      backgroundProbsType = 'M';
       break;
     case '?':
       std::cerr << help;

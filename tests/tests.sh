@@ -15,6 +15,8 @@ PATH=../bin:$PATH
     sed 's/aaaaaaaaaa/nnnnnnnnnn/' hg38-chr15-part.fa |
 	dummerl -e0.01 -t100 -l400 dfam-test.hmm -
     dummer -t100 -l200 -e0.01 DF000001253.hmm chr22problem.fa
+    dummer -t100 -l200 -e0.01 --barithmetic DF000001253.hmm chr22problem.fa
+    dummer -t100 -l200 -e0.01 --bmedian DF000001253.hmm chr22problem.fa
     dummer PF05369.hmm mtmb1.fa
 
     cat hakoLTR.stk Notch.stk | dummer-build --countonly -
