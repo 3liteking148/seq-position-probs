@@ -32,7 +32,8 @@ def pairProbability(dmix, i, j):
 def main(args):
     dmix = list(readDirichletMixture(openFile(args.filename)))
     if not dmix: raise RuntimeError("zero mixture components")
-    print("Sum of component weights (should be 1):", sum(q for q, _ in dmix))
+    print("Sum of component weights (should be 1):",
+          sum(q * 1e4 for q, _ in dmix) / 1e4)  # the 1e4 avoids rounding error
     print()
     alphabetSize = len(dmix[0][1])
     r = range(alphabetSize)
