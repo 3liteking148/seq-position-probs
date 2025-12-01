@@ -809,7 +809,7 @@ void printProb(bool isCount, double prob) {
 }
 
 void printProfile(const double *probs, const int *columns,
-		  const char *alphabet, int profileLength,
+		  const char *alphabet, int profileLength, char *argv[],
 		  const MultipleAlignment &ma, double neff, bool isCounts) {
   int alphabetSize = strlen(alphabet);
   int width = alphabetSize + 7;
@@ -824,6 +824,9 @@ void printProfile(const double *probs, const int *columns,
   std::cout << "MAP   yes\n";
   std::cout << "NSEQ  " << ma.sequenceCount << "\n";
   std::cout << "EFFN  " << neff << "\n";
+  std::cout << "BM   ";
+  for (char **p = argv; p[1]; ++p) std::cout << " " << *p;
+  std::cout << "\n";
 
   std::cout << "HMM     ";
   for (int i = 0; alphabet[i]; ++i) {
@@ -1080,7 +1083,7 @@ Prior probability options:\n\
 
     if (isCounts) {
       printProfile(counts.data(), columns.data(), alphabet, profileLength,
-		   ma, weightSum, isCounts);
+		   argv, ma, weightSum, isCounts);
       continue;
     }
 
@@ -1094,6 +1097,6 @@ Prior probability options:\n\
 				profileLength, counts.data(), probs.data());
 
     printProfile(probs.data(), columns.data(), alphabet, profileLength,
-		 ma, neff, isCounts);
+		 argv, ma, neff, isCounts);
   }
 }

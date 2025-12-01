@@ -625,6 +625,7 @@ ALPH  DNA
 MAP   yes
 NSEQ  18
 EFFN  2.457584
+BM    dummer-build --countonly
 HMM          A        C        G        T   
            match   insStart delStart insEnd   insExt   delEnd   delExt
           1.32398  1.54505  1.37846  1.31431
@@ -1839,6 +1840,7 @@ ALPH  amino
 MAP   yes
 NSEQ  95
 EFFN  3.987927
+BM    dummer-build --countonly
 HMM          A        C        D        E        F        G        H        I        K        L        M        N        P        Q        R        S        T        V        W        Y   
            match   insStart delStart insEnd   insExt   delEnd   delExt
           2.36204  3.78929  2.61741  2.45401  3.83139  2.69529  3.49042  3.68249  2.64589  3.07176  4.06045  2.59414  3.38408  2.89286  2.89133  2.39001  2.79215  3.19031  4.90895  3.73593
@@ -1958,6 +1960,7 @@ ALPH  amino
 MAP   yes
 NSEQ  95
 EFFN  3.716777
+BM    dummer-build --countonly --symfrac=0.15
 HMM          A        C        D        E        F        G        H        I        K        L        M        N        P        Q        R        S        T        V        W        Y   
            match   insStart delStart insEnd   insExt   delEnd   delExt
           2.36752  3.85311  2.64322  2.44973  3.84830  2.70938  3.49415  3.62283  2.62978  3.06292  4.01840  2.63266  3.37133  2.89594  2.88713  2.38113  2.77145  3.16125  4.93878  3.72748
@@ -2083,6 +2086,7 @@ ALPH  DNA
 MAP   yes
 NSEQ  18
 EFFN  14.588786
+BM    dummer-build --countonly --enone
 HMM          A        C        G        T   
            match   insStart delStart insEnd   insExt   delEnd   delExt
           1.16805  1.69261  1.43066  1.32487
@@ -3297,6 +3301,7 @@ ALPH  DNA
 MAP   yes
 NSEQ  18
 EFFN  2.471830
+BM    dummer-build --maxiter=5
 HMM          A        C        G        T   
            match   insStart delStart insEnd   insExt   delEnd   delExt
           1.32774  1.54394  1.37699  1.31287
@@ -4511,6 +4516,7 @@ ALPH  amino
 MAP   yes
 NSEQ  95
 EFFN  3.791296
+BM    dummer-build --maxiter=5
 HMM          A        C        D        E        F        G        H        I        K        L        M        N        P        Q        R        S        T        V        W        Y   
            match   insStart delStart insEnd   insExt   delEnd   delExt
           2.34392  3.79961  2.65150  2.47991  3.80381  2.71097  3.50398  3.62230  2.65101  3.04213  4.01990  2.60376  3.40734  2.90011  2.90152  2.37798  2.78893  3.15580  4.88735  3.72566
@@ -4630,6 +4636,7 @@ ALPH  amino
 MAP   yes
 NSEQ  9
 EFFN  0.761758
+BM    dummer-build --countonly
 HMM          A        C        D        E        F        G        H        I        K        L        M        N        P        Q        R        S        T        V        W        Y   
            match   insStart delStart insEnd   insExt   delEnd   delExt
           2.30697  4.23763  3.05343  2.65370  3.53794  3.00716  3.68805  2.87459  2.69168  2.54300  3.52494  3.03346  3.57370  3.03643  3.02368  2.54292  2.62351  2.59136  4.96227  3.62441
@@ -5991,6 +5998,7 @@ ALPH  amino
 MAP   yes
 NSEQ  5
 EFFN  1.007867
+BM    dummer-build --maxdiff 0.02
 HMM          A        C        D        E        F        G        H        I        K        L        M        N        P        Q        R        S        T        V        W        Y   
            match   insStart delStart insEnd   insExt   delEnd   delExt
           2.36487  4.22159  3.49789  3.04912  3.07297  3.20589  3.81089  2.58337  2.96802  2.09591  3.27701  3.30773  3.71862  3.23880  3.14994  2.65029  2.70018  2.33741  4.69582  3.48430
@@ -7628,6 +7636,7 @@ ALPH  DNA
 MAP   yes
 NSEQ  18
 EFFN  14.588786
+BM    dummer-build --countonly --enone --dmix hakoLTR.mixdchlet --gapprior my.gapPrior
 HMM          A        C        G        T   
            match   insStart delStart insEnd   insExt   delEnd   delExt
           1.31787  1.59526  1.32811  1.33006
@@ -8842,6 +8851,7 @@ ALPH  DNA
 MAP   yes
 NSEQ  18
 EFFN  14.588786
+BM    dummer-build --counts --maxiter=5
 HMM          A         C         G         T    
            match    notIns    delStart  insEnd    insExt    delEnd    delExt
           0         0         0         0       
@@ -10056,6 +10066,7 @@ ALPH  DNA
 MAP   yes
 NSEQ  18
 EFFN  14.588786
+BM    dummer-build --pnone --maxiter=2
 HMM          A        C        G        T   
            match   insStart delStart insEnd   insExt   delEnd   delExt
           1.13943  2.14437  1.28908  1.24712
