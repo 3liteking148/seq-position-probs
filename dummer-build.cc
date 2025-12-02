@@ -385,7 +385,7 @@ void makeSequenceWeights(const MultipleAlignment &ma, int alphabetSize,
     int totalCount = ma.sequenceCount - counts[endGap];
     int nonGapCount = totalCount - counts[midGap];
 
-    if (nonGapCount > 0 && nonGapCount >= symfrac * totalCount) {
+    if (nonGapCount >= symfrac * totalCount) {
       int types = 0;
       for (int k = 0; k < alphabetSize; ++k) {
 	types += (counts[k] > 0);
