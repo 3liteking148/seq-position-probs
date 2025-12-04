@@ -1323,8 +1323,7 @@ Options for background letter probabilities:\n\
   }
 
   if (border > INT_MAX - 2 * simdLen - randomSeqLen) {
-    std::cerr << "sequence + border is too big\n";
-    return 1;
+    return err("sequence + border is too big");
   }
 
   std::vector<char> charVec;
@@ -1337,8 +1336,7 @@ Options for background letter probabilities:\n\
     if (!file) return 1;
     if (!readProfiles(in, profiles, profileValues, charVec,
 		      backgroundProbsType)) {
-      std::cerr << "can't read the profile data\n";
-      return 1;
+      return err("can't read the profile data");
     }
   }
 
@@ -1406,8 +1404,7 @@ Options for background letter probabilities:\n\
     setCharToNumber(charToNumber, "ACDEFGHIKLMNPQRSTVWYUO");
     strandOpt = 1;
   } else {
-    std::cerr << "the profiles should be all protein, or all nucleotide\n";
-    return 1;
+    return err("the profiles should be all protein, or all nucleotide");
   }
   memset(charToNumber, 125, ' '+1);  // map "space characters" (<= ' ') to 125
   charToNumber['>'] = 126;

@@ -11,6 +11,11 @@ bool isDash(const char *text) {
   return text[0] == '-' && text[1] == 0;
 }
 
+int err(const char *message) {
+  std::cerr << message << "\n";
+  return 1;
+}
+
 std::istream &fail(std::istream &s, const char *message) {
   std::cerr << message << "\n";
   s.setstate(std::ios::failbit);

@@ -1060,8 +1060,7 @@ Prior probability options:\n\
     std::cout << std::fixed;
     std::cerr << "MSA #" << ++msa_count << ": " << ma.name << std::endl;
     if (isHand && ma.columnStatus.empty()) {
-      std::cerr << "missing RF annotation line: needed for --hand\n";
-      return 1;
+      return err("missing RF annotation line: needed for --hand");
     }
     bool isProtein = isProteinAlignment(ma);
     const char *alphabet = isProtein ? "ACDEFGHIKLMNPQRSTVWY" : "ACGT";
@@ -1077,8 +1076,7 @@ Prior probability options:\n\
     if (dirichletMixtureFileName) {
       int dmixAlphabetSize = dmixParameters.size() / dmix.componentCount - 1;
       if (dmixAlphabetSize != alphabetSize) {
-	std::cerr << "the Dirichlet mixture file has wrong alphabet size\n";
-	return 1;
+	return err("the Dirichlet mixture file has wrong alphabet size");
       }
     } else if (pnone) {
       dmixParameters.resize(1 + alphabetSize);
