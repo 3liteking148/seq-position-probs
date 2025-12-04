@@ -28,5 +28,6 @@ PATH=../bin:$PATH
     dummer-build --countonly --enone --dmix hakoLTR.mixdchlet --gapprior my.gapPrior hakoLTR.stk
     dummer-build --counts --maxiter=5 hakoLTR.stk
     dummer-build --pnone --maxiter=2 hakoLTR.stk
+    dummer-build --hand --countonly hakoLTR.stk
 } |
     grep -v DUMMER | diff -u tests.txt -

@@ -48,6 +48,7 @@ struct MultipleAlignment {
   int sequenceCount;
   int alignmentLength;
   std::vector<unsigned char> alignment;
+  std::vector<unsigned char> columnStatus;
   std::string name;
 };
 
@@ -268,6 +269,8 @@ std::istream &readDirichletMixture(std::istream &in, DirichletMixture &dmix,
 }
 
 std::istream &checkAlignmentBlock(std::istream &in, MultipleAlignment &ma,
+				  const std::vector<std::string> &lines,
+				  const std::vector<std::string> &refLines,
 				  int lineCount) {
   if (lineCount) {
     if (ma.sequenceCount && lineCount != ma.sequenceCount) {
@@ -275,11 +278,21 @@ std::istream &checkAlignmentBlock(std::istream &in, MultipleAlignment &ma,
     }
     ma.sequenceCount = lineCount;
   }
+
+  if (!refLines.empty()) {
+    size_t blockCount = ma.sequenceCount ? lines.size() / ma.sequenceCount : 0;
+    if (refLines.size() != blockCount) fail(in, "bad RF lines");
+    if (refLines.back().size() != lines.back().size()) {
+      return fail(in, "RF length != aligned sequence length");
+    }
+  }
+
   return in;
 }
 
 std::istream &readMultipleAlignment(std::istream &in, MultipleAlignment &ma) {
   std::vector<std::string> lines;
+  std::vector<std::string> refLines;
   std::string line, word;
   int lineCount = 0;
   ma.sequenceCount = 0;
@@ -290,7 +303,7 @@ std::istream &readMultipleAlignment(std::istream &in, MultipleAlignment &ma) {
     std::istringstream iss(line);
     iss >> word;
     if (!iss) {
-      if (!checkAlignmentBlock(in, ma, lineCount)) return in;
+      if (!checkAlignmentBlock(in, ma, lines, refLines, lineCount)) return in;
       lineCount = 0;
     } else if (word == "#=GF") {
       iss >> word;
@@ -299,6 +312,13 @@ std::istream &readMultipleAlignment(std::istream &in, MultipleAlignment &ma) {
       }
     } else if (word == "//") {
       break;
+    } else if (word == "#=GC") {
+      iss >> word;
+      if (word != "RF") continue;
+      iss >> word;
+      if (!iss) return fail(in, "bad RF line");
+      if (ma.sequenceCount && refLines.empty()) fail(in, "bad RF lines");
+      refLines.push_back(word);
     } else if (word[0] != '#') {
       iss >> word;
       if (!iss) return fail(in, "bad alignment file");
@@ -314,7 +334,7 @@ std::istream &readMultipleAlignment(std::istream &in, MultipleAlignment &ma) {
     }
   }
 
-  if (!checkAlignmentBlock(in, ma, lineCount)) return in;
+  if (!checkAlignmentBlock(in, ma, lines, refLines, lineCount)) return in;
 
   ma.alignment.resize(ma.sequenceCount * ma.alignmentLength);
   unsigned char *a = ma.alignment.data();
@@ -325,6 +345,16 @@ std::istream &readMultipleAlignment(std::istream &in, MultipleAlignment &ma) {
 	unsigned char c = lines[i + j][k];
 	*a++ = c;
       }
+    }
+  }
+
+  ma.columnStatus.resize(refLines.empty() ? 0 : ma.alignmentLength);
+  unsigned char *s = ma.columnStatus.data();
+
+  for (size_t j = 0; j < refLines.size(); ++j) {
+    for (size_t k = 0; k < refLines[j].size(); ++k) {
+      char c = refLines[j][k];
+      *s++ = (c != '.' && c != '-' && c != '_' && c != '~');
     }
   }
 
@@ -371,7 +401,7 @@ void markEndGaps(MultipleAlignment &ma, int alphabetSize) {
 }
 
 void makeSequenceWeights(const MultipleAlignment &ma, int alphabetSize,
-			 double symfrac, double *weights) {
+			 bool isHand, double symfrac, double *weights) {
   const int midGap = alphabetSize + 1;
   const int endGap = alphabetSize + 2;
   std::vector<int> positionCounts(ma.sequenceCount);
@@ -385,7 +415,7 @@ void makeSequenceWeights(const MultipleAlignment &ma, int alphabetSize,
     int totalCount = ma.sequenceCount - counts[endGap];
     int nonGapCount = totalCount - counts[midGap];
 
-    if (nonGapCount >= symfrac * totalCount) {
+    if (isHand ? ma.columnStatus[i] : (nonGapCount >= symfrac * totalCount)) {
       int types = 0;
       for (int k = 0; k < alphabetSize; ++k) {
 	types += (counts[k] > 0);
@@ -410,7 +440,8 @@ void makeSequenceWeights(const MultipleAlignment &ma, int alphabetSize,
   }
 }
 
-void countEvents(const MultipleAlignment &ma, int alphabetSize, double symfrac,
+void countEvents(const MultipleAlignment &ma, int alphabetSize,
+		 bool isHand, double symfrac,
 		 const double *weights, double weightSum, const GapPriors &gp,
 		 std::vector<double> &allCounts, std::vector<int> &columns) {
   const int midGap = alphabetSize + 1;
@@ -430,7 +461,8 @@ void countEvents(const MultipleAlignment &ma, int alphabetSize, double symfrac,
     double totalCount = weightSum - counts[endGap];
     double nonGapCount = totalCount - counts[midGap];
 
-    if (nonGapCount > 0 && nonGapCount >= symfrac * totalCount) {
+    if (isHand ? ma.columnStatus[i]
+	:        (nonGapCount > 0 && nonGapCount >= symfrac * totalCount)) {
       columns.push_back(i);
       double delBeg = 0;
       double delExt = 0;
@@ -859,6 +891,7 @@ void printProfile(const double *probs, const int *columns,
 }
 
 int main(int argc, char* argv[]) {
+  bool isHand = false;
   bool isCounts = false;
   double symfrac = OPT_symfrac;
   double ere     = 0;
@@ -882,10 +915,13 @@ Options:\n\
   -h, --help     show this help message and exit\n\
   -V, --version  show version and exit\n\
   -v, --verbose  show progress messages\n\
+  --counts       output weighted counts instead of -log probs (implies --enone)\n\
+\n\
+Options for defining non-insert positions:\n\
+  --hand         use alignment RF column annotation lines (ignore symfrac)\n\
   --symfrac F    minimum (weighted) non-gap fraction to define a non-insert\n\
                      position (default: "
     STR(OPT_symfrac) ")\n\
-  --counts       output weighted counts instead of -log probs (implies --enone)\n\
 \n\
 Options for effective sequence number:\n\
   --enone        ignore relative entropy: set maximum sequence weight to 1\n\
@@ -917,6 +953,7 @@ Prior probability options:\n\
     {"verbose",   no_argument,       0, 'v'},
     {"symfrac",   required_argument, 0, 's'},
     {"counts",    no_argument,       0, 'C'},
+    {"hand",      no_argument,       0, 'H'},
     {"enone",     no_argument,       0, 'n'},
     {"ere",       required_argument, 0, 'p'},
     {"esigma",    required_argument, 0, 'e'},
@@ -949,6 +986,9 @@ Prior probability options:\n\
       break;
     case 'C':
       isCounts = true;
+      break;
+    case 'H':
+      isHand = true;
       break;
     case 'n':
       esigma = 1e37;
@@ -1019,6 +1059,10 @@ Prior probability options:\n\
   while (readMultipleAlignment(in, ma)) {
     std::cout << std::fixed;
     std::cerr << "MSA #" << ++msa_count << ": " << ma.name << std::endl;
+    if (isHand && ma.columnStatus.empty()) {
+      std::cerr << "missing RF annotation line: needed for --hand\n";
+      return 1;
+    }
     bool isProtein = isProteinAlignment(ma);
     const char *alphabet = isProtein ? "ACDEFGHIKLMNPQRSTVWY" : "ACGT";
     int alphabetSize = strlen(alphabet);
@@ -1058,7 +1102,7 @@ Prior probability options:\n\
     markEndGaps(ma, alphabetSize);
 
     std::vector<double> weights(ma.sequenceCount);
-    makeSequenceWeights(ma, alphabetSize, symfrac, weights.data());
+    makeSequenceWeights(ma, alphabetSize, isHand, symfrac, weights.data());
     double weightSum = std::accumulate(weights.begin(), weights.end(), 0.0);
 
     if (verbosity > 1) {
@@ -1072,8 +1116,8 @@ Prior probability options:\n\
 
     std::vector<double> counts;
     std::vector<int> columns;
-    countEvents(ma, alphabetSize, symfrac, weights.data(), weightSum, gp,
-		counts, columns);
+    countEvents(ma, alphabetSize, isHand, symfrac, weights.data(), weightSum,
+		gp, counts, columns);
     int profileLength = columns.size();
 
     if (!countOnly) {
