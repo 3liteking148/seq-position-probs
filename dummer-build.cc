@@ -830,6 +830,28 @@ void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
 
 }
 
+// Essentially taken from HMMER; the most likely (highest emmission
+// probability) residue is the consensus at each position.
+// If the emission probability is >= a certain threshold,
+// the residue is upper cased. The threshold is arbitrarily set
+// to 0.9 for nucleic acid alphabets and 0.5 for amino acid alphabets.
+// If we have counts instead of probabilities, we compute frequencies.
+std::vector<char> setConsensus(const double *probs, bool countOnly,
+      int profileLength, int alphabetSize, const char *alphabet) {
+
+  double mthresh = (alphabetSize > 4) ? 0.5 : 0.9;
+  std::vector<char> consensus(profileLength);
+  for (int i = 0; i < profileLength; ++i) {
+    const double *p = probs + i * (7 + alphabetSize) + 7;
+    int idx      = std::max_element(p, p + alphabetSize) - p;
+    double sum   = std::accumulate(p, p + alphabetSize, 0.0);
+    double prob  = countOnly ? p[idx] / sum : p[idx];
+    consensus[i] = prob >= mthresh ? std::toupper(alphabet[idx])
+                                   : std::tolower(alphabet[idx]);
+  }
+  return consensus;
+}
+
 void printProb(bool isCount, double prob) {
   if (isCount) {
     std::cout << "  " << std::left << std::setw(8) << prob << std::right;
@@ -847,12 +869,16 @@ void printProfile(const double *probs, const int *columns,
   int width = alphabetSize + 7;
   const double *bgProbs = probs + profileLength * width + 7;
 
+  std::vector<char> consensus = setConsensus(probs, isCounts,
+    profileLength, alphabetSize, alphabet);
+
   std::cout << "HMMER3/f [DUMMER "
 #include "version.hh"
     "]\n";
   std::cout << "NAME  " << ma.name << "\n";
   std::cout << "LENG  " << profileLength << "\n";
   std::cout << "ALPH  " << (alphabetSize > 4 ? "amino" : "DNA") << "\n";
+  std::cout << "CONS  yes\n";
   std::cout << "MAP   yes\n";
   std::cout << "NSEQ  " << ma.sequenceCount << "\n";
   std::cout << "EFFN  " << neff << "\n";
@@ -883,7 +909,8 @@ void printProfile(const double *probs, const int *columns,
     if (i == profileLength) break;
     std::cout << std::setw(7) << i+1 << " ";
     for (int j = 0; j < alphabetSize; ++j) printProb(isCounts, p[7 + j]);
-    std::cout << std::setw(7) << columns[i]+1 << "\n";
+    std::cout << std::setw(7) << columns[i]+1;
+    std::cout << " " << consensus[i] << "\n";
   }
   std::cout.precision(6);
 
