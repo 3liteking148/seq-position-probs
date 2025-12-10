@@ -49,6 +49,7 @@ struct MultipleAlignment {
   int alignmentLength;
   std::vector<unsigned char> alignment;
   std::vector<unsigned char> columnStatus;
+  std::vector<char> rf;
   std::string name;
 };
 
@@ -348,12 +349,16 @@ std::istream &readMultipleAlignment(std::istream &in, MultipleAlignment &ma) {
     }
   }
 
+  ma.rf.resize(refLines.empty() ? 0 : ma.alignmentLength);
+  char *rf = ma.rf.data();
+
   ma.columnStatus.resize(refLines.empty() ? 0 : ma.alignmentLength);
   unsigned char *s = ma.columnStatus.data();
 
   for (size_t j = 0; j < refLines.size(); ++j) {
     for (size_t k = 0; k < refLines[j].size(); ++k) {
       char c = refLines[j][k];
+      *rf++ = c;
       *s++ = (c != '.' && c != '-' && c != '_' && c != '~');
     }
   }
@@ -846,8 +851,8 @@ std::vector<char> setConsensus(const double *probs, bool countOnly,
     int idx      = std::max_element(p, p + alphabetSize) - p;
     double sum   = std::accumulate(p, p + alphabetSize, 0.0);
     double prob  = countOnly ? p[idx] / sum : p[idx];
-    consensus[i] = prob >= mthresh ? std::toupper(alphabet[idx])
-                                   : std::tolower(alphabet[idx]);
+    consensus[i] = prob >= mthresh ? toupper(alphabet[idx])
+                                   : tolower(alphabet[idx]);
   }
   return consensus;
 }
@@ -878,6 +883,7 @@ void printProfile(const double *probs, const int *columns,
   std::cout << "NAME  " << ma.name << "\n";
   std::cout << "LENG  " << profileLength << "\n";
   std::cout << "ALPH  " << (alphabetSize > 4 ? "amino" : "DNA") << "\n";
+  std::cout << "RF    " << (ma.rf.empty() ? "no" : "yes") << "\n";
   std::cout << "CONS  yes\n";
   std::cout << "MAP   yes\n";
   std::cout << "NSEQ  " << ma.sequenceCount << "\n";
@@ -910,7 +916,10 @@ void printProfile(const double *probs, const int *columns,
     std::cout << std::setw(7) << i+1 << " ";
     for (int j = 0; j < alphabetSize; ++j) printProb(isCounts, p[7 + j]);
     std::cout << std::setw(7) << columns[i]+1;
-    std::cout << " " << consensus[i] << "\n";
+    std::cout << " " << consensus[i];
+    if (!ma.rf.empty()) std::cout << " " << ma.rf[columns[i]];
+    else                std::cout << " -";
+    std::cout << "\n";
   }
   std::cout.precision(6);
 
