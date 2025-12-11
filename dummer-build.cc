@@ -841,20 +841,16 @@ void baumWelch(std::vector<double> &counts, const MultipleAlignment &ma,
 // the residue is upper cased. The threshold is arbitrarily set
 // to 0.9 for nucleic acid alphabets and 0.5 for amino acid alphabets.
 // If we have counts instead of probabilities, we compute frequencies.
-std::vector<char> setConsensus(const double *probs, bool countOnly,
-      int profileLength, int alphabetSize, const char *alphabet) {
-
+// Assert: $i \in [0,profileLength)$
+char getConsensusAt(int i, const double *probs, bool countOnly,
+      int alphabetSize, const char *alphabet) {
   double mthresh = (alphabetSize > 4) ? 0.5 : 0.9;
-  std::vector<char> consensus(profileLength);
-  for (int i = 0; i < profileLength; ++i) {
-    const double *p = probs + i * (7 + alphabetSize) + 7;
-    int idx      = std::max_element(p, p + alphabetSize) - p;
-    double sum   = std::accumulate(p, p + alphabetSize, 0.0);
-    double prob  = countOnly ? p[idx] / sum : p[idx];
-    consensus[i] = prob >= mthresh ? toupper(alphabet[idx])
-                                   : tolower(alphabet[idx]);
-  }
-  return consensus;
+  const double *p = probs + i * (7 + alphabetSize) + 7;
+  int idx      = std::max_element(p, p + alphabetSize) - p;
+  double sum   = std::accumulate(p, p + alphabetSize, 0.0);
+  double prob  = countOnly ? p[idx] / sum : p[idx];
+  return (prob >= mthresh) ? toupper(alphabet[idx])
+                           : tolower(alphabet[idx]);
 }
 
 void printProb(bool isCount, double prob) {
@@ -873,9 +869,6 @@ void printProfile(const double *probs, const int *columns,
   int alphabetSize = strlen(alphabet);
   int width = alphabetSize + 7;
   const double *bgProbs = probs + profileLength * width + 7;
-
-  std::vector<char> consensus = setConsensus(probs, isCounts,
-    profileLength, alphabetSize, alphabet);
 
   std::cout << "HMMER3/f [DUMMER "
 #include "version.hh"
@@ -915,8 +908,8 @@ void printProfile(const double *probs, const int *columns,
     if (i == profileLength) break;
     std::cout << std::setw(7) << i+1 << " ";
     for (int j = 0; j < alphabetSize; ++j) printProb(isCounts, p[7 + j]);
-    std::cout << std::setw(7) << columns[i]+1;
-    std::cout << " " << consensus[i];
+    std::cout << std::setw(7) << columns[i]+1 << " ";
+    std::cout << getConsensusAt(i, probs, isCounts, alphabetSize, alphabet);
     if (!ma.rf.empty()) std::cout << " " << ma.rf[columns[i]];
     else                std::cout << " -";
     std::cout << "\n";
