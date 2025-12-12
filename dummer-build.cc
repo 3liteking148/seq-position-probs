@@ -48,10 +48,13 @@ struct MultipleAlignment {
   int sequenceCount;
   int alignmentLength;
   std::vector<unsigned char> alignment;
-  std::vector<unsigned char> columnStatus;
   std::vector<char> rf;
   std::string name;
 };
+
+bool isGap(char c) {
+  return c == '.' || c == '-' || c == '_' || c == '~';
+}
 
 void setCharToNumber(unsigned char *charToNumber, const char *alphabet) {
   for (int i = 0; alphabet[i]; ++i) {
@@ -352,14 +355,9 @@ std::istream &readMultipleAlignment(std::istream &in, MultipleAlignment &ma) {
   ma.rf.resize(refLines.empty() ? 0 : ma.alignmentLength);
   char *rf = ma.rf.data();
 
-  ma.columnStatus.resize(refLines.empty() ? 0 : ma.alignmentLength);
-  unsigned char *s = ma.columnStatus.data();
-
   for (size_t j = 0; j < refLines.size(); ++j) {
     for (size_t k = 0; k < refLines[j].size(); ++k) {
-      char c = refLines[j][k];
-      *rf++ = c;
-      *s++ = (c != '.' && c != '-' && c != '_' && c != '~');
+      *rf++ = refLines[j][k];
     }
   }
 
@@ -420,7 +418,7 @@ void makeSequenceWeights(const MultipleAlignment &ma, int alphabetSize,
     int totalCount = ma.sequenceCount - counts[endGap];
     int nonGapCount = totalCount - counts[midGap];
 
-    if (isHand ? ma.columnStatus[i] : (nonGapCount >= symfrac * totalCount)) {
+    if (isHand ? !isGap(ma.rf[i]) : (nonGapCount >= symfrac * totalCount)) {
       int types = 0;
       for (int k = 0; k < alphabetSize; ++k) {
 	types += (counts[k] > 0);
@@ -466,7 +464,7 @@ void countEvents(const MultipleAlignment &ma, int alphabetSize,
     double totalCount = weightSum - counts[endGap];
     double nonGapCount = totalCount - counts[midGap];
 
-    if (isHand ? ma.columnStatus[i]
+    if (isHand ? !isGap(ma.rf[i])
 	:        (nonGapCount > 0 && nonGapCount >= symfrac * totalCount)) {
       columns.push_back(i);
       double delBeg = 0;
@@ -1088,7 +1086,7 @@ Prior probability options:\n\
   while (readMultipleAlignment(in, ma)) {
     std::cout << std::fixed;
     std::cerr << "MSA #" << ++msa_count << ": " << ma.name << std::endl;
-    if (isHand && ma.columnStatus.empty()) {
+    if (isHand && ma.rf.empty()) {
       return err("missing RF annotation line: needed for --hand");
     }
     bool isProtein = isProteinAlignment(ma);
