@@ -907,7 +907,7 @@ void printProfile(const double *probs, const int *columns,
     for (int j = 0; j < alphabetSize; ++j) printProb(isCounts, p[7 + j]);
     std::cout << std::setw(7) << columns[i]+1 << " "
 	      << getConsensusAt(i, probs, alphabetSize, alphabet) << " "
-	      << (ma.rf.empty() ? '-' : ma.rf[columns[i]]) << "\n";
+	      << (ma.rf.empty() ? '-' : ma.rf[columns[i]]) << " - -\n";
   }
   std::cout.precision(6);
 
