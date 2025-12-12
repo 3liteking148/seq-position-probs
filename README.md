@@ -30,11 +30,11 @@ But, if this is the best way, why isn't it just the (standard) way,
 used by all sequence search tools?
 
 [HMMER's theory][] has excessive complexity and minor biases, it's
-optimized to answer the wrong question, and its *E*-value conjectures
-seem not entirely right ([Frith 2025][frith2025]).  HMMER is optimized
-to judge whether a whole sequence contains a match: it would rather
-find two matches in two short sequences than three matches in one long
-sequence.
+optimized to answer a question that doesn't seem the most useful, and
+its *E*-value conjectures seem not entirely right ([Frith
+2025][frith2025]).  HMMER is optimized to judge whether a whole
+sequence contains a match: it would rather find two matches in two
+short sequences than three matches in one long sequence.
 
 DUMMER is optimized to find matches: it doesn't care whether they lie
 in long/short same/different sequences.  It's vastly simpler
@@ -67,8 +67,8 @@ it).  Using the command line, go into the downloaded directory and do
 
 DUMMER can compare sequences in FASTA format to profiles in HMMER3/f
 format.  You can make profiles with `dummer-build` (new and
-lightly-tested).  Or you can (ab)use [HMMER][] profiles, whose
-definition doesn't quite fit: you can get DNA profiles from [Dfam][],
+lightly-tested).  Or you can (ab)use [HMMER][] profiles (whose
+definition doesn't quite fit): you can get DNA profiles from [Dfam][],
 or protein profiles from [Pfam][].  Run it like this:
 
     dummer profiles.hmm sequences.fasta
@@ -209,17 +209,13 @@ related sequences (in [Stockholm][] format):
 
     dummer-build alignments.stk > profiles.hmm
 
-It's basically copied from HMMER's hmmbuild, but here are some differences:
+It may be slow, or fail due to overflow.  This is because of a
+"Baum-Welch" step that refines the profile (which HMMER 3.4 lacks).
+You can omit this step:
 
-* It doesn't assume the alignment is perfect: it optimizes the profile
-  with an iterative algorithm (Baum-Welch, aka Expectation
-  Maximization).
+    dummer-build --countonly alignments.stk > profiles.hmm
 
-* End gaps (gaps beyond the start or end of a sequence) are treated as
-  missing data (like hmmbuild --fragthresh=1).
-
-* It always does Henikoff position-based sequence weighting: no other
-  options.  This down-weights sequences that are similar to each other
+* dummer-build down-weights sequences that are similar to each other
   (e.g. human and chimp versions of a sequence).
 
 * Option `--enone` scales the absolute sequence weights so that the
