@@ -1207,6 +1207,7 @@ Float *resizeMem(Float *v, size_t &size,
     free(v);
     v = (Float *)aligned_alloc(simdLen * sizeof(Float), s * sizeof(Float));
     // this memory allocation doesn't get "free"-d at the end: that is ok!
+    if (!v) std::cerr << "failed to allocate memory for " << s << " numbers\n";
   }
   return v;
 }
