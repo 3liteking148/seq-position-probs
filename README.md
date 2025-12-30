@@ -83,9 +83,8 @@ The output shows similar regions in [MAF][] format:
   rather than random.
 
 * The *E*-value (`E=`) is the expected number of distinct sequence
-  regions with equal or higher score, if we compared all profiles in
-  `profiles.hmm` to random sequences with the same length as all of
-  `sequences.fasta`.
+  regions with equal or higher score, if we compared that profile to
+  random sequences with the same length as all of `sequences.fasta`.
 
 * The `anchor` shows profile,sequence coordinates.  It means there are
   similar regions around these coordinates.
@@ -193,13 +192,12 @@ These options affect the random sequences:
   mean of its position-specific letter probabilities ([Barrett et
   al. 1997](https://doi.org/10.1093/bioinformatics/13.2.191)).
 
-* An *E*-value is: *K*<sub>tot</sub> *N* / 2^score, where
-  *K*<sub>tot</sub> is the sum over profiles of *K*, and *N* is the
-  sum of sequence lengths.
+* An *E*-value is: *KN* / 2^score, where *N* is the sum of sequence
+  lengths.
 
 * &lambda; comes from a not-yet-successful attempt to get better
-  *E*-values for short profiles.  Here, the *E*-value for one profile
-  is: *KN* / (2^score)^&lambda;.  That would surely work and give us
+  *E*-values for short profiles.  Here, the *E*-value is:
+  *KN* / (2^score)^&lambda;.  That would surely work and give us
   better *E*-values, if only we could determine a good value for &lambda;.
 
 ## dummer-build

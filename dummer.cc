@@ -86,6 +86,7 @@ struct Profile {  // position-specific (insert, delete, letter) probabilities
   int width;  // values per position: 4 + alphabetSize + 2
   int length;  // number of positions
   size_t nameIdx;
+  double gumbelKendAnchored, gumbelKbegAnchored, gumbelKmidAnchored;
 };
 
 struct Sequence {
@@ -100,10 +101,6 @@ struct Contig {
 
 struct SegmentPair {
   int start1, start2, length;
-};
-
-struct Triple {
-  double endAnchored, begAnchored, midAnchored;
 };
 
 struct InitialSimilarity {
@@ -924,9 +921,9 @@ void estimateGumbel(double &mmLambda, double &mmK, double &mmKsimple,
   methodOfLmomentsGumbel(lmLambda, lmK, scores, n, seqLength);
 }
 
-Triple estimateK(Profile profile, const Float *letterFreqs,
-		 char *sequence, int sequenceLength, int border,
-		 int numOfSequences, Float *scratch, int printVerbosity) {
+void estimateK(Profile &profile, const Float *letterFreqs,
+	       char *sequence, int sequenceLength, int border,
+	       int numOfSequences, Float *scratch, int printVerbosity) {
   std::mt19937_64 randGen;
   int alphabetSize = profile.width - 6;
   std::discrete_distribution<> dist(letterFreqs, letterFreqs + alphabetSize);
@@ -1016,8 +1013,9 @@ Triple estimateK(Profile profile, const Float *letterFreqs,
     std::cout << "# K: " << MMmidKsimple/scale << "\n";
   }
 
-  Triple h = {MMendKsimple, MMbegKsimple, MMmidKsimple};
-  return h;
+  profile.gumbelKendAnchored = MMendKsimple;
+  profile.gumbelKbegAnchored = MMbegKsimple;
+  profile.gumbelKmidAnchored = MMmidKsimple;
 }
 
 int intFromText(const char *text) {
@@ -1370,11 +1368,7 @@ Options for background letter probabilities:\n\
 
   int printVerbosity = (argc - optind < 2) * 2 + (evalueOpt <= 0);
 
-  double totEndK = 0;
-  double totBegK = 0;
-  double totMidK = 0;
-
-  for (auto p : profiles) {
+  for (auto &p : profiles) {
     const Float *profileEnd = p.values + p.width * p.length;
     std::cout << "\n";
     std::cout << "# Profile name: " << &charVec[p.nameIdx] << "\n";
@@ -1382,11 +1376,8 @@ Options for background letter probabilities:\n\
     std::cout << "# Background letter probabilities:";
     for (int j = 4; j < p.width - 2; ++j) std::cout << " " << profileEnd[j];
     std::cout << std::endl;
-    Triple r = estimateK(p, profileEnd+4, &charVec[seqIdx], randomSeqLen,
-			 border, randomSeqNum, scratch, printVerbosity);
-    totEndK += r.endAnchored;
-    totBegK += r.begAnchored;
-    totMidK += r.midAnchored;
+    estimateK(p, profileEnd+4, &charVec[seqIdx], randomSeqLen,
+	      border, randomSeqNum, scratch, printVerbosity);
   }
 
   if (argc - optind < 2 || numOfProfiles < 1) return 0;
@@ -1433,13 +1424,13 @@ Options for background letter probabilities:\n\
     if (!scratch) return 1;
     totSequenceLength += contig.length;
     if (strandOpt == 2) totSequenceLength += contig.length;
-    Float minProbRatio =
-      (evalueOpt > 0) ? totMidK * totSequenceLength / evalueOpt * scale : -1;
     for (int s = 0; s < 2; ++s) {
       if (s != strandOpt) {
 	size_t strandNum = sequences.size() * 2 + s;
 	for (size_t j = 0; j < numOfProfiles; ++j) {
 	  Profile p = profiles[j];
+	  Float minProbRatio = (evalueOpt > 0) ?
+	    p.gumbelKmidAnchored * totSequenceLength / evalueOpt * scale : -1;
 	  if (verbosity > 1)
 	    std::cerr << "Profile: " << &charVec[p.nameIdx] << "\n";
 	  findFinalSimilarities(similarities, p, &charVec[seqIdx],
@@ -1457,9 +1448,9 @@ Options for background letter probabilities:\n\
   for (size_t i = 0; i < similarities.size(); ++i) {
     Profile p = profiles[similarities[i].profileNum];
     Sequence s = sequences[similarities[i].strandNum / 2];
-    double k = (evalueOpt > 0) ? totMidK :
-      (i % 3 == 0) ? totEndK :
-      (i % 3 == 1) ? totBegK : totMidK;
+    double k = (evalueOpt > 0) ? p.gumbelKmidAnchored :
+      (i % 3 == 0) ? p.gumbelKendAnchored :
+      (i % 3 == 1) ? p.gumbelKbegAnchored : p.gumbelKmidAnchored;
     double evalue = k * totSequenceLength / similarities[i].probRatio;
     if (evalueOpt <= 0 && i % 3 == 0) std::cout << "\n";
     if (evalueOpt > 0 && evalue > evalueOpt) continue;
