@@ -1439,9 +1439,10 @@ Options for background letter probabilities:\n\
       if (s != strandOpt) {
 	size_t strandNum = sequences.size() * 2 + s;
 	for (size_t j = 0; j < numOfProfiles; ++j) {
+	  Profile p = profiles[j];
 	  if (verbosity > 1)
-	    std::cerr << "Profile: " << &charVec[profiles[j].nameIdx] << "\n";
-	  findFinalSimilarities(similarities, profiles[j], &charVec[seqIdx],
+	    std::cerr << "Profile: " << &charVec[p.nameIdx] << "\n";
+	  findFinalSimilarities(similarities, p, &charVec[seqIdx],
 				contig, scratch, j, strandNum, minProbRatio);
 	}
       }
@@ -1457,7 +1458,8 @@ Options for background letter probabilities:\n\
     Profile p = profiles[similarities[i].profileNum];
     Sequence s = sequences[similarities[i].strandNum / 2];
     double k = (evalueOpt > 0) ? totMidK :
-      (i % 3 == 0) ? totEndK : (i % 3 == 1) ? totBegK : totMidK;
+      (i % 3 == 0) ? totEndK :
+      (i % 3 == 1) ? totBegK : totMidK;
     double evalue = k * totSequenceLength / similarities[i].probRatio;
     if (evalueOpt <= 0 && i % 3 == 0) std::cout << "\n";
     if (evalueOpt > 0 && evalue > evalueOpt) continue;
