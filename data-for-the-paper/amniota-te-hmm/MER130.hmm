@@ -266,6 +266,8 @@ TH    TaxId:9355; TaxName:Bradypus variegatus; GA:18.45; TC:26.60; NC:15.90; fdr
 TH    TaxId:53275; TaxName:Rhizomys pruinosus; GA:15.65; TC:27.99; NC:15.50; fdr:0.002;
 TH    TaxId:48723; TaxName:Pontoporia blainvillei; GA:14.15; TC:26.77; NC:14.10; fdr:0.002;
 TH    TaxId:230844; TaxName:Peromyscus maniculatus bairdii; GA:14.45; TC:27.34; NC:14.30; fdr:0.002;
+TH    TaxId:9606; TaxName:Homo sapiens; GA:17.75; TC:27.65; NC:17.30; fdr:0.002;
+TH    TaxId:10090; TaxName:Mus musculus; GA:14.55; TC:27.46; NC:13.60; fdr:0.002;
 CT    Interspersed_Repeat;Transposable_Element;Class_II_DNA_Transposition;Transposase
 MS    TaxId:32524 TaxName:Amniota
 CC    Type unclear; full length not yet determined. Found in  mammals,
