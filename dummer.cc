@@ -1067,11 +1067,13 @@ int finalizeProfile(Profile p, int backgroundProbsType) {
     }
     sumOfMeans = 1;
   } else {  // median of positional probs
-    std::vector<Float> probs(p.length);
+    std::vector<Float> valuesForMedian(p.length);
     for (int k = 4; k < p.width - 2; ++k) {
-      for (int i = 0; i < p.length; ++i) probs[i] = p.values[i * p.width + k];
-      sort(probs.begin(), probs.end());
-      Float m = probs[p.length / 2];
+      for (int i = 0; i < p.length; ++i) {
+	valuesForMedian[i] = p.values[i * p.width + k];
+      }
+      sort(valuesForMedian.begin(), valuesForMedian.end());
+      Float m = valuesForMedian[p.length / 2];
       end[k] = m;
       sumOfMeans += m;
     }
