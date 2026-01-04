@@ -1031,14 +1031,12 @@ double probFromText(const char *text) {
 }
 
 double geometricMean(const Float *values, int length, int step) {
-  // Geometric mean is bad for zero (or very low) probabilities
-  // All letter probs in Dfam-curated_only 3.9 and Pfam-A 38.0 are > 1e-6
-  const double minProb = 1e-6;
   double mean = 0;
   for (int i = 0; i < length; ++i) {
     double v = values[i * step];
-    v = std::max(v, minProb);
-    mean += log(v);
+    // Geometric mean is bad for zero (or very low) probabilities
+    // All letter probs in Dfam-curated_only 3.9 and Pfam-A 38.0 are > 1e-6
+    mean += log(std::max(v, 1e-6));
   }
   return exp(mean / length);
 }
