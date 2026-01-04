@@ -1052,13 +1052,13 @@ int finalizeProfile(Profile p, int backgroundProbsType) {
   }
 
   if (backgroundProbsType == 'G') {  // geometric mean of positional probs
-    double sum = 0;
+    double sumOfMeans = 0;
     for (int k = 4; k < p.width - 2; ++k) {
       double m = geometricMean(p.values + k, p.length, p.width);
       end[k] = m;
-      sum += m;
+      sumOfMeans += m;
     }
-    for (int k = 4; k < p.width - 2; ++k) end[k] /= sum;
+    for (int k = 4; k < p.width - 2; ++k) end[k] /= sumOfMeans;
   } else if (backgroundProbsType == 'A') {  // arithmetic mean
     for (int k = 4; k < p.width - 2; ++k) {
       double s = 0;
@@ -1105,7 +1105,7 @@ int finalizeProfile(Profile p, int backgroundProbsType) {
 }
 
 int readProfiles(std::istream &in, std::vector<Profile> &profiles,
-		 std::vector<Float> &values, std::vector<char> &names,
+		 std::vector<Float> &values, std::vector<char> &charVec,
 		 int backgroundProbsType) {
   Profile profile = {0};
   int state = 0;
@@ -1116,10 +1116,10 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
     switch (state) {
     case 0:
       if (word == "NAME") {
-	profile.nameIdx = names.size();
+	profile.nameIdx = charVec.size();
 	iss >> word;
 	const char *name = word.c_str();
-	names.insert(names.end(), name, name + word.size() + 1);
+	charVec.insert(charVec.end(), name, name + word.size() + 1);
       } else if (word == "HMM") {
 	++state;
       }
