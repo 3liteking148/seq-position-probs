@@ -1054,15 +1054,16 @@ int finalizeProfile(Profile p, int backgroundProbsType) {
   double sumOfMeans = 0;
   if (backgroundProbsType == 'G') {  // geometric mean of positional probs
     for (int k = 4; k < p.width - 2; ++k) {
-      double m = geometricMean(p.values + k, p.length, p.width);
-      end[k] = m;
-      sumOfMeans += m;
+      double mean = geometricMean(p.values + k, p.length, p.width);
+      end[k] = mean;
+      sumOfMeans += mean;
     }
   } else if (backgroundProbsType == 'A') {  // arithmetic mean
     for (int k = 4; k < p.width - 2; ++k) {
       double s = 0;
       for (int i = 0; i < p.length; ++i) s += p.values[i * p.width + k];
-      end[k] = s / p.length;
+      double mean = s / p.length;
+      end[k] = mean;
     }
     sumOfMeans = 1;
   } else {  // median of positional probs
@@ -1070,8 +1071,9 @@ int finalizeProfile(Profile p, int backgroundProbsType) {
     for (int k = 4; k < p.width - 2; ++k) {
       for (int i = 0; i < p.length; ++i) probs[i] = p.values[i * p.width + k];
       sort(probs.begin(), probs.end());
-      end[k] = probs[p.length / 2];
-      sumOfMeans += end[k];
+      Float m = probs[p.length / 2];
+      end[k] = m;
+      sumOfMeans += m;
     }
   }
   for (int k = 4; k < p.width - 2; ++k) end[k] /= sumOfMeans;
