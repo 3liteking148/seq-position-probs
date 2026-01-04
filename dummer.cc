@@ -1064,7 +1064,6 @@ int finalizeProfile(Profile p, int backgroundProbsType) {
     end[k] = mean;
     sumOfMeans += mean;
   }
-  if (backgroundProbsType == 'A') sumOfMeans = 1;
   for (int k = 4; k < p.width - 2; ++k) end[k] /= sumOfMeans;
 
   for (int i = 0; ; ++i) {
