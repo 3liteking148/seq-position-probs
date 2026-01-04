@@ -1030,42 +1030,37 @@ double probFromText(const char *text) {
   return exp(-d);
 }
 
-double geometricMean(const Float *values, int length, int step) {
+double myMean(const Float *values, int length, int step, int meanType,
+	      Float *valuesForMedian) {
   double mean = 0;
   for (int i = 0; i < length; ++i) {
     double v = values[i * step];
     // Geometric mean is bad for zero (or very low) probabilities
     // All letter probs in Dfam-curated_only 3.9 and Pfam-A 38.0 are > 1e-6
-    mean += log(std::max(v, 1e-6));
+    if (meanType == 'G') mean += log(std::max(v, 1e-6));  // geometric mean
+    if (meanType == 'A') mean += v;                       // arithmetic mean
+    if (meanType == 'M') valuesForMedian[i] = v;          // median
   }
-  return exp(mean / length);
+  if (meanType == 'G') return exp(mean / length);
+  if (meanType == 'A') return mean / length;
+  std::sort(valuesForMedian, valuesForMedian + length);
+  return valuesForMedian[length / 2];
 }
 
 int finalizeProfile(Profile p, int backgroundProbsType) {
+  std::vector<Float> valuesForMedian(p.length);
   Float *end = p.values + p.width * p.length;
 
   if (end[3] <= 0) {
     // set the final epsilon to the geometric mean of the other epsilons
-    end[3] = geometricMean(p.values + p.width + 3, p.length - 1, p.width);
+    end[3] = myMean(p.values + p.width + 3, p.length - 1, p.width, 'G',
+		    valuesForMedian.data());
   }
 
   double sumOfMeans = 0;
-  std::vector<Float> valuesForMedian(p.length);
   for (int k = 4; k < p.width - 2; ++k) {
-    double mean;
-    if (backgroundProbsType == 'G') {  // geometric mean of positional probs
-      mean = geometricMean(p.values + k, p.length, p.width);
-    } else if (backgroundProbsType == 'A') {  // arithmetic mean
-      double s = 0;
-      for (int i = 0; i < p.length; ++i) s += p.values[i * p.width + k];
-      mean = s / p.length;
-    } else {  // median of positional probs
-      for (int i = 0; i < p.length; ++i) {
-	valuesForMedian[i] = p.values[i * p.width + k];
-      }
-      sort(valuesForMedian.begin(), valuesForMedian.end());
-      mean = valuesForMedian[p.length / 2];
-    }
+    double mean = myMean(p.values + k, p.length, p.width, backgroundProbsType,
+			 valuesForMedian.data());
     end[k] = mean;
     sumOfMeans += mean;
   }
