@@ -145,6 +145,11 @@ int numOfDigits(int x) {
   return n;
 }
 
+const char *getAlphabet(int alphabetSize) {
+  return alphabetSize ==  4 ? "acgt"
+    :    alphabetSize == 20 ? "ACDEFGHIKLMNPQRSTVWYUO" : 0;
+}
+
 char complement(char c) {
   return 3 ^ c;
 }
@@ -802,8 +807,7 @@ void findFinalSimilarities(std::vector<FinalSimilarity> &similarities,
 			   Contig contig, Float *scratch,
 			   size_t profileNum, size_t strandNum,
 			   Float minProbRatio) {
-  const char *alphabet =
-    (profile.width == 10) ? "acgt" : "ACDEFGHIKLMNPQRSTVWYUO";
+  const char *alphabet = getAlphabet(profile.width - 6);
 
   std::vector<AlignedSimilarity> sims;
   findSimilarities(sims, profile, sequence, contig.length, scratch,
@@ -1376,17 +1380,16 @@ Options for background letter probabilities:\n\
   for (size_t i = 1; i < numOfProfiles; ++i) {
     if (profiles[i].width != width) width = 0;
   }
-  char charToNumber[256];
-  memset(charToNumber, 127, 256);
-  if (width == 10) {
-    setCharToNumber(charToNumber, "ACGT");
-    setCharToNumber(charToNumber, "ACGU");
-  } else if (width == 26) {
-    setCharToNumber(charToNumber, "ACDEFGHIKLMNPQRSTVWYUO");
-    strandOpt = 1;
-  } else {
+  int alphabetSize = width - 6;
+  const char *alphabet = getAlphabet(alphabetSize);
+  if (!alphabet) {
     return err("the profiles should be all protein, or all nucleotide");
   }
+  char charToNumber[256];
+  memset(charToNumber, 127, 256);
+  setCharToNumber(charToNumber, alphabet);
+  if (alphabetSize == 4) setCharToNumber(charToNumber, "ACGU");
+  if (alphabetSize != 4) strandOpt = 1;
   memset(charToNumber, 125, ' '+1);  // map "space characters" (<= ' ') to 125
   charToNumber['>'] = 126;
 
