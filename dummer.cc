@@ -1052,32 +1052,26 @@ int finalizeProfile(Profile p, int backgroundProbsType) {
   }
 
   double sumOfMeans = 0;
-  if (backgroundProbsType == 'G') {  // geometric mean of positional probs
-    for (int k = 4; k < p.width - 2; ++k) {
-      double mean = geometricMean(p.values + k, p.length, p.width);
-      end[k] = mean;
-      sumOfMeans += mean;
-    }
-  } else if (backgroundProbsType == 'A') {  // arithmetic mean
-    for (int k = 4; k < p.width - 2; ++k) {
+  std::vector<Float> valuesForMedian(p.length);
+  for (int k = 4; k < p.width - 2; ++k) {
+    double mean;
+    if (backgroundProbsType == 'G') {  // geometric mean of positional probs
+      mean = geometricMean(p.values + k, p.length, p.width);
+    } else if (backgroundProbsType == 'A') {  // arithmetic mean
       double s = 0;
       for (int i = 0; i < p.length; ++i) s += p.values[i * p.width + k];
-      double mean = s / p.length;
-      end[k] = mean;
-    }
-    sumOfMeans = 1;
-  } else {  // median of positional probs
-    std::vector<Float> valuesForMedian(p.length);
-    for (int k = 4; k < p.width - 2; ++k) {
+      mean = s / p.length;
+    } else {  // median of positional probs
       for (int i = 0; i < p.length; ++i) {
 	valuesForMedian[i] = p.values[i * p.width + k];
       }
       sort(valuesForMedian.begin(), valuesForMedian.end());
-      Float m = valuesForMedian[p.length / 2];
-      end[k] = m;
-      sumOfMeans += m;
+      mean = valuesForMedian[p.length / 2];
     }
+    end[k] = mean;
+    sumOfMeans += mean;
   }
+  if (backgroundProbsType == 'A') sumOfMeans = 1;
   for (int k = 4; k < p.width - 2; ++k) end[k] /= sumOfMeans;
 
   for (int i = 0; ; ++i) {
