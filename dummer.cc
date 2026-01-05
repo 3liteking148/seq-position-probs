@@ -1052,6 +1052,7 @@ double myMean(const Float *values, int length, int step, int meanType,
 }
 
 int finalizeProfile(Profile p, int backgroundProbsType) {
+  int alphabetSize = p.width - 6;
   std::vector<Float> valuesForMedian(p.length);
   Float *end = p.values + p.width * p.length;
 
@@ -1088,7 +1089,7 @@ int finalizeProfile(Profile p, int backgroundProbsType) {
     for (int k = 4; k < p.width - 2; ++k) {
       probs[k] = c * (probs[k] / end[k]);
     }
-    if (p.width == 26) {
+    if (alphabetSize == 20) {
       probs[4 + 20] = probs[4 + 1];  // selenocysteine = cysteine
       probs[4 + 21] = probs[4 + 8];  // pyrrolysine = lysine
     }
