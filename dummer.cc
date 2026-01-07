@@ -83,7 +83,7 @@ int verbosity = 0;
 
 struct Profile {  // position-specific (insert, delete, letter) probabilities
   Float *values;  // probabilities or probability ratios
-  int width;  // values per position: 4 + alphabetSize + 2
+  int width;   // number of values per position
   int length;  // number of positions
   size_t nameIdx;
   double gumbelKendAnchored, gumbelKbegAnchored, gumbelKmidAnchored;
@@ -146,8 +146,8 @@ int numOfDigits(int x) {
 }
 
 const char *getAlphabet(int alphabetSize) {
-  return alphabetSize ==  4 ? "acgt"
-    :    alphabetSize == 20 ? "ACDEFGHIKLMNPQRSTVWYUO" : 0;
+  return alphabetSize == 20 ? "ACDEFGHIKLMNPQRSTVWYUO"  // 20 + 2 amino acids
+    :    alphabetSize ==  4 ? "acgt" : 0;
 }
 
 char complement(char c) {
@@ -1063,13 +1063,13 @@ int finalizeProfile(Profile p, int backgroundProbsType) {
   }
 
   double sumOfMeans = 0;
-  for (int k = 4; k < p.width - 2; ++k) {
+  for (int k = 4; k < 4 + alphabetSize; ++k) {
     double mean = myMean(p.values + k, p.length, p.width, backgroundProbsType,
 			 valuesForMedian.data());
     end[k] = mean;
     sumOfMeans += mean;
   }
-  for (int k = 4; k < p.width - 2; ++k) end[k] /= sumOfMeans;
+  for (int k = 4; k < 4 + alphabetSize; ++k) end[k] /= sumOfMeans;
 
   for (int i = 0; ; ++i) {
     Float *probs = p.values + i * p.width;
@@ -1086,7 +1086,7 @@ int finalizeProfile(Profile p, int backgroundProbsType) {
     if (epsilon >= 1) return 0;
     probs[2] = delta * (1 - epsilon1);
     probs[3] = epsilon * (1 - epsilon1) / (1 - epsilon);
-    for (int k = 4; k < p.width - 2; ++k) {
+    for (int k = 4; k < 4 + alphabetSize; ++k) {
       double p = probs[k];
       probs[k] = c * (p / end[k]);
     }
@@ -1152,7 +1152,7 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
 	profile.width = profile.length = 0;
 	state = 0;
       } else {
-	int k = 6;
+	int k = 0;
 	while (iss >> word && strchr(word.c_str(), '.')) {  // xxx "*"?
 	  double prob = probFromText(word.c_str());
 	  if (prob > 1) return 0;
@@ -1160,9 +1160,9 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
 	  ++k;
 	}
 	values.insert(values.end(), 2, 0.0);  // allow for 2 unusual letters
-	if (k == 6) return 0;
-	if (profile.width > 0 && k != profile.width) return 0;
-	profile.width = k;
+	if (k == 0) return 0;
+	if (profile.width > 0 && k + 6 != profile.width) return 0;
+	profile.width = k + 6;
 	profile.length += 1;
 	if (profile.length + 1 > INT_MAX / profile.width) return 0;
 	state = 2;
@@ -1364,14 +1364,14 @@ Options for background letter probabilities:\n\
   int printVerbosity = (argc - optind < 2) * 2 + (evalueOpt <= 0);
 
   for (auto &p : profiles) {
-    const Float *profileEnd = p.values + p.width * p.length;
     std::cout << "\n";
     std::cout << "# Profile name: " << &charVec[p.nameIdx] << "\n";
     std::cout << "# Profile length: " << p.length << "\n";
+    const Float *bgProbs = p.values + p.width * p.length + 4;
     std::cout << "# Background letter probabilities:";
-    for (int j = 4; j < p.width - 2; ++j) std::cout << " " << profileEnd[j];
+    for (int j = 0; j < p.width - 6; ++j) std::cout << " " << bgProbs[j];
     std::cout << std::endl;
-    estimateK(p, profileEnd+4, &charVec[seqIdx], randomSeqLen,
+    estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen,
 	      border, randomSeqNum, scratch, printVerbosity);
   }
 
@@ -1389,11 +1389,11 @@ Options for background letter probabilities:\n\
   }
   char charToNumber[256];
   memset(charToNumber, 127, 256);
-  setCharToNumber(charToNumber, alphabet);
-  if (alphabetSize == 4) setCharToNumber(charToNumber, "ACGU");
-  if (alphabetSize != 4) strandOpt = 1;
   memset(charToNumber, 125, ' '+1);  // map "space characters" (<= ' ') to 125
-  charToNumber['>'] = 126;
+  charToNumber['>'] = 126;  // record separator for FASTA-format sequences
+  setCharToNumber(charToNumber, alphabet);
+  if (alphabetSize == 4) setCharToNumber(charToNumber, "ACGU");  // set U = T
+  if (alphabetSize != 4) strandOpt = 1;
 
   charVec.resize(seqIdx);
   std::vector<Sequence> sequences;
@@ -1418,6 +1418,7 @@ Options for background letter probabilities:\n\
     if (!scratch) return 1;
     totSequenceLength += contig.length;
     if (strandOpt == 2) totSequenceLength += contig.length;
+    char *seq = &charVec[seqIdx];
     for (int s = 0; s < 2; ++s) {
       if (s != strandOpt) {
 	size_t strandNum = sequences.size() * 2 + s;
@@ -1427,11 +1428,11 @@ Options for background letter probabilities:\n\
 	    p.gumbelKmidAnchored * totSequenceLength / evalueOpt * scale : -1;
 	  if (verbosity > 1)
 	    std::cerr << "Profile: " << &charVec[p.nameIdx] << "\n";
-	  findFinalSimilarities(similarities, p, &charVec[seqIdx],
+	  findFinalSimilarities(similarities, p, seq,
 				contig, scratch, j, strandNum, minProbRatio);
 	}
       }
-      reverseComplement(&charVec[seqIdx], &charVec[seqIdx] + contig.length);
+      reverseComplement(seq, seq + contig.length);
     }
     charVec.resize(seqIdx);
   }
