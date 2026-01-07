@@ -1087,7 +1087,8 @@ int finalizeProfile(Profile p, int backgroundProbsType) {
     probs[2] = delta * (1 - epsilon1);
     probs[3] = epsilon * (1 - epsilon1) / (1 - epsilon);
     for (int k = 4; k < p.width - 2; ++k) {
-      probs[k] = c * (probs[k] / end[k]);
+      double p = probs[k];
+      probs[k] = c * (p / end[k]);
     }
     if (alphabetSize == 20) {
       probs[4 + 20] = probs[4 + 1];  // selenocysteine = cysteine

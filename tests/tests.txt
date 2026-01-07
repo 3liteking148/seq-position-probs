@@ -460,7 +460,7 @@ s hg38.chr15:90050000-90080000 29292 138 - 30000 tcagggcatgggccgcagggtcagactgc--
 # Profile name: U7
 # Profile length: 63
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
-# K: 92.9441
+# K: 92.9442
 
 # Total sequence length: 59780
 a score=73.1 E=4.24e-15 anchor=130,29371
