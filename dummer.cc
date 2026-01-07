@@ -81,6 +81,8 @@ const int shift = 63;  // add this to scores, to undo the scaling
 
 int verbosity = 0;
 
+const int nonLetterWidth = 6;  // number of non-letter values per position
+
 struct Profile {  // position-specific (insert, delete, letter) probabilities
   Float *values;  // probabilities or probability ratios
   int width;   // number of values per position
@@ -204,7 +206,7 @@ std::istream &readContig(std::istream &in, Sequence &sequence, Contig &contig,
 
 int consensusLetter(Profile profile, int position) {
   const Float *S = profile.values + position * profile.width + 4;
-  return std::max_element(S, S + profile.width - 6) - S;
+  return std::max_element(S, S + profile.width - nonLetterWidth) - S;
 }
 
 void addAlignedProfile(std::vector<char> &gappedSeq,
@@ -807,7 +809,7 @@ void findFinalSimilarities(std::vector<FinalSimilarity> &similarities,
 			   Contig contig, Float *scratch,
 			   size_t profileNum, size_t strandNum,
 			   Float minProbRatio) {
-  const char *alphabet = getAlphabet(profile.width - 6);
+  const char *alphabet = getAlphabet(profile.width - nonLetterWidth);
 
   std::vector<AlignedSimilarity> sims;
   findSimilarities(sims, profile, sequence, contig.length, scratch,
@@ -929,7 +931,7 @@ void estimateK(Profile &profile, const Float *letterFreqs,
 	       char *sequence, int sequenceLength, int border,
 	       int numOfSequences, Float *scratch, int printVerbosity) {
   std::mt19937_64 randGen;
-  int alphabetSize = profile.width - 6;
+  int alphabetSize = profile.width - nonLetterWidth;
   std::discrete_distribution<> dist(letterFreqs, letterFreqs + alphabetSize);
 
   std::vector<double> scores(numOfSequences * 3);
@@ -1052,7 +1054,7 @@ double myMean(const Float *values, int length, int step, int meanType,
 }
 
 int finalizeProfile(Profile p, int backgroundProbsType) {
-  int alphabetSize = p.width - 6;
+  int alphabetSize = p.width - nonLetterWidth;
   std::vector<Float> valuesForMedian(p.length);
   Float *end = p.values + p.width * p.length;
 
@@ -1159,10 +1161,10 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
 	  values.push_back(prob);
 	  ++k;
 	}
-	values.insert(values.end(), 2, 0.0);  // allow for 2 unusual letters
+	values.insert(values.end(), nonLetterWidth - 4, 0.0);  // extra letters
 	if (k == 0) return 0;
-	if (profile.width > 0 && k + 6 != profile.width) return 0;
-	profile.width = k + 6;
+	if (profile.width > 0 && k + nonLetterWidth != profile.width) return 0;
+	profile.width = k + nonLetterWidth;
 	profile.length += 1;
 	if (profile.length + 1 > INT_MAX / profile.width) return 0;
 	state = 2;
@@ -1369,7 +1371,8 @@ Options for background letter probabilities:\n\
     std::cout << "# Profile length: " << p.length << "\n";
     const Float *bgProbs = p.values + p.width * p.length + 4;
     std::cout << "# Background letter probabilities:";
-    for (int j = 0; j < p.width - 6; ++j) std::cout << " " << bgProbs[j];
+    for (int j = 0; j < p.width - nonLetterWidth; ++j)
+      std::cout << " " << bgProbs[j];
     std::cout << std::endl;
     estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen,
 	      border, randomSeqNum, scratch, printVerbosity);
@@ -1382,7 +1385,7 @@ Options for background letter probabilities:\n\
   for (size_t i = 1; i < numOfProfiles; ++i) {
     if (profiles[i].width != width) width = 0;
   }
-  int alphabetSize = width - 6;
+  int alphabetSize = width - nonLetterWidth;
   const char *alphabet = getAlphabet(alphabetSize);
   if (!alphabet) {
     return err("the profiles should be all protein, or all nucleotide");
