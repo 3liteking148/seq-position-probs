@@ -149,7 +149,7 @@ int numOfDigits(int x) {
 
 const char *getAlphabet(int alphabetSize) {
   return alphabetSize == 20 ? "ACDEFGHIKLMNPQRSTVWYUO"  // 20 + 2 amino acids
-    :    alphabetSize ==  4 ? "acgt" : 0;
+    :    alphabetSize ==  4 ? "ACGT" : 0;
 }
 
 char complement(char c) {
