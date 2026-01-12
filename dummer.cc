@@ -548,7 +548,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 		      Profile profile, const char *sequence,
 		      int sequenceLength, Float *scratch,
 		      Float minProbRatio) {
-  const int lookupType = (simdLen > 4 && profile.width <= 10) ? 1
+  const int lookupType = (simdLen > 4 && profile.width <= 12) ? 1
     :                    (simdLen > 8)                        ? 2 : 0;
   const Float zero = 0;
   SimdFloat simdScale = simdFill(scale);
