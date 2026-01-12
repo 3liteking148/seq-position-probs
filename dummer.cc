@@ -88,6 +88,7 @@ struct Profile {  // position-specific (insert, delete, letter) probabilities
   int width;   // number of values per position
   int length;  // number of positions
   size_t nameIdx;
+  size_t consensusSequenceIdx;
   double gumbelKendAnchored, gumbelKbegAnchored, gumbelKmidAnchored;
 };
 
@@ -204,23 +205,18 @@ std::istream &readContig(std::istream &in, Sequence &sequence, Contig &contig,
   return in;
 }
 
-int consensusLetter(Profile profile, int position) {
-  const Float *S = profile.values + position * profile.width + 4;
-  return std::max_element(S, S + profile.width - nonLetterWidth) - S;
-}
-
 void addAlignedProfile(std::vector<char> &gappedSeq,
 		       const std::vector<SegmentPair> &alignment,
-		       const char *alphabet, Profile profile) {
+		       const char *alphabet, const char *consensusSequence) {
   int pos1 = alignment[0].start1;
   int pos2 = alignment[0].start2;
   for (auto a : alignment) {
     for (; pos1 < a.start1; ++pos1) {
-      gappedSeq.push_back(alphabet[consensusLetter(profile, pos1)]);
+      gappedSeq.push_back(alphabet[consensusSequence[pos1]]);
     }
     gappedSeq.insert(gappedSeq.end(), a.start2 - pos2, '-');
     for (; pos1 < a.start1 + a.length; ++pos1) {
-      gappedSeq.push_back(alphabet[consensusLetter(profile, pos1)]);
+      gappedSeq.push_back(alphabet[consensusSequence[pos1]]);
     }
     pos2 = a.start2 + a.length;
   }
@@ -805,11 +801,13 @@ int contigToSequencePos(Contig contig, size_t strandNum, int posInContig) {
 }
 
 void findFinalSimilarities(std::vector<FinalSimilarity> &similarities,
-			   Profile profile, const char *sequence,
+			   Profile profile, const char *charVec, size_t seqIdx,
 			   Contig contig, Float *scratch,
 			   size_t profileNum, size_t strandNum,
 			   Float minProbRatio) {
   const char *alphabet = getAlphabet(profile.width - nonLetterWidth);
+  const char *profileSeq = charVec + profile.consensusSequenceIdx;
+  const char *sequence = charVec + seqIdx;
 
   std::vector<AlignedSimilarity> sims;
   findSimilarities(sims, profile, sequence, contig.length, scratch,
@@ -822,7 +820,7 @@ void findFinalSimilarities(std::vector<FinalSimilarity> &similarities,
     if (!x.alignment.empty()) {
       s.start1 = x.alignment[0].start1;
       s.start2 = contigToSequencePos(contig, strandNum, x.alignment[0].start2);
-      addAlignedProfile(s.alignedSequences, x.alignment, alphabet, profile);
+      addAlignedProfile(s.alignedSequences, x.alignment, alphabet, profileSeq);
       addAlignedSequence(s.alignedSequences, x.alignment, alphabet, sequence);
     }
     similarities.push_back(s);
@@ -1117,6 +1115,7 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
 	iss >> word;
 	const char *name = word.c_str();
 	charVec.insert(charVec.end(), name, name + word.size() + 1);
+	profile.consensusSequenceIdx = charVec.size();
       } else if (word == "HMM") {
 	++state;
       }
@@ -1167,6 +1166,9 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
 	profile.width = k + nonLetterWidth;
 	profile.length += 1;
 	if (profile.length + 1 > INT_MAX / profile.width) return 0;
+	const Float *letterProbs = &values[values.size() - profile.width + 4];
+	const Float *m = std::max_element(letterProbs, letterProbs + k);
+	charVec.push_back(m - letterProbs);  // consensus sequence
 	state = 2;
       }
     }
@@ -1431,7 +1433,7 @@ Options for background letter probabilities:\n\
 	    p.gumbelKmidAnchored * totSequenceLength / evalueOpt * scale : -1;
 	  if (verbosity > 1)
 	    std::cerr << "Profile: " << &charVec[p.nameIdx] << "\n";
-	  findFinalSimilarities(similarities, p, seq,
+	  findFinalSimilarities(similarities, p, charVec.data(), seqIdx,
 				contig, scratch, j, strandNum, minProbRatio);
 	}
       }
