@@ -81,7 +81,7 @@ const int shift = 63;  // add this to scores, to undo the scaling
 
 int verbosity = 0;
 
-const int nonLetterWidth = 6;  // number of non-letter values per position
+const int nonLetterWidth = 8;  // number of non-letter values per position
 
 struct Profile {  // position-specific (insert, delete, letter) probabilities
   Float *values;  // probabilities or probability ratios
