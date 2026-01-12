@@ -1227,8 +1227,6 @@ Options:\n\
   -h, --help        show this help message and exit\n\
   -V, --version     show version and exit\n\
   -v, --verbose     show progress messages\n\
-\n\
-Options for real sequences:\n\
   -e E, --evalue E  find similarities with E-value <= this (default: "
     STR(OPT_e) ")\n\
   -s S, --strand S  DNA strand: 0=reverse, 1=forward, 2=both (default: "
