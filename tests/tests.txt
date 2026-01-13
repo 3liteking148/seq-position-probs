@@ -3,6 +3,7 @@
 
 # Profile name: MIR
 # Profile length: 262
+# Positions masked by tantan: 0
 # Background letter probabilities: 0.293416 0.189391 0.202994 0.314198
 #trial	end-anchored		start-anchored		mid-anchored
 #	profPos	seqPos	score	profPos	seqPos	score	profPos	seqPos	score
@@ -28,6 +29,7 @@
 
 # Profile name: U7
 # Profile length: 63
+# Positions masked by tantan: 0
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
 #trial	end-anchored		start-anchored		mid-anchored
 #	profPos	seqPos	score	profPos	seqPos	score	profPos	seqPos	score
@@ -122,11 +124,13 @@ s hg38_dna 62 60 + 500 AGTGTTACAGCACTTTTAGAATTTGTCTAGCAGGCTTTCAGGTCTTT-GCCAGAAAG
 
 # Profile name: MIR
 # Profile length: 262
+# Positions masked by tantan: 0
 # Background letter probabilities: 0.293416 0.189391 0.202994 0.314198
 # K: 138.666 120.096 813.317
 
 # Profile name: U7
 # Profile length: 63
+# Positions masked by tantan: 0
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
 # K: 21.8578 23.4395 82.8433
 
@@ -241,11 +245,13 @@ s hg38_dna 380 26 - 500 GGCTTTCTGGC-----AAAGACCTGAAAGCC
 
 # Profile name: MIR
 # Profile length: 262
+# Positions masked by tantan: 0
 # Background letter probabilities: 0.293416 0.189391 0.202994 0.314198
 # K: 138.666 120.096 813.317
 
 # Profile name: U7
 # Profile length: 63
+# Positions masked by tantan: 0
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
 # K: 21.8578 23.4395 82.8433
 
@@ -375,11 +381,13 @@ s hg38_dna 62 60 + 500 AGTGTTACAGCACTTTTAGAATTTGTCTAGCAGGCTTTCAGGTCTTT-GCCAGAAAG
 
 # Profile name: MIR
 # Profile length: 262
+# Positions masked by tantan: 0
 # Background letter probabilities: 0.293416 0.189391 0.202994 0.314198
 # K: 742.127
 
 # Profile name: U7
 # Profile length: 63
+# Positions masked by tantan: 0
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
 # K: 92.9441
 
@@ -450,11 +458,13 @@ s hg38.chr15:90050000-90080000 29292 138 - 30000 TCAGGGCATGGGCCGCAGGGTCAGACTGC--
 
 # Profile name: MIR
 # Profile length: 262
+# Positions masked by tantan: 0
 # Background letter probabilities: 0.293416 0.189391 0.202994 0.314198
 # K: 742.127
 
 # Profile name: U7
 # Profile length: 63
+# Positions masked by tantan: 0
 # Background letter probabilities: 0.244709 0.21631 0.188078 0.350904
 # K: 92.9442
 
@@ -525,6 +535,7 @@ s hg38.chr15:90050000-90080000 29139 133 + 30000 GCTGGGTGACCTTTGGCAAGTTGATTCACCT
 
 # Profile name: MIR1_Amn
 # Profile length: 230
+# Positions masked by tantan: 0
 # Background letter probabilities: 0.282748 0.187722 0.235083 0.294447
 # K: 759.093
 
@@ -543,6 +554,7 @@ s NC_000022.11 411 85 - 1000 TTCTCAACTTGACTCAGACTCCAGCAT-GTACCTGTGAGATTTTGGTGAAG
 
 # Profile name: MIR1_Amn
 # Profile length: 230
+# Positions masked by tantan: 0
 # Background letter probabilities: 0.265273 0.192743 0.243215 0.298768
 # K: 739.882
 
@@ -561,6 +573,7 @@ s NC_000022.11 411 85 - 1000 TTCTCAACTTGACTCAGACTCCAGCAT-GTACCTGTGAGATTTTGGTGAAG
 
 # Profile name: MIR1_Amn
 # Profile length: 230
+# Positions masked by tantan: 0
 # Background letter probabilities: 0.307988 0.166939 0.192064 0.333009
 # K: 656.168
 
@@ -579,6 +592,7 @@ s NC_000022.11 412 84 - 1000 TCTCAACTTGACTCAGACTCCAGCAT-GTACCTGTGAGATTTTGGTGAAGT
 
 # Profile name: MtmB
 # Profile length: 450
+# Positions masked by tantan: 17
 # Background letter probabilities: 0.0998618 0.0146 0.0466323 0.069729 0.0291442 0.0494783 0.0247964 0.0574002 0.066759 0.0794443 0.0297377 0.0478549 0.0280874 0.0475706 0.0481388 0.0786516 0.0726892 0.0759028 0.00695639 0.026565
 # K: 1350.23
 

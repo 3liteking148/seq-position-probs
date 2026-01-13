@@ -1408,6 +1408,12 @@ Options for background letter probabilities:\n\
     std::cout << "\n";
     std::cout << "# Profile name: " << &charVec[p.nameIdx] << "\n";
     std::cout << "# Profile length: " << p.length << "\n";
+    if (maskOpt & 1) {
+      int maskCount = 0;
+      const char *consensus = &charVec[p.consensusSequenceIdx];
+      for (int i = 0; i < p.length; ++i) maskCount += (consensus[i] > 31);
+      std::cout << "# Positions masked by tantan: " << maskCount << "\n";
+    }
     const Float *bgProbs = p.values + p.width * p.length + 4;
     std::cout << "# Background letter probabilities:";
     for (int j = 0; j < p.width - nonLetterWidth; ++j)
