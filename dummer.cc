@@ -223,18 +223,25 @@ void addAlignedProfile(std::vector<char> &gappedSeq,
   }
 }
 
+char seqLetter(const char *alphabet, const char *sequence,
+	       const char *maskedSequence, int position) {
+  char c = sequence[position];
+  return alphabet[c] + (maskedSequence[position] > c) * 32;  // upper/lowercase
+}
+
 void addAlignedSequence(std::vector<char> &gappedSeq,
 			const std::vector<SegmentPair> &alignment,
-			const char *alphabet, const char *sequence) {
+			const char *alphabet, const char *sequence,
+			const char *maskedSequence) {
   int pos1 = alignment[0].start1;
   int pos2 = alignment[0].start2;
   for (auto a : alignment) {
     gappedSeq.insert(gappedSeq.end(), a.start1 - pos1, '-');
     for (; pos2 < a.start2; ++pos2) {
-      gappedSeq.push_back(alphabet[sequence[pos2]]);
+      gappedSeq.push_back(seqLetter(alphabet, sequence, maskedSequence, pos2));
     }
     for (; pos2 < a.start2 + a.length; ++pos2) {
-      gappedSeq.push_back(alphabet[sequence[pos2]]);
+      gappedSeq.push_back(seqLetter(alphabet, sequence, maskedSequence, pos2));
     }
     pos1 = a.start1 + a.length;
   }
@@ -794,16 +801,18 @@ int contigToSequencePos(Contig contig, size_t strandNum, int posInContig) {
 }
 
 void findFinalSimilarities(std::vector<FinalSimilarity> &similarities,
-			   Profile profile, const char *charVec, size_t seqIdx,
+			   Profile profile, const char *charVec,
+			   size_t seqIdx, size_t maskedSeqIdx,
 			   Contig contig, Float *scratch,
 			   size_t profileNum, size_t strandNum,
 			   Float minProbRatio) {
   const char *alphabet = getAlphabet(profile.width - nonLetterWidth);
   const char *profileSeq = charVec + profile.consensusSequenceIdx;
   const char *sequence = charVec + seqIdx;
+  const char *maskedSequence = charVec + maskedSeqIdx;
 
   std::vector<AlignedSimilarity> sims;
-  findSimilarities(sims, profile, sequence, contig.length, scratch,
+  findSimilarities(sims, profile, maskedSequence, contig.length, scratch,
 		   minProbRatio);
 
   for (const auto &x : sims) {
@@ -814,7 +823,8 @@ void findFinalSimilarities(std::vector<FinalSimilarity> &similarities,
       s.start1 = x.alignment[0].start1;
       s.start2 = contigToSequencePos(contig, strandNum, x.alignment[0].start2);
       addAlignedProfile(s.alignedSequences, x.alignment, alphabet, profileSeq);
-      addAlignedSequence(s.alignedSequences, x.alignment, alphabet, sequence);
+      addAlignedSequence(s.alignedSequences, x.alignment, alphabet,
+			 sequence, maskedSequence);
     }
     similarities.push_back(s);
   }
@@ -1090,15 +1100,18 @@ int finalizeProfile(Profile p, char *consensusSequence,
     if (epsilon >= 1) return 0;
     probs[2] = delta * (1 - epsilon1);
     probs[3] = epsilon * (1 - epsilon1) / (1 - epsilon);
+    Float minVal = c;
     for (int k = 4; k < 4 + alphabetSize; ++k) {
       if (tantanProbs[i] >= 0.5) probs[k] = end[k];
       double p = probs[k];
       probs[k] = c * (p / end[k]);
+      minVal = std::min(minVal, probs[k]);
     }
     if (alphabetSize == 20) {
       probs[4 + 20] = probs[4 + 1];  // selenocysteine = cysteine
       probs[4 + 21] = probs[4 + 8];  // pyrrolysine = lysine
     }
+    probs[4 + alphabetSize + 2] = minVal;  // for masked sequence letters
     if (tantanProbs[i] >= 0.5) consensusSequence[i] |= 32;
   }
 
@@ -1214,6 +1227,16 @@ Float *resizeMem(Float *v, size_t &size,
     if (!v) std::cerr << "failed to allocate memory for " << s << " numbers\n";
   }
   return v;
+}
+
+void makeMaskedSequence(char *sequence, int length, int alphabetSize) {
+  std::vector<float> tantanProbs(length);
+  calcTantanProbabilities((const unsigned char *)sequence, length,
+			  alphabetSize > 4, tantanProbs.data());
+  int mask = alphabetSize + 2;
+  for (int i = 0; i < length; ++i) {
+    sequence[length + i] = (tantanProbs[i] < 0.5) ? sequence[i] : mask;
+  }
 }
 
 int main(int argc, char* argv[]) {
@@ -1430,9 +1453,10 @@ Options for background letter probabilities:\n\
       continue;
     }
     seqIdx = charVec.size() - contig.length;
+    size_t maskedSeqIdx = (maskOpt & 2) ? charVec.size() : seqIdx;
     // The algorithms need one arbitrary letter past the end
     // Then round up to a multiple of the SIMD length
-    charVec.resize(seqIdx + simdRoundUp(contig.length + 1));
+    charVec.resize(maskedSeqIdx + simdRoundUp(contig.length + 1));
     scratch = resizeMem(scratch, scratchSize, maxProfileLength, contig.length);
     if (!scratch) return 1;
     totSequenceLength += contig.length;
@@ -1440,6 +1464,7 @@ Options for background letter probabilities:\n\
     char *seq = &charVec[seqIdx];
     for (int s = 0; s < 2; ++s) {
       if (s != strandOpt) {
+	if (maskOpt & 2) makeMaskedSequence(seq, contig.length, alphabetSize);
 	size_t strandNum = sequences.size() * 2 + s;
 	for (size_t j = 0; j < numOfProfiles; ++j) {
 	  Profile p = profiles[j];
@@ -1447,7 +1472,8 @@ Options for background letter probabilities:\n\
 	    p.gumbelKmidAnchored * totSequenceLength / evalueOpt * scale : -1;
 	  if (verbosity > 1)
 	    std::cerr << "Profile: " << &charVec[p.nameIdx] << "\n";
-	  findFinalSimilarities(similarities, p, charVec.data(), seqIdx,
+	  findFinalSimilarities(similarities, p, charVec.data(),
+				seqIdx, maskedSeqIdx,
 				contig, scratch, j, strandNum, minProbRatio);
 	}
       }
