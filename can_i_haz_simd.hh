@@ -70,7 +70,7 @@ SimdDbl simdLookup(const double *v, const char *i) {
 
 SimdFlt simdLookup(SimdFlt v, const char *i) {
   const __m128i *j = (const __m128i *)i;
-  return _mm512_permutevar_ps(v, _mm512_cvtepi8_epi32(_mm_loadu_si128(j)));
+  return _mm512_permutexvar_ps(_mm512_cvtepi8_epi32(_mm_loadu_si128(j)), v);
 }
 SimdDbl simdLookup(SimdDbl v, const char *i) {
   return _mm512_permutexvar_pd(_mm512_cvtepi8_epi64(_mm_loadu_si64(i)), v);
@@ -217,7 +217,7 @@ SimdDbl simdLookup(const double *v, const char *i) {
 }
 
 SimdFlt simdLookup(SimdFlt v, const char *i) {
-  return _mm256_permutevar_ps(v, _mm256_cvtepi8_epi32(_mm_loadu_si64(i)));
+  return _mm256_permutevar8x32_ps(v, _mm256_cvtepi8_epi32(_mm_loadu_si64(i)));
 }
 SimdDbl simdLookup(SimdDbl v, const char *i) { return v; }  // not implemented
 SimdFlt simdLookup(SimdFlt a, SimdFlt b, const char *i) { return a; }

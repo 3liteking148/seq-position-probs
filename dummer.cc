@@ -50,12 +50,6 @@ Float simdHorizontalMax(SimdFloat x) {  // assuming it doesn't need to be fast
   return *std::max_element(y, y + simdLen);
 }
 
-SimdFloat simdLookupTable(const Float *table) {  // assume 4 items in the table
-  Float s[simdLen];
-  for (int i = 0; i < simdLen; ++i) s[i] = table[i % 4];
-  return simdLoad(s);
-}
-
 SimdFloat simdPowersFwd(Float x) {
   Float a[simdLen];
   a[0] = x;
@@ -589,12 +583,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     const Float *Wfrom = (i < profile.length) ? W + rowSize + 1 : Y;
     const Float *params = profile.values + i * profile.width;
     const Float *S = params + 4;
-    if (lookupType == 1) {
-      S1 = simdLookupTable(S);
-    } else if (lookupType == 2) {
-      S1 = simdLoad(S);
-      S2 = simdLoad(S + simdLen);
-    }
+    if (lookupType > 0) S1 = simdLoad(S);
+    if (lookupType > 1) S2 = simdLoad(S + simdLen);
     SimdFloat a = simdFill(params[0]);  // insert open
     SimdFloat d = simdFill(params[2]);  // delete open
     SimdFloat e = simdFill(params[3]);  // delete extend
@@ -674,12 +664,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     const Float *Wbackward = X;  // the forward Xs overwrite the backward Ws
     const Float *params = profile.values + i * profile.width;
     const Float *S = params + 4;
-    if (lookupType == 1) {
-      S1 = simdLookupTable(S);
-    } else if (lookupType == 2) {
-      S1 = simdLoad(S);
-      S2 = simdLoad(S + simdLen);
-    }
+    if (lookupType > 0) S1 = simdLoad(S);
+    if (lookupType > 1) S2 = simdLoad(S + simdLen);
     SimdFloat a = simdFill(params[0]);  // insert open
     SimdFloat d = simdFill(params[2]);  // delete open
     SimdFloat e = simdFill(params[3]);  // delete extend
