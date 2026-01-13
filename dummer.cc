@@ -6,6 +6,7 @@
 // insertions, and deletions", MC Frith 2025
 
 #include "dummer-util.hh"
+#include "tantan-wrapper.hh"
 #include "can_i_haz_simd.hh"
 
 #include <algorithm>
@@ -15,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include <assert.h>
 #include <ctype.h>
 #include <float.h>
 #include <limits.h>
@@ -26,6 +28,7 @@
 
 #define OPT_e 10.0
 #define OPT_s 2
+#define OPT_m 3
 #define OPT_t 1000
 #define OPT_l 500
 #define OPT_b 100
@@ -199,6 +202,10 @@ std::istream &readContig(std::istream &in, Sequence &sequence, Contig &contig,
   return in;
 }
 
+char profileLetter(const char *alphabet, char letterCode) {
+  return alphabet[letterCode & 31] + (letterCode & 32);  // upper/lowercase
+}
+
 void addAlignedProfile(std::vector<char> &gappedSeq,
 		       const std::vector<SegmentPair> &alignment,
 		       const char *alphabet, const char *consensusSequence) {
@@ -206,11 +213,11 @@ void addAlignedProfile(std::vector<char> &gappedSeq,
   int pos2 = alignment[0].start2;
   for (auto a : alignment) {
     for (; pos1 < a.start1; ++pos1) {
-      gappedSeq.push_back(alphabet[consensusSequence[pos1]]);
+      gappedSeq.push_back(profileLetter(alphabet, consensusSequence[pos1]));
     }
     gappedSeq.insert(gappedSeq.end(), a.start2 - pos2, '-');
     for (; pos1 < a.start1 + a.length; ++pos1) {
-      gappedSeq.push_back(alphabet[consensusSequence[pos1]]);
+      gappedSeq.push_back(profileLetter(alphabet, consensusSequence[pos1]));
     }
     pos2 = a.start2 + a.length;
   }
@@ -1021,37 +1028,48 @@ double probFromText(const char *text) {
 }
 
 double myMean(const Float *values, int length, int step, int meanType,
-	      Float *valuesForMedian) {
+	      Float *valuesForMedian, const float *tantanProbs) {
   double mean = 0;
+  int n = 0;
   for (int i = 0; i < length; ++i) {
+    if (tantanProbs[i] >= 0.5) continue;
     double v = values[i * step];
     // Geometric mean is bad for zero (or very low) probabilities
     // All letter probs in Dfam-curated_only 3.9 and Pfam-A 38.0 are > 1e-6
     if (meanType == 'G') mean += log(std::max(v, 1e-6));  // geometric mean
     if (meanType == 'A') mean += v;                       // arithmetic mean
-    if (meanType == 'M') valuesForMedian[i] = v;          // median
+    if (meanType == 'M') valuesForMedian[n] = v;          // median
+    ++n;
   }
-  if (meanType == 'G') return exp(mean / length);
-  if (meanType == 'A') return mean / length;
-  std::sort(valuesForMedian, valuesForMedian + length);
-  return valuesForMedian[length / 2];
+  assert(n > 0);
+  if (meanType == 'G') return exp(mean / n);
+  if (meanType == 'A') return mean / n;
+  std::sort(valuesForMedian, valuesForMedian + n);
+  return valuesForMedian[n / 2];
 }
 
-int finalizeProfile(Profile p, int backgroundProbsType) {
+int finalizeProfile(Profile p, char *consensusSequence,
+		    int backgroundProbsType, bool isMask) {
   int alphabetSize = p.width - nonLetterWidth;
+  std::vector<float> tantanProbs(p.length);
   std::vector<Float> valuesForMedian(p.length);
   Float *end = p.values + p.width * p.length;
 
   if (end[3] <= 0) {
     // set the final epsilon to the geometric mean of the other epsilons
     end[3] = myMean(p.values + p.width + 3, p.length - 1, p.width, 'G',
-		    valuesForMedian.data());
+		    valuesForMedian.data(), tantanProbs.data());
+  }
+
+  if (isMask && (alphabetSize == 4 || alphabetSize == 20)) {
+    calcTantanProbabilities((const unsigned char *)consensusSequence, p.length,
+			    alphabetSize > 4, tantanProbs.data());
   }
 
   double sumOfMeans = 0;
   for (int k = 4; k < 4 + alphabetSize; ++k) {
     double mean = myMean(p.values + k, p.length, p.width, backgroundProbsType,
-			 valuesForMedian.data());
+			 valuesForMedian.data(), tantanProbs.data());
     end[k] = mean;
     sumOfMeans += mean;
   }
@@ -1073,6 +1091,7 @@ int finalizeProfile(Profile p, int backgroundProbsType) {
     probs[2] = delta * (1 - epsilon1);
     probs[3] = epsilon * (1 - epsilon1) / (1 - epsilon);
     for (int k = 4; k < 4 + alphabetSize; ++k) {
+      if (tantanProbs[i] >= 0.5) probs[k] = end[k];
       double p = probs[k];
       probs[k] = c * (p / end[k]);
     }
@@ -1080,6 +1099,7 @@ int finalizeProfile(Profile p, int backgroundProbsType) {
       probs[4 + 20] = probs[4 + 1];  // selenocysteine = cysteine
       probs[4 + 21] = probs[4 + 8];  // pyrrolysine = lysine
     }
+    if (tantanProbs[i] >= 0.5) consensusSequence[i] |= 32;
   }
 
   return 1;
@@ -1087,7 +1107,7 @@ int finalizeProfile(Profile p, int backgroundProbsType) {
 
 int readProfiles(std::istream &in, std::vector<Profile> &profiles,
 		 std::vector<Float> &values, std::vector<char> &charVec,
-		 int backgroundProbsType) {
+		 int backgroundProbsType, bool isMask) {
   Profile profile = {0};
   int state = 0;
   std::string line, word;
@@ -1163,7 +1183,8 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
   Float *v = &values[0];
   for (auto &p : profiles) {
     p.values = v;
-    if (!finalizeProfile(p, backgroundProbsType)) return 0;
+    char *consensus = &charVec[p.consensusSequenceIdx];
+    if (!finalizeProfile(p, consensus, backgroundProbsType, isMask)) return 0;
     v += p.width * (p.length + 1);
   }
 
@@ -1198,6 +1219,7 @@ Float *resizeMem(Float *v, size_t &size,
 int main(int argc, char* argv[]) {
   double evalueOpt = OPT_e;
   int strandOpt = OPT_s;
+  int maskOpt = OPT_m;
   int randomSeqNum = OPT_t;
   int randomSeqLen = OPT_l;
   int border = OPT_b;
@@ -1217,6 +1239,9 @@ Options:\n\
     STR(OPT_e) ")\n\
   -s S, --strand S  DNA strand: 0=reverse, 1=forward, 2=both (default: "
     STR(OPT_s) ")\n\
+  -m M, --mask M    mask simple regions of:\n\
+                    0=neither, 1=profile, 2=sequence, 3=both (default: "
+    STR(OPT_m) ")\n\
 \n\
 Options for random sequences:\n\
   -t T, --trials T  generate this many random sequences (default: "
@@ -1232,7 +1257,7 @@ Options for background letter probabilities:\n\
   --bmedian         median of position-specific probabilities\n\
 ";
 
-  const char sOpts[] = "hVve:s:t:l:b:";
+  const char sOpts[] = "hVve:s:m:t:l:b:";
 
   static struct option lOpts[] = {
     {"help",    no_argument,       0, 'h'},
@@ -1240,6 +1265,7 @@ Options for background letter probabilities:\n\
     {"verbose", no_argument,       0, 'v'},
     {"evalue",  required_argument, 0, 'e'},
     {"strand",  required_argument, 0, 's'},
+    {"mask",    required_argument, 0, 'm'},
     {"trials",  required_argument, 0, 't'},
     {"length",  required_argument, 0, 'l'},
     {"border",  required_argument, 0, 'b'},
@@ -1270,6 +1296,10 @@ Options for background letter probabilities:\n\
     case 's':
       strandOpt = intFromText(optarg);
       if (strandOpt < 0 || strandOpt > 2) return badOpt();
+      break;
+    case 'm':
+      maskOpt = intFromText(optarg);
+      if (maskOpt < 0 || maskOpt > 3) return badOpt();
       break;
     case 't':
       randomSeqNum = intFromText(optarg);
@@ -1317,7 +1347,7 @@ Options for background letter probabilities:\n\
     std::istream &in = openFile(file, argv[optind]);
     if (!file) return 1;
     if (!readProfiles(in, profiles, profileValues, charVec,
-		      backgroundProbsType)) {
+		      backgroundProbsType, maskOpt & 1)) {
       return err("can't read the profile data");
     }
   }
