@@ -47,9 +47,6 @@ too.
 * DUMMER uses no heuristic shortcuts: so it's "as sensitive as
   possible", but slow and memory-consuming.
 
-* DUMMER doesn't avoid similarities of unrelated simple sequences,
-  like atatatatatatatat, which evolve frequently and independently.
-
 * It can fail due to overflow (numbers getting too big).  This only
   happens when there are very strong similarities.
 
@@ -76,8 +73,8 @@ or protein profiles from [Pfam][].  Run it like this:
 The output shows similar regions in [MAF][] format:
 
     a score=44.6 E=8.15e-05 anchor=227,9133
-    s myProfile   195 61 +   262 atacatgtaaagcgcttagaacagtgcctggcacatagtaagcgctcaataaatgttagct
-    s mySequence 9102 60 + 10000 ctacaccttcaggacttagg-ctgtgcctggcacatagtaggtgctcagtagacactggtt
+    s myProfile   195 61 +   262 ATACATGTAAAGCGCTTAGAACAGTGCCTGGCAcacacacacaGCTCAATAAATGTTAGCT
+    s mySequence 9102 60 + 10000 CTACACCTTCAGGACTTAGG-CTGTGCCTGGCACATACTAGTAGCTCAGTAGACACTGGTT
 
 * The `score` reflects the likelihood that these regions are related
   rather than random.
@@ -100,6 +97,11 @@ are &le; a threshold and are local optima.
 The `s` lines show a representative alignment.  This aligns letters
 whose probability of being aligned is > 0.5, among all possible
 alignments with that anchor.
+
+Lowercase indicates positions judged (by [tantan][]) to be simple
+repeats, like atatatatatatatat.  Such sequences evolve frequently and
+independently, resulting in similarities between unrelated sequences.
+So, DUMMER ignores similarity at these positions.
 
 ## Fast, low-memory version
 
@@ -125,12 +127,19 @@ Get similarities with *E*-value at most (say) 0.01:
 
     dummer -e0.01 profiles.hmm sequences.fasta
 
+Turn off simple-sequence detection:
+
+    dummer -m0 profiles.hmm sequences.fasta
+
+`-m0` means find simple regions in neither profile nor sequence, `-m1`
+means find them in profiles only, `-m2` means sequences only, and
+`-m3` means both (the default).
+
 ## Unusual symbols in sequences
 
-Capital/lowercase letters are treated the same.  For nucleotide
-sequences, `U` (uracil) is converted to `T` (thymine).  For proteins,
-`U` (selenocysteine) is treated the same as `C` (cysteine), and `O`
-(pyrrolysine) the same as `K` (lysine).
+For nucleotide sequences, `U` (uracil) is converted to `T` (thymine).
+For proteins, `U` (selenocysteine) is treated the same as `C`
+(cysteine), and `O` (pyrrolysine) the same as `K` (lysine).
 
 `dummer` treats other unusual symbols as barriers that break the
 sequence into contigs (contiguous sequence).
@@ -147,9 +156,9 @@ of score for all possible anchors, and shows the maximum.
 
 ### Random sequences
 
-To calculate *E*-values, it needs to estimate a *K* parameter for each
-profile.  To do that, it compares the profile to random sequences.  To
-see details of this, give it a profile file only:
+To calculate *E*-values, DUMMER needs to estimate a *K* parameter for
+each profile.  To do that, it compares the profile to random
+sequences.  To see details of this, give it a profile file only:
 
     dummer profiles.hmm
 
@@ -190,7 +199,14 @@ These options affect the random sequences:
 
 * A profile's background letter frequencies are set to the geometric
   mean of its position-specific letter probabilities ([Barrett et
-  al. 1997](https://doi.org/10.1093/bioinformatics/13.2.191)).
+  al. 1997](https://doi.org/10.1093/bioinformatics/13.2.191)),
+  ignoring lowercase postions.
+
+* The letter probabilities of lowercase profile positions are set
+  equal to the background probabilities.
+
+* A lowercase sequence letter matched to any profile position is
+  treated as the worst-matching letter type at that position.
 
 * An *E*-value is: *KN* / 2^score, where *N* is the sum of sequence
   lengths.
@@ -237,3 +253,4 @@ You can omit this step:
 [HMMER's theory]: https://doi.org/10.1371/journal.pcbi.1000069
 [MAF]: https://genome.ucsc.edu/FAQ/FAQformat.html#format5
 [Stockholm]: https://en.wikipedia.org/wiki/Stockholm_format
+[tantan]: https://gitlab.com/mcfrith/tantan
