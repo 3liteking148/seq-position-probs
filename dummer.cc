@@ -1394,9 +1394,15 @@ Options for background letter probabilities:\n\
 #include "version.hh"
     "\n";
   std::cout << "# Bytes per floating-point number: " << sizeof(Float) << "\n";
+  std::cout << "# Background letter probabilities: "
+	    << (backgroundProbsType == 'A' ? "arithmetic mean" :
+		backgroundProbsType == 'G' ? "geometric mean" : "median")
+	    << " of foreground probabilities\n";
   std::cout << "# Random sequences: trials=" << randomSeqNum
 	    << " length=" << randomSeqLen << " border=" << border << "\n";
+  if (maskOpt & 1) std::cout << "# Masking simple regions in profiles\n";
   if (argc - optind > 1) {
+    if (maskOpt & 2) std::cout << "# Masking simple regions in sequences\n";
     if (evalueOpt > 0) std::cout << "# E-value <= " << evalueOpt << "\n";
     if (strandOpt < 2)
       std::cout << "# Strand: " << (strandOpt ? "forward" : "reverse") << "\n";

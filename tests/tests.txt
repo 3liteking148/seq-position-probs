@@ -1,5 +1,7 @@
 # Bytes per floating-point number: 8
+# Background letter probabilities: geometric mean of foreground probabilities
 # Random sequences: trials=10 length=200 border=0
+# Masking simple regions in profiles
 
 # Profile name: MIR
 # Profile length: 262
@@ -53,6 +55,7 @@
 #lamLM	1.3484	1.37386	1.32296
 #kLM	587.808	736.159	1966.74
 # Bytes per floating-point number: 8
+# Background letter probabilities: geometric mean of foreground probabilities
 # Random sequences: trials=50 length=500 border=0
 # Strand: forward
 
@@ -120,7 +123,9 @@ s U7        1 61 +  63 AGTGTTACAGCTCTTTTAGAATTTGTCTAGCAGGTTTTCTGGTTTTTCACTGGAAAG
 s hg38_dna 62 60 + 500 AGTGTTACAGCACTTTTAGAATTTGTCTAGCAGGCTTTCAGGTCTTT-GCCAGAAAGCCCC
 
 # Bytes per floating-point number: 8
+# Background letter probabilities: geometric mean of foreground probabilities
 # Random sequences: trials=50 length=500 border=0
+# Masking simple regions in profiles
 
 # Profile name: MIR
 # Profile length: 262
@@ -240,7 +245,9 @@ s U7        33 27 +  63 GGTTTTCTGGTTTTTC----ACTGGAAAGCC
 s hg38_dna 380 26 - 500 GGCTTTCTGGC-----AAAGACCTGAAAGCC
 
 # Bytes per floating-point number: 8
+# Background letter probabilities: geometric mean of foreground probabilities
 # Random sequences: trials=50 length=500 border=0
+# Masking simple regions in profiles
 # Strand: reverse
 
 # Profile name: MIR
@@ -309,6 +316,7 @@ s U7        33 27 +  63 GGTTTTCTGGTTTTTC----ACTGGAAAGCC
 s hg38_dna 380 26 - 500 GGCTTTCTGGC-----AAAGACCTGAAAGCC
 
 # Bytes per floating-point number: 8
+# Background letter probabilities: geometric mean of foreground probabilities
 # Random sequences: trials=50 length=500 border=0
 # Strand: forward
 
@@ -376,7 +384,10 @@ s U7        1 61 +  63 AGTGTTACAGCTCTTTTAGAATTTGTCTAGCAGGTTTTCTGGTTTTTCACTGGAAAG
 s hg38_dna 62 60 + 500 AGTGTTACAGCACTTTTAGAATTTGTCTAGCAGGCTTTCAGGTCTTT-GCCAGAAAGCCCC
 
 # Bytes per floating-point number: 8
+# Background letter probabilities: geometric mean of foreground probabilities
 # Random sequences: trials=100 length=400 border=100
+# Masking simple regions in profiles
+# Masking simple regions in sequences
 # E-value <= 0.001
 
 # Profile name: MIR
@@ -453,7 +464,10 @@ s MIR                             18 175 +   262 TAAGAGCATGGACTCTGGAGCCAGACTGCCT
 s hg38.chr15:90050000-90080000 29292 138 - 30000 TCAGGGCATGGGCCGCAGGGTCAGACTGC-----------AGTCTGGCCCCACCACTCAC----------ACCTTGG-------------TCTGTGTGTGCCTCAGTCTCCTCATCTGTGGCATGAG----ATAATGGTTCTCACTTCCTGGAGTTGTTAGGGGGTTTAACTGAGC
 
 # Bytes per floating-point number: 4
+# Background letter probabilities: geometric mean of foreground probabilities
 # Random sequences: trials=100 length=400 border=100
+# Masking simple regions in profiles
+# Masking simple regions in sequences
 # E-value <= 0.01
 
 # Profile name: MIR
@@ -530,7 +544,10 @@ s MIR                             79 172 +   262 GCTGTGTGACCTTGGGCAAGTTACTTAACCT
 s hg38.chr15:90050000-90080000 29139 133 + 30000 GCTGGGTGACCTTTGGCAAGTTGATTCACCTCTCTAAACCTCAGCCTTCTGAGCTGCTAAATGGG--------------------------GCTGTTGTGATTGCTGGATGAGGCGAGGCCTGCGAA------------GTGGCTGGCATGCAGCAGGTGCT-AATGAGTGC
 
 # Bytes per floating-point number: 8
+# Background letter probabilities: geometric mean of foreground probabilities
 # Random sequences: trials=100 length=200 border=100
+# Masking simple regions in profiles
+# Masking simple regions in sequences
 # E-value <= 0.01
 
 # Profile name: MIR1_Amn
@@ -549,7 +566,10 @@ s MIR1_Amn      58 80 +  230 TTCTATTCCTAGCTCTGCCACTGACTTG----CTGTGTGACCTTGGGCAAG
 s NC_000022.11 411 85 - 1000 TTCTCAACTTGACTCAGACTCCAGCAT-GTACCTGTGAGATTTTGGTGAAGTTC------TGTTGCAGAGTTTTGAGCCTCAGTTTTTTCAT
 
 # Bytes per floating-point number: 8
+# Background letter probabilities: arithmetic mean of foreground probabilities
 # Random sequences: trials=100 length=200 border=100
+# Masking simple regions in profiles
+# Masking simple regions in sequences
 # E-value <= 0.01
 
 # Profile name: MIR1_Amn
@@ -568,7 +588,10 @@ s MIR1_Amn      58 80 +  230 TTCTATTCCTAGCTCTGCCACTGACTTG----CTGTGTGACCTTGGGCAAG
 s NC_000022.11 411 85 - 1000 TTCTCAACTTGACTCAGACTCCAGCAT-GTACCTGTGAGATTTTGGTGAAGTTC------TGTTGCAGAGTTTTGAGCCTCAGTTTTTTCAT
 
 # Bytes per floating-point number: 8
+# Background letter probabilities: median of foreground probabilities
 # Random sequences: trials=100 length=200 border=100
+# Masking simple regions in profiles
+# Masking simple regions in sequences
 # E-value <= 0.01
 
 # Profile name: MIR1_Amn
@@ -587,7 +610,10 @@ s MIR1_Amn      59 79 +  230 TCTATTCCTAGCTCTGCCACTGACTTG----CTGTGTGACCTTGGGCAAGT
 s NC_000022.11 412 84 - 1000 TCTCAACTTGACTCAGACTCCAGCAT-GTACCTGTGAGATTTTGGTGAAGTTC----TGTTGCAGAGTTTTGAGCCTCAGTTTTTTCAT
 
 # Bytes per floating-point number: 8
+# Background letter probabilities: geometric mean of foreground probabilities
 # Random sequences: trials=1000 length=500 border=100
+# Masking simple regions in profiles
+# Masking simple regions in sequences
 # E-value <= 10
 
 # Profile name: MtmB
