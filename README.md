@@ -144,6 +144,40 @@ For proteins, `U` (selenocysteine) is treated the same as `C`
 `dummer` treats other unusual symbols as barriers that break the
 sequence into contigs (contiguous sequence).
 
+## Low-cut/high-pass filtering (experimental)
+
+Sometimes, a profile has a region with generally high probability of
+(for example) letter "A".  Such regions may spuriously match A-rich
+parts of a sequence.
+
+Option `-d` suppresses slowly-varying (low frequency) components of
+the position-specific letter probabilities.  For example, `-d8`
+smooths the signal by a Gaussian distribution with a standard
+deviation of 8 positions, then subtracts the smoothed signal from the
+original signal.
+
+Option `-D` is the same, except it keeps the non-varying (zero
+frequency) component.  So, if the whole profile is (for example)
+A-rich, this tendency is kept.  This doesn't cause spurious
+similarities, because DUMMER uses matching "background" letter
+probabilities.
+
+These options also turn off simple-sequence detection in the profile.
+
+This approach doesn't avoid spurious similarities of tandem repeats
+like acgtacgtacgtacgtacgt.
+
+**Details**
+
+If the probability of letter y at position i is P(i,y), the filter is
+applied (separately for each y) to:
+
+    log[P(i,y)]  -  AVG(over z){ log[P(i,z)] }
+
+The profile is treated as circular (wrapping around at the edges),
+which is rarely appropriate, but ensures no change in the smoothed
+signal's average value.
+
 ## Rarely useful features
 
 ### Strongest similarities

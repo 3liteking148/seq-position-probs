@@ -18,6 +18,8 @@ PATH=../bin:$PATH
     dummer -t100 -l200 -e0.01 --barithmetic DF000001253.hmm chr22problem.fa
     dummer -t100 -l200 -e0.01 --bmedian DF000001253.hmm chr22problem.fa
     dummer PF05369.hmm mtmb1.fa
+    dummer -d8 -e0.001 -t100 -l400 dfam-test.hmm hg38-chr15-part.fa
+    dummer -D6 PF05369.hmm mtmb1.fa
 
     cat hakoLTR.stk Notch.stk | dummer-build --countonly -
     dummer-build --countonly --symfrac=0.15 Notch.stk

@@ -1037,6 +1037,19 @@ double probFromText(const char *text) {
   return exp(-d);
 }
 
+void normalize(Float *x, int n) {
+  double sum = 0;
+  for (int i = 0; i < n; ++i) sum += x[i];
+  assert(sum > 0);
+  for (int i = 0; i < n; ++i) x[i] /= sum;
+}
+
+double meanOfLogs(const Float *x, int n) {
+  double m = 1;
+  for (int i = 0; i < n; ++i) m *= x[i];
+  return log(m) / n;
+}
+
 double myMean(const Float *values, int length, int step, int meanType,
 	      Float *valuesForMedian, const float *tantanProbs) {
   double mean = 0;
@@ -1058,8 +1071,49 @@ double myMean(const Float *values, int length, int step, int meanType,
   return valuesForMedian[n / 2];
 }
 
+void filterLetterProbabilities(Float *letterProbs, int length, int step,
+			       double stdDev, bool keepNonvaryingTerm) {
+  const double sqrt2pi = 2.5066282746310005;
+  const double inv2var = 0.5 / (stdDev * stdDev);
+  const int gaussianLimit = ceil(stdDev * 8);  // truncate Gaussian tails
+  const int alphabetSize = step - nonLetterWidth;
+  std::vector<double> meanLogProbs(length);
+  std::vector<double> values(length);
+
+  for (int i = 0; i < length; ++i) {
+    meanLogProbs[i] = meanOfLogs(letterProbs + i * step, alphabetSize);
+  }  // at each position in the profile, calculate: mean(log(letter prob))
+
+  for (int k = 0; k < alphabetSize; ++k) {
+    for (int i = 0; i < length; ++i) {
+      double prob = letterProbs[i * step + k];
+      values[i] = log(prob) - meanLogProbs[i];  // apply filter to this
+    }
+
+    double addItBack = keepNonvaryingTerm ? mean(values.data(), length) : 0.0;
+    for (int i = 0; i < length; ++i) {
+      double sum = 0;
+      for (int j = -gaussianLimit; j <= gaussianLimit; ++j) {
+	// xxx this treats the profile as circular (wrapping around at
+	// the edges), which is rarely appropriate, but ensures no
+	// change in average value:
+	int x = (i + j) % length;
+	if (x < 0) x += length;
+	sum += values[x] * exp(-1.0 * j * j * inv2var);
+      }
+      sum /= stdDev * sqrt2pi;
+      letterProbs[i * step + k] = exp(values[i] - sum + addItBack);
+    }
+  }
+
+  for (int i = 0; i < length; ++i) {
+    normalize(letterProbs + i * step, alphabetSize);
+  }
+}
+
 int finalizeProfile(Profile p, char *consensusSequence,
-		    int backgroundProbsType, bool isMask) {
+		    int backgroundProbsType, bool isMask,
+		    double filterStdDev, bool keepNonvaryingTerm) {
   int alphabetSize = p.width - nonLetterWidth;
   std::vector<float> tantanProbs(p.length);
   std::vector<Float> valuesForMedian(p.length);
@@ -1071,7 +1125,10 @@ int finalizeProfile(Profile p, char *consensusSequence,
 		    valuesForMedian.data(), tantanProbs.data());
   }
 
-  if (isMask && (alphabetSize == 4 || alphabetSize == 20)) {
+  if (filterStdDev > 0) {
+    filterLetterProbabilities(p.values + 4, p.length, p.width,
+			      filterStdDev, keepNonvaryingTerm);
+  } else if (isMask && (alphabetSize == 4 || alphabetSize == 20)) {
     calcTantanProbabilities((const unsigned char *)consensusSequence, p.length,
 			    alphabetSize > 4, tantanProbs.data());
   }
@@ -1120,7 +1177,8 @@ int finalizeProfile(Profile p, char *consensusSequence,
 
 int readProfiles(std::istream &in, std::vector<Profile> &profiles,
 		 std::vector<Float> &values, std::vector<char> &charVec,
-		 int backgroundProbsType, bool isMask) {
+		 int backgroundProbsType, bool isMask,
+		 double filterStdDev, bool keepNonvaryingTerm) {
   Profile profile = {0};
   int state = 0;
   std::string line, word;
@@ -1197,7 +1255,8 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
   for (auto &p : profiles) {
     p.values = v;
     char *consensus = &charVec[p.consensusSequenceIdx];
-    if (!finalizeProfile(p, consensus, backgroundProbsType, isMask)) return 0;
+    if (!finalizeProfile(p, consensus, backgroundProbsType, isMask,
+			 filterStdDev, keepNonvaryingTerm)) return 0;
     v += p.width * (p.length + 1);
   }
 
@@ -1243,6 +1302,8 @@ int main(int argc, char* argv[]) {
   double evalueOpt = OPT_e;
   int strandOpt = OPT_s;
   int maskOpt = OPT_m;
+  double filterStdDev = 0;
+  bool keepNonvaryingTerm = false;
   int randomSeqNum = OPT_t;
   int randomSeqLen = OPT_l;
   int border = OPT_b;
@@ -1266,6 +1327,10 @@ Options:\n\
                     0=neither, 1=profile, 2=sequence, 3=both (default: "
     STR(OPT_m) ")\n\
 \n\
+Options for low-cut/high-pass filter on position-specific letter probabilities:\n\
+  -d D, --dev D     standard deviation for Gaussian filter\n\
+  -D D, --Dev D     same as above, but keep the non-varying component\n\
+\n\
 Options for random sequences:\n\
   -t T, --trials T  generate this many random sequences (default: "
     STR(OPT_t) ")\n\
@@ -1280,7 +1345,7 @@ Options for background letter probabilities:\n\
   --bmedian         median of position-specific probabilities\n\
 ";
 
-  const char sOpts[] = "hVve:s:m:t:l:b:";
+  const char sOpts[] = "hVve:s:m:d:D:t:l:b:";
 
   static struct option lOpts[] = {
     {"help",    no_argument,       0, 'h'},
@@ -1289,6 +1354,8 @@ Options for background letter probabilities:\n\
     {"evalue",  required_argument, 0, 'e'},
     {"strand",  required_argument, 0, 's'},
     {"mask",    required_argument, 0, 'm'},
+    {"dev",     required_argument, 0, 'd'},
+    {"Dev",     required_argument, 0, 'D'},
     {"trials",  required_argument, 0, 't'},
     {"length",  required_argument, 0, 'l'},
     {"border",  required_argument, 0, 'b'},
@@ -1324,6 +1391,16 @@ Options for background letter probabilities:\n\
       maskOpt = intFromText(optarg);
       if (maskOpt < 0 || maskOpt > 3) return badOpt();
       break;
+    case 'd':
+      filterStdDev = strtod(optarg, 0);
+      // too low: discretized Gaussian problems; too high: overflow or slow
+      if (filterStdDev < 2 || filterStdDev > 1000) return badOpt();
+      break;
+    case 'D':
+      filterStdDev = strtod(optarg, 0);
+      if (filterStdDev < 2 || filterStdDev > 1000) return badOpt();
+      keepNonvaryingTerm = true;
+      break;
     case 't':
       randomSeqNum = intFromText(optarg);
       if (randomSeqNum < 1) return badOpt();
@@ -1352,6 +1429,8 @@ Options for background letter probabilities:\n\
     }
   }
 
+  if (filterStdDev > 0) maskOpt &= 2;  // filtering turns off profile-masking
+
   if (argc - optind < 1 || argc - optind > 2) {
     std::cerr << help;
     return 1;
@@ -1370,7 +1449,8 @@ Options for background letter probabilities:\n\
     std::istream &in = openFile(file, argv[optind]);
     if (!file) return 1;
     if (!readProfiles(in, profiles, profileValues, charVec,
-		      backgroundProbsType, maskOpt & 1)) {
+		      backgroundProbsType, maskOpt & 1,
+		      filterStdDev, keepNonvaryingTerm)) {
       return err("can't read the profile data");
     }
   }
@@ -1394,6 +1474,9 @@ Options for background letter probabilities:\n\
 #include "version.hh"
     "\n";
   std::cout << "# Bytes per floating-point number: " << sizeof(Float) << "\n";
+  if (filterStdDev > 0)
+    std::cout << "# Filtering position-specific letter probabilities: std dev "
+	      << filterStdDev << "\n";
   std::cout << "# Background letter probabilities: "
 	    << (backgroundProbsType == 'A' ? "arithmetic mean" :
 		backgroundProbsType == 'G' ? "geometric mean" : "median")
