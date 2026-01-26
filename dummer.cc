@@ -675,7 +675,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         //std::cout << "start " << i << std::endl;
         int actual_i = reverse ? (profile.length - 1 - i) : i; // actual i TODO RENAME
 
-        const Float FRAMESHIFT_MULTIPLIER = 0.02;
+        const Float FRAMESHIFT_MULTIPLIER = 0.01;
         const Float *params = profile.values + (actual_i) * profile.width;
         Float probability_insert = params[0], probability_insert_frameshift1 = params[0] * FRAMESHIFT_MULTIPLIER, probability_insert_frameshift2 = params[0] * FRAMESHIFT_MULTIPLIER;
         Float probability_extend_inserted = params[1], probability_extend_inserted_with_frameshift  = params[1] * FRAMESHIFT_MULTIPLIER;
@@ -724,11 +724,11 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
           if(reverse) {
             if(actual_j + 2 < sequenceLength) {
-              X[i][j] = (1 - probability_insert - probability_insert_frameshift1 - probability_insert_frameshift2 - probability_delete - probability_delete_frameshift1 - probability_delete_frameshift2) * translate_wrapper(sequence_decompressed, actual_j) * w[3];
+              X[i][j] = (1 - probability_insert - probability_insert_frameshift1 - probability_insert_frameshift2 - probability_delete - probability_delete_frameshift1 - probability_delete_frameshift2) * translate_wrapper(sequence_decompressed, actual_j) / (0.99 / 22) * w[3];
             }
           } else {
             if(actual_j - 2 >= 0) {
-              X[i][j] = (1 - probability_insert - probability_insert_frameshift1 - probability_insert_frameshift2 - probability_delete - probability_delete_frameshift1 - probability_delete_frameshift2) * translate_wrapper(sequence_decompressed, actual_j - 2) * w[3];
+              X[i][j] = (1 - probability_insert - probability_insert_frameshift1 - probability_insert_frameshift2 - probability_delete - probability_delete_frameshift1 - probability_delete_frameshift2) * translate_wrapper(sequence_decompressed, actual_j - 2) / (0.99 / 22) * w[3];
             }
           }
 
@@ -1153,12 +1153,12 @@ int finalizeProfile(Profile p, char *consensusSequence,
     probs[2] = delta * (1 - epsilon1);
     probs[3] = epsilon * (1 - epsilon1) / (1 - epsilon);
     Float minVal = c;
-    for (int k = 4; k < 4 + alphabetSize; ++k) {
-      if (tantanProbs[i] >= 0.5) probs[k] = end[k];
-      double p = probs[k];
-      probs[k] = c * (p / end[k]);
-      minVal = std::min(minVal, probs[k]);
-    }
+    // for (int k = 4; k < 4 + alphabetSize; ++k) {
+    //   if (tantanProbs[i] >= 0.5) probs[k] = end[k];
+    //   double p = probs[k];
+    //   probs[k] = c * (p / end[k]);
+    //   minVal = std::min(minVal, probs[k]);
+    // }
     if (alphabetSize == 20) {
       probs[4 + 20] = probs[4 + 1];  // selenocysteine = cysteine
       probs[4 + 21] = probs[4 + 8];  // pyrrolysine = lysine
