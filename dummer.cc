@@ -10,10 +10,12 @@
 #include "can_i_haz_simd.hh"
 
 #include <algorithm>
+#include <array>
 #include <iomanip>
 #include <random>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <assert.h>
@@ -25,10 +27,11 @@
 #include <string.h>
 
 #include <getopt.h>
+#include <queue>
 
 #define OPT_e 10.0
 #define OPT_s 2
-#define OPT_m 3
+#define OPT_m 0 // mask-filter doesnt work well on DNA
 #define OPT_t 1000
 #define OPT_l 500
 #define OPT_b 100
@@ -146,7 +149,8 @@ int numOfDigits(int x) {
 }
 
 const char *getAlphabet(int alphabetSize) {
-  return alphabetSize == 20 ? "ACDEFGHIKLMNPQRSTVWYUO"  // 20 + 2 amino acids
+  assert(alphabetSize == 20 || alphabetSize == 4);
+  return alphabetSize == 20 ? "ACDEFGHIKLMNPQRSTVWYUOXXXXXXXXXXXXXX"  // 20 + 2 amino acids
     :    alphabetSize ==  4 ? "ACGT" : 0;
 }
 
@@ -190,7 +194,9 @@ std::istream &readContig(std::istream &in, Sequence &sequence, Contig &contig,
   }
 
   while (c != std::streambuf::traits_type::eof() && charToNumber[c] < 126) {
-    if (c > ' ') vec.push_back(charToNumber[c]);
+    if (c > ' ') {
+        vec.push_back(charToNumber[c]);
+    }
     c = buf->snextc();
   }
 
@@ -481,21 +487,21 @@ void addMidAnchored(std::vector<AlignedSimilarity> &similarities,
 		    Float wBegAnchored, Float wEndAnchored) {
   Float wMidAnchored = wEndAnchored * wBegAnchored;
   // this local maximum check makes it faster when there are many similarities:
-  if (!maybeLocalMaximum(profile, sequence, sequenceLength, scratch,
-			 anchor1, anchor2, wMidAnchored)) return;
+  // if (!maybeLocalMaximum(profile, sequence, sequenceLength, scratch,
+	// 		 anchor1, anchor2, wMidAnchored)) return;
   AlignedSimilarity s = {wMidAnchored / scale, anchor1, anchor2, wEndAnchored};
-  addForwardAlignment(s.alignment, profile, sequence, sequenceLength,
-		      scratch, anchor1, anchor2, wBegAnchored / 2);
+  // addForwardAlignment(s.alignment, profile, sequence, sequenceLength,
+	// 	      scratch, anchor1, anchor2, wBegAnchored / 2);
   similarities.push_back(s);
 }
 
 void finishMidAnchored(AlignedSimilarity &s,
 		       Profile profile, const char *sequence,
 		       int sequenceLength, const Float *scratch) {
-  reverse(s.alignment.begin(), s.alignment.end());
-  addReverseAlignment(s.alignment, profile, sequence, sequenceLength,
-		      scratch, s.anchor1, s.anchor2, s.wEndAnchored / 2);
-  reverse(s.alignment.begin(), s.alignment.end());
+  // reverse(s.alignment.begin(), s.alignment.end());
+  // addReverseAlignment(s.alignment, profile, sequence, sequenceLength,
+	// 	      scratch, s.anchor1, s.anchor2, s.wEndAnchored / 2);
+  // reverse(s.alignment.begin(), s.alignment.end());
 }
 
 bool isLess(const AlignedSimilarity &a, const AlignedSimilarity &b) {
@@ -552,248 +558,237 @@ int updateInitialSimilarities(InitialSimilarity *sims, int count,
   return j + 1;
 }
 
+void setCharToNumber(char *charToNumber, const char *alphabet) {
+  for (int i = 0; alphabet[i]; ++i) {
+    int c = alphabet[i];
+    charToNumber[toupper(c)] = charToNumber[tolower(c)] = i;
+  }
+}
+
+/*
+    vibe coded!!
+    might not be accurate
+
+    todo: rewrite
+*/
+char translate(const char* dna, int i) {
+    // Codon table (DNA codons → single-letter amino acid)
+    static const std::unordered_map<std::string, char> codonTable = {
+        {"TTT",'F'}, {"TTC",'F'}, {"TTA",'L'}, {"TTG",'L'},
+        {"CTT",'L'}, {"CTC",'L'}, {"CTA",'L'}, {"CTG",'L'},
+        {"ATT",'I'}, {"ATC",'I'}, {"ATA",'I'}, {"ATG",'M'},
+        {"GTT",'V'}, {"GTC",'V'}, {"GTA",'V'}, {"GTG",'V'},
+
+        {"TCT",'S'}, {"TCC",'S'}, {"TCA",'S'}, {"TCG",'S'},
+        {"CCT",'P'}, {"CCC",'P'}, {"CCA",'P'}, {"CCG",'P'},
+        {"ACT",'T'}, {"ACC",'T'}, {"ACA",'T'}, {"ACG",'T'},
+        {"GCT",'A'}, {"GCC",'A'}, {"GCA",'A'}, {"GCG",'A'},
+
+        {"TAT",'Y'}, {"TAC",'Y'}, {"TAA",'*'}, {"TAG",'*'},
+        {"CAT",'H'}, {"CAC",'H'}, {"CAA",'Q'}, {"CAG",'Q'},
+        {"AAT",'N'}, {"AAC",'N'}, {"AAA",'K'}, {"AAG",'K'},
+        {"GAT",'D'}, {"GAC",'D'}, {"GAA",'E'}, {"GAG",'E'},
+
+        {"TGT",'C'}, {"TGC",'C'}, {"TGA",'*'}, {"TGG",'W'},
+        {"CGT",'R'}, {"CGC",'R'}, {"CGA",'R'}, {"CGG",'R'},
+        {"AGT",'S'}, {"AGC",'S'}, {"AGA",'R'}, {"AGG",'R'},
+        {"GGT",'G'}, {"GGC",'G'}, {"GGA",'G'}, {"GGG",'G'}
+    };
+
+    // Make sure we can read 3 characters
+    if (!dna || dna[i] == '\0' || dna[i+1] == '\0' || dna[i+2] == '\0') {
+      std::cout << "error reading " << std::endl;
+      return '?';
+    }
+
+    std::string codon;
+    codon += dna[i];
+    codon += dna[i+1];
+    codon += dna[i+2];
+
+    // Convert to uppercase (in case input isn't)
+    for (char& c : codon)
+        c = toupper(c);
+
+    auto it = codonTable.find(codon);
+    return (it != codonTable.end()) ? it->second : '?';
+}
+
+using DP_2D = std::vector<std::vector<Float>>;
+DP_2D make_dp_table(size_t rows, size_t cols) {
+    return DP_2D(rows, std::vector<Float>(cols));
+}
+
+double dp_access_safe(DP_2D &dp, int i, int j) {
+  if(0 <= i && i < dp.size() && 0 <= j && j < dp[0].size()) {
+    return dp[i][j];
+  }
+  return 0.0;
+}
 void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 		      Profile profile, const char *sequence,
 		      int sequenceLength, Float *scratch,
 		      Float minProbRatio) {
-  const int lookupType = (simdLen > 4 && profile.width <= 12) ? 1
-    :                    (simdLen > 8)                        ? 2 : 0;
-  const Float zero = 0;
-  SimdFloat simdScale = simdFill(scale);
-  const int seqEnd = simdRoundUp(sequenceLength + 1);
-  const long rowSize = seqEnd + simdLen;
-  SimdFloat S1, S2;  // lookup tables for each type of letter
 
-  // Dynamic programming initialization for forward & backward algorithms:
-  for (int i = 0; i < profile.length + 2; ++i) {
-    std::fill_n(scratch + i * rowSize, simdLen, 0);
-  }
-
-  scratch += simdLen;  // it's convenient to set the origin after 1st zero pad
-
-  Float *Y = scratch + rowSize * (profile.length + 1);
-
-  if (verbosity > 1 && minProbRatio >= -1)
-    std::cerr << "Backward algorithm...\n";
-
-  // This is algorithm S5 from [Frith2025]:
-  // x       <-  S[i](Q[j]) W[i+1,j+1]
-  // W[i,j]  <-  x  +  d[i] Y[i+1,j]  +  a[i] Z[i,j+1]  +  1
-  // Y[i,j]  <-  W[i,j]  +  e[i] Y[i+1,j]
-  // Z[i,j]  <-  W[i,j]  +  b[i] Z[i,j+1]
-
-  // Here, it is rearranged like this:
-  // u       <-  x  +  d[i] Y[i+1,j]  +  scale
-  // w       <-  u  +  a[i] Z[i,j+1]
-  // Z[i,j]  <-  u  +  (a[i] + b[i]) Z[i,j+1]    (using SIMD "cumulation")
-
-  Float wMax = 0;
-  int iMax, jMax;
-
-  for (int j = 0; j < seqEnd; ++j) Y[j] = 0;
-
-  for (int i = profile.length; i >= 0; --i) {
-    Float *W = scratch + i * rowSize;
-    const Float *Wfrom = (i < profile.length) ? W + rowSize + 1 : Y;
-    const Float *params = profile.values + i * profile.width;
-    const Float *S = params + 4;
-    if (lookupType > 0) S1 = simdLoad(S);
-    if (lookupType > 1) S2 = simdLoad(S + simdLen);
-    SimdFloat a = simdFill(params[0]);  // insert open
-    SimdFloat d = simdFill(params[2]);  // delete open
-    SimdFloat e = simdFill(params[3]);  // delete extend
-    SimdFloat g = simdFill(params[0] + params[1]);  // insert open + extend
-    SimdFloat gPowers = simdPowersRev(params[0] + params[1]);
-    SimdFloat wMaxHere = simdFill(zero);
-
-    Float scaleNow[simdLen] = {0};
-    std::fill_n(scaleNow, simdLen - (seqEnd - (sequenceLength+1)), scale);
-    SimdFloat simdScaleNow = simdLoad(scaleNow);
-
-    SimdFloat z = simdFill(zero);
-    for (int j = seqEnd - simdLen; j >= 0; j -= simdLen) {
-      const char *seq = sequence + j;
-      SimdFloat t = (lookupType < 1) ? simdLookup(S, seq)
-	: (lookupType < 2) ? simdLookup(S1, seq) : simdLookup(S1, S2, seq);
-      SimdFloat x = simdMul(t, simdLoad(Wfrom+j));
-      SimdFloat y = simdLoad(Y+j);
-      SimdFloat u = simdAdd(simdAdd(x, simdMul(d, y)), simdScaleNow);
-      SimdFloat s = simdCumulateRev(u, g);
-      s = simdAdd(s, simdMul(gPowers, z));  // now s has the Z[i,j] values
-      z = simdShiftRev(z, s);               // shift to get the Z[i,j+1] values
-      SimdFloat w = simdAdd(u, simdMul(a, z));
-      wMaxHere = simdMax(wMaxHere, w);
-      simdStore(W+j, w);
-      simdStore(Y+j, simdAdd(w, simdMul(e, y)));
-      z = simdLowItem(s);
-      simdScaleNow = simdScale;
+    std::cout << "findSimilarities called on " << (sequenceLength) << " x " << profile.length << std::endl;
+    // need original characters to do DNA -> protein
+    // TODO: remove this hack
+    const char *alphabet = getAlphabet(profile.width - nonLetterWidth);
+    std::string sequence_decompressed;
+    bool contains_prot = false;
+    for(int i = 0; i < sequenceLength; i++) {
+        assert(sequence[i] < 22);
+        sequence_decompressed += alphabet[sequence[i]];
+        contains_prot |= (alphabet[sequence[i]] != 'A' && alphabet[sequence[i]] != 'C' && alphabet[sequence[i]] != 'G' && alphabet[sequence[i]] != 'T');
     }
+    if(!contains_prot) {
+        //std::cout << sequence_decompressed << std::endl;
+        //exit(0);
+    } 
 
-    Float theMaxHere = simdHorizontalMax(wMaxHere);
-    if (theMaxHere > wMax) {
-      wMax = theMaxHere;
-      iMax = i;
-    }
-  }
+    char charToNumber[256];
+    setCharToNumber(charToNumber, alphabet);
 
-  if (wMax > DBL_MAX) {
-    std::cerr << "numbers overflowed to infinity: giving up this comparison\n";
-    return;
-  }
+    
+    std::array<DP_2D, 2> W{
+        make_dp_table(profile.length, sequenceLength + 1),
+        make_dp_table(profile.length, sequenceLength + 1)
+    };
+    DP_2D X = make_dp_table(profile.length, sequenceLength);
+    std::array<DP_2D, 3> Y{
+        make_dp_table(profile.length, sequenceLength),
+        make_dp_table(profile.length, sequenceLength),
+        make_dp_table(profile.length, sequenceLength)
+    };
+    std::array<DP_2D, 3> Z{
+        make_dp_table(profile.length, sequenceLength),
+        make_dp_table(profile.length, sequenceLength),
+        make_dp_table(profile.length, sequenceLength)
+    };
 
-  const Float *maxRow = scratch + iMax * rowSize;
-  jMax = std::find(maxRow, maxRow + seqEnd, wMax) - maxRow;
+    std::priority_queue<AlignedSimilarity, std::vector<AlignedSimilarity>, decltype([](auto a, auto b) {
+      return a.probRatio > b.probRatio;
+    })> pq;
 
-  AlignedSimilarity begAnchored = {wMax, iMax, jMax};
-  addForwardAlignment(begAnchored.alignment, profile, sequence,
-		      sequenceLength, scratch, iMax, jMax, wMax / 2);
+    for(int reverse = 1; reverse >= 0; reverse--) {
+      for(int i = 0; i < profile.length; i++ ) {
+        //std::cout << "start " << i << std::endl;
+        int actual_i = reverse ? (profile.length - 1 - i) : i; // actual i TODO RENAME
 
-  if (verbosity > 1 && minProbRatio >= -1)
-    std::cerr << "Forward algorithm...\n";
+        const Float FRAMESHIFT_MULTIPLIER = 0.02;
+        const Float *params = profile.values + (actual_i) * profile.width;
+        Float probability_insert = params[0], probability_insert_frameshift1 = params[0] * FRAMESHIFT_MULTIPLIER, probability_insert_frameshift2 = params[0] * FRAMESHIFT_MULTIPLIER;
+        Float probability_extend_inserted = params[1], probability_extend_inserted_with_frameshift  = params[1] * FRAMESHIFT_MULTIPLIER;
+        Float probability_delete = params[2], probability_delete_frameshift1 = params[2] * FRAMESHIFT_MULTIPLIER, probability_delete_frameshift2 = params[2] * FRAMESHIFT_MULTIPLIER; // frameshift by 1 leaves 2 unmatched bases that will be discarded, by 2 leaves 1 unmatched that will be discarded
+        Float probability_extend_prev_deleted = params[3], probability_extend_prev_deleted_with_frameshift = params[3] * FRAMESHIFT_MULTIPLIER;
 
-  // This is algorithm 3 from [Frith2025]:
-  // w       <-  X[i-1,j-1]  +  Y[i-1,j]  +  Z[i,j-1]  +  1
-  // X[i,j]  <-  S[i](Q[j]) w
-  // Y[i,j]  <-  d[i] w  + e[i] Y[i-1,j]
-  // Z[i,j]  <-  a[i] w  + b[i] Z[i,j-1]
+        int adj;
+        if(reverse) {
+          adj = actual_i - 1;
+        } else {
+          adj = actual_i + 1;
+        }
 
-  // Here, it is rearranged like this:
-  // u       <-  X[i-1,j-1]  +  Y[i-1,j]  +  scale
-  // w       <-  u  +  a[i] Z[i,j-1]
-  // Z[i,j]  <-  u  +  (a[i] + b[i]) Z[i,j-1]    (using SIMD "cumulation")
 
-  wMax = 0;
-  Float wMidMax = 0;
-  Float wBegAnchored, wEndAnchored;
-  int iMidMax, jMidMax;
-  std::vector<SegmentPair> alignment;
-  SimdFloat simdMinProbRatio = simdFill(minProbRatio);
+        const Float *params_after = profile.values + adj * profile.width;
+        Float probability_extend_deleted = (0 <= adj && adj < profile.length) ? params_after[3] : 0;
+        Float probability_extend_deleted_with_frameshift = probability_extend_deleted * FRAMESHIFT_MULTIPLIER;
 
-  for (int j = 0; j < seqEnd; ++j) Y[j] = 0;
+        const Float *params_emission_probabilities = params + 4;
+        auto translate_wrapper = [&](std::string &dna, int i) -> Float {
+            int translated = translate(dna.c_str(), i);
+            if(translated == '*') {
+              return 0.01; // for now
+            }
 
-  for (int i = 0; i <= profile.length; ++i) {
-    Float wMidMaxHere = wMidMax;
-    Float *X = scratch + i * rowSize;
-    const Float *Xfrom = (i > 0) ? X - rowSize - 1 : Y;
-    const Float *Wbackward = X;  // the forward Xs overwrite the backward Ws
-    const Float *params = profile.values + i * profile.width;
-    const Float *S = params + 4;
-    if (lookupType > 0) S1 = simdLoad(S);
-    if (lookupType > 1) S2 = simdLoad(S + simdLen);
-    SimdFloat a = simdFill(params[0]);  // insert open
-    SimdFloat d = simdFill(params[2]);  // delete open
-    SimdFloat e = simdFill(params[3]);  // delete extend
-    SimdFloat g = simdFill(params[0] + params[1]);  // insert open + extend
-    SimdFloat gPowers = simdPowersFwd(params[0] + params[1]);
+            int toNum = charToNumber[translated];
+            assert(0 <= toNum && toNum < strlen(alphabet));
+            return params_emission_probabilities[toNum];
+        };
 
-    InitialSimilarity hits[minSeparation];
-    int hitCount = 0;
-    int jOld = INT_MAX;
+        for(int j = 0; j < sequenceLength; j++) {
+          int actual_j = reverse ? (sequenceLength - 1 - j) : j; // actual j TODO RENAME
+          std::array<Float, 4> w;
+          for(int w_i = 1; w_i <= 3; w_i++) {
+            w[w_i] = dp_access_safe(X, i - 1, j - w_i) +
+                     dp_access_safe(Y[0], i - 1, j - w_i) +
+                     dp_access_safe(Y[1], i - 1, j - w_i) +
+                     dp_access_safe(Y[2], i - 1, j - w_i) +
+                     dp_access_safe(Z[0], i, j - w_i) +
+                     dp_access_safe(Z[1], i, j - w_i) +
+                     dp_access_safe(Z[2], i, j - w_i) + scale;
+          }
+          // w[1] = dp_access_safe(W[reverse], i, j - 1);
+          // w[2] = dp_access_safe(W[reverse], i, j - 2);
+          // w[3] = dp_access_safe(W[reverse], i, j - 3);
 
-    SimdFloat z = simdFill(zero);
-    for (int j = 0; j < seqEnd; j += simdLen) {
-      SimdFloat y = simdLoad(Y + j);
-      SimdFloat u = simdAdd(simdAdd(simdLoad(Xfrom + j), y), simdScale);
-      SimdFloat s = simdCumulateFwd(u, g);
-      s = simdAdd(s, simdMul(gPowers, z));  // now s has the Z[i,j] values
-      z = simdShiftFwd(z, s);               // shift to get the Z[i,j-1] values
-      SimdFloat w = simdAdd(u, simdMul(a, z));
-      SimdFloat wBck = simdLoad(Wbackward + j);
-      SimdFloat wMid = simdMul(w, wBck);
-      const char *seq = sequence + j;
-      SimdFloat t = (lookupType < 1) ? simdLookup(S, seq)
-	: (lookupType < 2) ? simdLookup(S1, seq) : simdLookup(S1, S2, seq);
-      simdStore(X+j, simdMul(t, w));
-      simdStore(Y+j, simdAdd(simdMul(d, w), simdMul(e, y)));
-      z = simdHighItem(s);
+          if(reverse) {
+            if(actual_j + 2 < sequenceLength) {
+              X[i][j] = (1 - probability_insert - probability_insert_frameshift1 - probability_insert_frameshift2 - probability_delete - probability_delete_frameshift1 - probability_delete_frameshift2) * translate_wrapper(sequence_decompressed, actual_j) * w[3];
+            }
+          } else {
+            if(actual_j - 2 >= 0) {
+              X[i][j] = (1 - probability_insert - probability_insert_frameshift1 - probability_insert_frameshift2 - probability_delete - probability_delete_frameshift1 - probability_delete_frameshift2) * translate_wrapper(sequence_decompressed, actual_j - 2) * w[3];
+            }
+          }
 
-      Float ws[simdLen];
-      Float wBcks[simdLen];
-      Float wMids[simdLen];
-      if (minProbRatio >= 0) {
-	if (simdGe(wMid, simdMinProbRatio)) {
-	  simdStore(ws, w);
-	  simdStore(wBcks, wBck);
-	  simdStore(wMids, wMid);
-	  for (int k = 0; k < simdLen && k <= sequenceLength - j; ++k) {
-	    if (wMids[k] >= minProbRatio) {
-	      if (j+k - jOld >= minSeparation) {
-		addMidAnchored(similarities, profile, sequence, sequenceLength,
-			       scratch, i, jOld, wBegAnchored, wEndAnchored);
-		jOld = INT_MAX;
-	      }
-	      hitCount = updateInitialSimilarities(hits, hitCount,
-						   j+k, wMids[k]);
-	      if (hitCount == 1) {
-		jOld = j+k;
-		wBegAnchored = wBcks[k];
-		wEndAnchored = ws[k];
-	      }
-	    }
-	  }
-	}
-      } else {
-	simdStore(ws, w);
-	simdStore(wBcks, wBck);
-	simdStore(wMids, wMid);
-	for (int k = 0; k < simdLen && k <= sequenceLength - j; ++k) {
-	  if (ws[k] > wMax) {
-	    wMax = ws[k];
-	    iMax = i;
-	    jMax = j+k;
-	  }
-	  if (wMids[k] > wMidMaxHere) {
-	    wMidMaxHere = wMids[k];
-	    wBegAnchored = wBcks[k];
-	    wEndAnchored = ws[k];
-	    jMidMax = j+k;
-	  }
-	}
+          Y[0][i][j] = probability_delete * (1 - probability_extend_deleted) * w[3] +
+                       probability_extend_prev_deleted * (1 - probability_extend_deleted) / (1 - probability_extend_prev_deleted) * dp_access_safe(Y[0], i - 1, j) +
+                       probability_extend_prev_deleted_with_frameshift * (1 - probability_extend_deleted_with_frameshift) / (1 - probability_extend_prev_deleted_with_frameshift) * (dp_access_safe(Y[1], i - 1, j) + dp_access_safe(Y[2], i - 1, j));
+          Y[1][i][j] = probability_delete_frameshift1 * (1 - probability_extend_deleted_with_frameshift) * w[2];
+          Y[2][i][j] = probability_delete_frameshift2 * (1 - probability_extend_deleted_with_frameshift) * w[1];
+          
+          Z[0][i][j] = probability_insert * (1 - probability_insert) * w[3] +
+                       probability_extend_inserted_with_frameshift * (1 - probability_extend_inserted) / (1 - probability_extend_inserted_with_frameshift) * (dp_access_safe(Z[1], i, j - 3) + dp_access_safe(Z[2], i, j - 3));
+          Z[1][i][j] = probability_insert_frameshift1 * (1 - probability_extend_inserted_with_frameshift) * w[1];
+          Z[2][i][j] = probability_insert_frameshift1 * (1 - probability_extend_inserted_with_frameshift) * w[2];
+
+          //store at next hmm state
+          if(i + 1 < profile.length) W[reverse][i + 1][j] += X[i][j] + Y[0][i][j] + Y[1][i][j] + Y[2][i][j];
+
+          W[reverse][i][j] += Z[0][i][j] + Z[1][i][j] + Z[2][i][j];
+          W[reverse][i][j] += scale;
+
+          if(!reverse && i) {
+            auto wBegAnchored = W[0][i][j];
+            
+            auto wEndAnchored = dp_access_safe(W[1], profile.length - 1 - i, sequenceLength - 1 - (j + 1));
+            //std::cout << (profile.length - 1 - i) << " " << (sequenceLength - 1 - (j - 1)) << " = " << wEndAnchored << std::endl;
+            
+            Float wMidAnchored = wEndAnchored * wBegAnchored;
+            if(i == 456 - 1 && j == 19820) {
+              std::cout << "debug sum of probabilities of ending at phmm idx 456 " << wBegAnchored << std::endl;
+            }
+            if(actual_i == 9 - 1 && actual_j == 18491 - 1) {
+              std::cout << "debug sum of probabilities of starting at phmm idx 9 " << wEndAnchored << std::endl;
+            }
+
+            assert(!std::isnan(wMidAnchored));
+            AlignedSimilarity s = {wMidAnchored, i, j, wEndAnchored};
+            //AlignedSimilarity s = {wEndAnchored, i, j, wEndAnchored};
+            pq.push(s);
+
+            // if(i == 12 && j == 743) {
+            //   std::cout << "actual idx: " << sequenceLength - 1 - (sequenceLength - 1 - (j - 1)) << std::endl;
+            //   assert(sequenceLength - 1 - (sequenceLength - 1 - (j - 1)) == 742);
+            //   similarities.push_back(s);
+            // }
+
+            while(pq.size() >= 32) {
+              pq.pop();
+            }
+          }
+        }
+        W[reverse][i][sequenceLength] = scale; // boundary
       }
     }
 
-    if (wMidMaxHere > wMidMax) {
-      wMidMax = wMidMaxHere;
-      iMidMax = i;
-      if (minProbRatio >= -1) {
-	alignment.clear();
-	addForwardAlignment(alignment, profile, sequence, sequenceLength,
-			    scratch, iMidMax, jMidMax, wBegAnchored / 2);
-      }
+    while(!pq.empty()) {
+      std::cout << "add one with " << (pq.top().probRatio * scale) << std::endl;
+      similarities.push_back(pq.top());
+      pq.pop();
     }
-
-    if (jOld <= sequenceLength) {
-      addMidAnchored(similarities, profile, sequence, sequenceLength,
-		     scratch, i, jOld, wBegAnchored, wEndAnchored);
-    }
-  }
-
-  if (minProbRatio >= 0) {
-    if (verbosity > 1) std::cerr << "Initial similarities: "
-				 << similarities.size() << "\n";
-    nonredundantize(similarities);
-    if (verbosity > 1) std::cerr << "Non-overlapping forward extensions: "
-				 << similarities.size() << "\n";
-    for (auto &x : similarities) {
-      finishMidAnchored(x, profile, sequence, sequenceLength, scratch);
-    }
-    nonredundantize(similarities);
-    if (verbosity > 1) std::cerr << "Non-overlapping similarities: "
-				 << similarities.size() << "\n";
-  } else {
-    AlignedSimilarity midAnchored = {wMidMax / scale, iMidMax, jMidMax,
-				     wEndAnchored, alignment};
-    finishMidAnchored(midAnchored, profile, sequence, sequenceLength, scratch);
-
-    AlignedSimilarity endAnchored = {wMax, iMax, jMax};
-    addReverseAlignment(endAnchored.alignment, profile, sequence,
-			sequenceLength, scratch, iMax, jMax, wMax / 2);
-    reverse(endAnchored.alignment.begin(), endAnchored.alignment.end());
-
-    similarities.push_back(endAnchored);
-    similarities.push_back(begAnchored);
-    similarities.push_back(midAnchored);
-  }
+    std::cout << "findSimilarities finished" << std::endl;
 }
 
 int contigToSequencePos(Contig contig, size_t strandNum, int posInContig) {
@@ -1263,13 +1258,6 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles,
   return state == 0;
 }
 
-void setCharToNumber(char *charToNumber, const char *alphabet) {
-  for (int i = 0; alphabet[i]; ++i) {
-    int c = alphabet[i];
-    charToNumber[toupper(c)] = charToNumber[tolower(c)] = i;
-  }
-}
-
 Float *resizeMem(Float *v, size_t &size,
 		 int profileLength, int sequenceLength) {
   long rowSize = simdRoundUp(sequenceLength + 1) + simdLen;
@@ -1508,8 +1496,8 @@ Options for background letter probabilities:\n\
     for (int j = 0; j < p.width - nonLetterWidth; ++j)
       std::cout << " " << bgProbs[j];
     std::cout << std::endl;
-    estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen,
-	      border, randomSeqNum, scratch, printVerbosity);
+    // estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen,
+	//       border, randomSeqNum, scratch, printVerbosity);
   }
 
   if (argc - optind < 2 || numOfProfiles < 1) return 0;
