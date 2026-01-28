@@ -90,6 +90,7 @@ struct Profile {  // position-specific (insert, delete, letter) probabilities
   size_t nameIdx;
   size_t consensusSequenceIdx;
   double gumbelKendAnchored, gumbelKbegAnchored, gumbelKmidAnchored;
+  void *debug;
 };
 
 struct Sequence {
@@ -150,7 +151,7 @@ int numOfDigits(int x) {
 
 const char *getAlphabet(int alphabetSize) {
   assert(alphabetSize == 20 || alphabetSize == 4);
-  return alphabetSize == 20 ? "ACDEFGHIKLMNPQRSTVWYUOXXXXXXXXXXXXXX"  // 20 + 2 amino acids
+  return alphabetSize == 20 ? "ACDEFGHIKLMNPQRSTVWYUO"  // 20 + 2 amino acids
     :    alphabetSize ==  4 ? "ACGT" : 0;
 }
 
@@ -571,6 +572,81 @@ void setCharToNumber(char *charToNumber, const char *alphabet) {
 
     todo: rewrite
 */
+static std::unordered_map<char, std::vector<std::string>> build_standard_genetic_code() {
+    // Amino acids are single-letter codes.
+    // DNA codons (T not U).
+    std::unordered_map<char, std::vector<std::string>> aa2codons;
+
+    aa2codons['A'] = {"GCT","GCC","GCA","GCG"};                 // Ala
+    aa2codons['R'] = {"CGT","CGC","CGA","CGG","AGA","AGG"};     // Arg
+    aa2codons['N'] = {"AAT","AAC"};                             // Asn
+    aa2codons['D'] = {"GAT","GAC"};                             // Asp
+    aa2codons['C'] = aa2codons['U'] = {"TGT","TGC"};            // Cys
+    aa2codons['Q'] = {"CAA","CAG"};                             // Gln
+    aa2codons['E'] = {"GAA","GAG"};                             // Glu
+    aa2codons['G'] = {"GGT","GGC","GGA","GGG"};                 // Gly
+    aa2codons['H'] = {"CAT","CAC"};                             // His
+    aa2codons['I'] = {"ATT","ATC","ATA"};                       // Ile
+    aa2codons['L'] = {"TTA","TTG","CTT","CTC","CTA","CTG"};     // Leu
+    aa2codons['K'] = aa2codons['O'] = {"AAA","AAG"};            // Lys
+    aa2codons['M'] = {"ATG"};                                   // Met
+    aa2codons['F'] = {"TTT","TTC"};                             // Phe
+    aa2codons['P'] = {"CCT","CCC","CCA","CCG"};                 // Pro
+    aa2codons['S'] = {"TCT","TCC","TCA","TCG","AGT","AGC"};     // Ser
+    aa2codons['T'] = {"ACT","ACC","ACA","ACG"};                 // Thr
+    aa2codons['W'] = {"TGG"};                                   // Trp
+    aa2codons['Y'] = {"TAT","TAC"};                             // Tyr
+    aa2codons['V'] = {"GTT","GTC","GTA","GTG"};                 // Val
+    aa2codons['*'] = {"TAA","TAG","TGA"};
+
+    return aa2codons;
+}
+
+static void normalize(std::unordered_map<char,double>& m) {
+    double s = 0.0;
+    for (auto &kv : m) s += kv.second;
+    if (s <= 0) return;
+    for (auto &kv : m) kv.second /= s;
+}
+struct NucDist {
+    std::unordered_map<char, double> overall{{'A',0},{'C',0},{'G',0},{'T',0}};
+};
+
+NucDist infer_nucleotide_distribution_equal_synonyms(
+    const std::unordered_map<char, double>& aaFreq
+) {
+    auto aa2codons = build_standard_genetic_code();
+    NucDist out;
+
+    // Distribute each amino acid's probability equally across its codons.
+    double sm = 0;
+    for (auto &kv : aaFreq) {
+        char aa = (char)toupper((unsigned char)kv.first);
+        auto it = aa2codons.find(aa);
+        sm += kv.second;
+        std::cout << kv.first << " probs " << kv.second << std::endl;
+
+        const std::vector<std::string>& codons = it->second;
+        double perCodon = kv.second / (double)codons.size();
+
+        for (const std::string& codon : codons) {
+            char b1 = codon[0], b2 = codon[1], b3 = codon[2];
+
+            out.overall[b1] += perCodon;
+            out.overall[b2] += perCodon;
+            out.overall[b3] += perCodon;
+        }
+    }
+
+    std::cout << "assert " << sm << " == 1" << std::endl;
+    // At this point:
+    // - overall sums to 3 (because each codon contributes 3 bases) after AA normalization,
+    // - pos1/pos2/pos3 each sum to 1.
+    normalize(out.overall);
+
+    return out;
+}
+
 char translate(const char* dna, int i) {
     // Codon table (DNA codons → single-letter amino acid)
     static const std::unordered_map<std::string, char> codonTable = {
@@ -613,6 +689,7 @@ char translate(const char* dna, int i) {
     auto it = codonTable.find(codon);
     return (it != codonTable.end()) ? it->second : '?';
 }
+// vibe-coded section end
 
 using DP_2D = std::vector<std::vector<Float>>;
 DP_2D make_dp_table(size_t rows, size_t cols) {
@@ -665,6 +742,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         make_dp_table(profile.length, sequenceLength),
         make_dp_table(profile.length, sequenceLength)
     };
+    auto dump = build_standard_genetic_code();
 
     std::priority_queue<AlignedSimilarity, std::vector<AlignedSimilarity>, decltype([](auto a, auto b) {
       return a.probRatio > b.probRatio;
@@ -675,12 +753,12 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         //std::cout << "start " << i << std::endl;
         int actual_i = reverse ? (profile.length - 1 - i) : i; // actual i TODO RENAME
 
-        const Float FRAMESHIFT_MULTIPLIER = 0.01;
+        const Float FRAMESHIFT_MULTIPLIER = 0.00;
         const Float *params = profile.values + (actual_i) * profile.width;
         Float probability_insert = params[0], probability_insert_frameshift1 = params[0] * FRAMESHIFT_MULTIPLIER, probability_insert_frameshift2 = params[0] * FRAMESHIFT_MULTIPLIER;
-        Float probability_extend_inserted = params[1], probability_extend_inserted_with_frameshift  = params[1] * FRAMESHIFT_MULTIPLIER;
+        Float probability_extend_inserted = params[1], probability_extend_inserted_with_frameshift  = params[1];
         Float probability_delete = params[2], probability_delete_frameshift1 = params[2] * FRAMESHIFT_MULTIPLIER, probability_delete_frameshift2 = params[2] * FRAMESHIFT_MULTIPLIER; // frameshift by 1 leaves 2 unmatched bases that will be discarded, by 2 leaves 1 unmatched that will be discarded
-        Float probability_extend_prev_deleted = params[3], probability_extend_prev_deleted_with_frameshift = params[3] * FRAMESHIFT_MULTIPLIER;
+        Float probability_extend_prev_deleted = params[3], probability_extend_prev_deleted_with_frameshift = params[3];
 
         int adj;
         if(reverse) {
@@ -696,14 +774,17 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
         const Float *params_emission_probabilities = params + 4;
         auto translate_wrapper = [&](std::string &dna, int i) -> Float {
-            int translated = translate(dna.c_str(), i);
+            NucDist dist = *reinterpret_cast<NucDist*>(profile.debug);
+            char translated = translate(dna.c_str(), i);
+            
+            Float divisor = dump.at(translated).size() * dist.overall[dna[i]] * dist.overall[dna[i + 1]] * dist.overall[dna[i + 2]]; // remove background probability 0.25^3, and also dedupliate emission
             if(translated == '*') {
-              return 0.01; // for now
+              return 0.01 / divisor; // for now
             }
 
             int toNum = charToNumber[translated];
             assert(0 <= toNum && toNum < strlen(alphabet));
-            return params_emission_probabilities[toNum];
+            return params_emission_probabilities[toNum] / divisor;
         };
 
         for(int j = 0; j < sequenceLength; j++) {
@@ -724,11 +805,11 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
           if(reverse) {
             if(actual_j + 2 < sequenceLength) {
-              X[i][j] = (1 - probability_insert - probability_insert_frameshift1 - probability_insert_frameshift2 - probability_delete - probability_delete_frameshift1 - probability_delete_frameshift2) * translate_wrapper(sequence_decompressed, actual_j) / (0.99 / 22) * w[3];
+              X[i][j] = (1 - probability_insert - probability_insert_frameshift1 - probability_insert_frameshift2 - probability_delete - probability_delete_frameshift1 - probability_delete_frameshift2) * translate_wrapper(sequence_decompressed, actual_j) * w[3];
             }
           } else {
             if(actual_j - 2 >= 0) {
-              X[i][j] = (1 - probability_insert - probability_insert_frameshift1 - probability_insert_frameshift2 - probability_delete - probability_delete_frameshift1 - probability_delete_frameshift2) * translate_wrapper(sequence_decompressed, actual_j - 2) / (0.99 / 22) * w[3];
+              X[i][j] = (1 - probability_insert - probability_insert_frameshift1 - probability_insert_frameshift2 - probability_delete - probability_delete_frameshift1 - probability_delete_frameshift2) * translate_wrapper(sequence_decompressed, actual_j - 2) * w[3];
             }
           }
 
@@ -764,8 +845,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
             }
 
             assert(!std::isnan(wMidAnchored));
-            AlignedSimilarity s = {wMidAnchored, i, j, wEndAnchored};
-            //AlignedSimilarity s = {wEndAnchored, i, j, wEndAnchored};
+            AlignedSimilarity s = {wMidAnchored / scale, i, j, wEndAnchored};
+            //AlignedSimilarity s = {wBegAnchored, i, j, wEndAnchored};
             pq.push(s);
 
             // if(i == 12 && j == 743) {
@@ -1106,7 +1187,7 @@ void filterLetterProbabilities(Float *letterProbs, int length, int step,
   }
 }
 
-int finalizeProfile(Profile p, char *consensusSequence,
+int finalizeProfile(Profile &p, char *consensusSequence,
 		    int backgroundProbsType, bool isMask,
 		    double filterStdDev, bool keepNonvaryingTerm) {
   int alphabetSize = p.width - nonLetterWidth;
@@ -1137,11 +1218,26 @@ int finalizeProfile(Profile p, char *consensusSequence,
   }
   for (int k = 4; k < 4 + alphabetSize; ++k) end[k] /= sumOfMeans;
 
+  std::unordered_map<char, double> dist;
+  char charToNumber[256];
+  const char *alphabet = getAlphabet(p.width - nonLetterWidth);
+  setCharToNumber(charToNumber, alphabet);
+  for(auto c : std::string(alphabet)) {
+    if(c == 'O') c = 'K';
+    if(c == 'U') c = 'C';
+    dist[c] = end[4 + charToNumber[c]] * 0.99;
+  }
+  dist['*'] = 0.01;
+
+  auto ret = new NucDist(infer_nucleotide_distribution_equal_synonyms(dist));
+  p.debug = ret;
+  std::cout << ret->overall.at('A') << ' ' << ret->overall.at('C') << ' ' << ret->overall.at('G') << ' ' << ret->overall.at('T') << '\n';
+  
   for (int i = 0; ; ++i) {
     Float *probs = p.values + i * p.width;
     double alpha = probs[0];
     double beta = probs[1];
-    probs[0] = alpha * (1 - beta);
+    probs[0] = alpha;
 
     if (i == p.length) break;
 
@@ -1150,15 +1246,15 @@ int finalizeProfile(Profile p, char *consensusSequence,
     double epsilon1 = probs[p.width + 3];
     double c = (1 - alpha - delta);
     if (epsilon >= 1) return 0;
-    probs[2] = delta * (1 - epsilon1);
-    probs[3] = epsilon * (1 - epsilon1) / (1 - epsilon);
+    probs[2] = delta;
+    probs[3] = epsilon;
     Float minVal = c;
-    // for (int k = 4; k < 4 + alphabetSize; ++k) {
-    //   if (tantanProbs[i] >= 0.5) probs[k] = end[k];
-    //   double p = probs[k];
-    //   probs[k] = c * (p / end[k]);
-    //   minVal = std::min(minVal, probs[k]);
-    // }
+    for (int k = 4; k < 4 + alphabetSize; ++k) {
+      if (tantanProbs[i] >= 0.5) probs[k] = end[k];
+      double p = probs[k];
+      probs[k] = (0.99 /* minus stop codon */ * p);
+      minVal = std::min(minVal, probs[k]);
+    }
     if (alphabetSize == 20) {
       probs[4 + 20] = probs[4 + 1];  // selenocysteine = cysteine
       probs[4 + 21] = probs[4 + 8];  // pyrrolysine = lysine
@@ -1496,8 +1592,18 @@ Options for background letter probabilities:\n\
     for (int j = 0; j < p.width - nonLetterWidth; ++j)
       std::cout << " " << bgProbs[j];
     std::cout << std::endl;
-    // estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen,
-	//       border, randomSeqNum, scratch, printVerbosity);
+
+      char charToNumber[256];
+      setCharToNumber(charToNumber, getAlphabet(p.width - nonLetterWidth));
+
+      NucDist dist = *reinterpret_cast<NucDist*>(p.debug);
+      Float bgProbsDNA[256];
+      bgProbsDNA[charToNumber['A']] = dist.overall['A'];
+      bgProbsDNA[charToNumber['C']] = dist.overall['C'];
+      bgProbsDNA[charToNumber['G']] = dist.overall['G'];
+      bgProbsDNA[charToNumber['T']] = dist.overall['T'];
+      estimateK(p, bgProbsDNA, &charVec[seqIdx], randomSeqLen,
+      border, randomSeqNum, scratch, printVerbosity);
   }
 
   if (argc - optind < 2 || numOfProfiles < 1) return 0;
