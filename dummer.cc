@@ -811,18 +811,28 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
             if(actual_j - 2 >= 0) {
               X[i][j] = (1 - probability_insert - probability_insert_frameshift1 - probability_insert_frameshift2 - probability_delete - probability_delete_frameshift1 - probability_delete_frameshift2) * translate_wrapper(sequence_decompressed, actual_j - 2) * w[3];
             }
-          }
+          }          
+          
+          Z[0][i][j] = probability_insert * (1 - probability_insert) * w[0] +
+                       probability_extend_inserted_with_frameshift * (1 - probability_extend_inserted) / (1 - probability_extend_inserted_with_frameshift) * (dp_access_safe(Z[1], i, j - 3) + dp_access_safe(Z[2], i, j - 3));
+          Z[1][i][j] = probability_insert_frameshift1 * (1 - probability_extend_inserted_with_frameshift) * w[1];
+          Z[2][i][j] = probability_insert_frameshift1 * (1 - probability_extend_inserted_with_frameshift) * w[2];
 
-          Y[0][i][j] = probability_delete * (1 - probability_extend_deleted) * w[3] +
+          // Z[i][j] already computed at this point
+          for(int w_i = 0; w_i <= 0; w_i++) {
+            w[w_i] = dp_access_safe(X, i - 1, j - w_i) +
+                     dp_access_safe(Y[0], i - 1, j - w_i) +
+                     dp_access_safe(Y[1], i - 1, j - w_i) +
+                     dp_access_safe(Y[2], i - 1, j - w_i) +
+                     dp_access_safe(Z[0], i, j - w_i) +
+                     dp_access_safe(Z[1], i, j - w_i) +
+                     dp_access_safe(Z[2], i, j - w_i) + scale;
+          }
+          Y[0][i][j] = probability_delete * (1 - probability_extend_deleted) * w[0] +
                        probability_extend_prev_deleted * (1 - probability_extend_deleted) / (1 - probability_extend_prev_deleted) * dp_access_safe(Y[0], i - 1, j) +
                        probability_extend_prev_deleted_with_frameshift * (1 - probability_extend_deleted_with_frameshift) / (1 - probability_extend_prev_deleted_with_frameshift) * (dp_access_safe(Y[1], i - 1, j) + dp_access_safe(Y[2], i - 1, j));
           Y[1][i][j] = probability_delete_frameshift1 * (1 - probability_extend_deleted_with_frameshift) * w[2];
           Y[2][i][j] = probability_delete_frameshift2 * (1 - probability_extend_deleted_with_frameshift) * w[1];
-          
-          Z[0][i][j] = probability_insert * (1 - probability_insert) * w[3] +
-                       probability_extend_inserted_with_frameshift * (1 - probability_extend_inserted) / (1 - probability_extend_inserted_with_frameshift) * (dp_access_safe(Z[1], i, j - 3) + dp_access_safe(Z[2], i, j - 3));
-          Z[1][i][j] = probability_insert_frameshift1 * (1 - probability_extend_inserted_with_frameshift) * w[1];
-          Z[2][i][j] = probability_insert_frameshift1 * (1 - probability_extend_inserted_with_frameshift) * w[2];
 
           //store at next hmm state
           if(i + 1 <= profile.length) W[reverse][i + 1][j] += X[i][j] + Y[0][i][j] + Y[1][i][j] + Y[2][i][j];
