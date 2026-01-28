@@ -728,19 +728,19 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
     
     std::array<DP_2D, 2> W{
-        make_dp_table(profile.length, sequenceLength + 1),
-        make_dp_table(profile.length, sequenceLength + 1)
+        make_dp_table(profile.length + 1, sequenceLength + 1),
+        make_dp_table(profile.length + 1, sequenceLength + 1)
     };
-    DP_2D X = make_dp_table(profile.length, sequenceLength);
+    DP_2D X = make_dp_table(profile.length + 1, sequenceLength);
     std::array<DP_2D, 3> Y{
-        make_dp_table(profile.length, sequenceLength),
-        make_dp_table(profile.length, sequenceLength),
-        make_dp_table(profile.length, sequenceLength)
+        make_dp_table(profile.length + 1, sequenceLength),
+        make_dp_table(profile.length + 1, sequenceLength),
+        make_dp_table(profile.length + 1, sequenceLength)
     };
     std::array<DP_2D, 3> Z{
-        make_dp_table(profile.length, sequenceLength),
-        make_dp_table(profile.length, sequenceLength),
-        make_dp_table(profile.length, sequenceLength)
+        make_dp_table(profile.length + 1, sequenceLength),
+        make_dp_table(profile.length + 1, sequenceLength),
+        make_dp_table(profile.length + 1, sequenceLength)
     };
     auto dump = build_standard_genetic_code();
 
@@ -749,11 +749,11 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     })> pq;
 
     for(int reverse = 1; reverse >= 0; reverse--) {
-      for(int i = 0; i < profile.length; i++ ) {
+      for(int i = 0; i <= profile.length; i++ ) {
         //std::cout << "start " << i << std::endl;
-        int actual_i = reverse ? (profile.length - 1 - i) : i; // actual i TODO RENAME
+        int actual_i = reverse ? (profile.length - i) : i; // actual i TODO RENAME
 
-        const Float FRAMESHIFT_MULTIPLIER = 0.00;
+        const Float FRAMESHIFT_MULTIPLIER = 0.01;
         const Float *params = profile.values + (actual_i) * profile.width;
         Float probability_insert = params[0], probability_insert_frameshift1 = params[0] * FRAMESHIFT_MULTIPLIER, probability_insert_frameshift2 = params[0] * FRAMESHIFT_MULTIPLIER;
         Float probability_extend_inserted = params[1], probability_extend_inserted_with_frameshift  = params[1];
@@ -769,7 +769,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
 
         const Float *params_after = profile.values + adj * profile.width;
-        Float probability_extend_deleted = (0 <= adj && adj < profile.length) ? params_after[3] : 0;
+        Float probability_extend_deleted = (0 <= adj && adj <= profile.length) ? params_after[3] : 0;
         Float probability_extend_deleted_with_frameshift = probability_extend_deleted * FRAMESHIFT_MULTIPLIER;
 
         const Float *params_emission_probabilities = params + 4;
@@ -825,7 +825,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
           Z[2][i][j] = probability_insert_frameshift1 * (1 - probability_extend_inserted_with_frameshift) * w[2];
 
           //store at next hmm state
-          if(i + 1 < profile.length) W[reverse][i + 1][j] += X[i][j] + Y[0][i][j] + Y[1][i][j] + Y[2][i][j];
+          if(i + 1 <= profile.length) W[reverse][i + 1][j] += X[i][j] + Y[0][i][j] + Y[1][i][j] + Y[2][i][j];
 
           W[reverse][i][j] += Z[0][i][j] + Z[1][i][j] + Z[2][i][j];
           W[reverse][i][j] += scale;
@@ -833,7 +833,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
           if(!reverse && i) {
             auto wBegAnchored = W[0][i][j];
             
-            auto wEndAnchored = dp_access_safe(W[1], profile.length - 1 - i, sequenceLength - 1 - (j + 1));
+            auto wEndAnchored = dp_access_safe(W[1], profile.length - i, sequenceLength - 1 - (j + 1));
             //std::cout << (profile.length - 1 - i) << " " << (sequenceLength - 1 - (j - 1)) << " = " << wEndAnchored << std::endl;
             
             Float wMidAnchored = wEndAnchored * wBegAnchored;
