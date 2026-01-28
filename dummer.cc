@@ -36,6 +36,8 @@
 #define OPT_l 500
 #define OPT_b 100
 
+//#define DUMMER_SCORING
+
 #ifdef DOUBLE
 typedef double Float;
 typedef SimdDbl SimdFloat;
@@ -776,8 +778,12 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         auto translate_wrapper = [&](std::string &dna, int i) -> Float {
             NucDist dist = *reinterpret_cast<NucDist*>(profile.debug);
             char translated = translate(dna.c_str(), i);
-            
+
+#ifdef DUMMER_SCORING
+            Float divisor = 1;
+#else
             Float divisor = dump.at(translated).size() * dist.overall[dna[i]] * dist.overall[dna[i + 1]] * dist.overall[dna[i + 2]]; // remove background probability 0.25^3, and also dedupliate emission
+#endif
             if(translated == '*') {
               return 0.01 / divisor; // for now
             }
@@ -813,10 +819,10 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
             }
           }          
           
-          Z[0][i][j] = probability_insert * (1 - probability_insert) * w[0] +
+          Z[0][i][j] = probability_insert * (1 - probability_extend_inserted) * w[3] +
                        probability_extend_inserted_with_frameshift * (1 - probability_extend_inserted) / (1 - probability_extend_inserted_with_frameshift) * (dp_access_safe(Z[1], i, j - 3) + dp_access_safe(Z[2], i, j - 3));
           Z[1][i][j] = probability_insert_frameshift1 * (1 - probability_extend_inserted_with_frameshift) * w[1];
-          Z[2][i][j] = probability_insert_frameshift1 * (1 - probability_extend_inserted_with_frameshift) * w[2];
+          Z[2][i][j] = probability_insert_frameshift2 * (1 - probability_extend_inserted_with_frameshift) * w[2];
 
           // Z[i][j] already computed at this point
           for(int w_i = 0; w_i <= 0; w_i++) {
@@ -828,6 +834,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
                      dp_access_safe(Z[1], i, j - w_i) +
                      dp_access_safe(Z[2], i, j - w_i) + scale;
           }
+          
           Y[0][i][j] = probability_delete * (1 - probability_extend_deleted) * w[0] +
                        probability_extend_prev_deleted * (1 - probability_extend_deleted) / (1 - probability_extend_prev_deleted) * dp_access_safe(Y[0], i - 1, j) +
                        probability_extend_prev_deleted_with_frameshift * (1 - probability_extend_deleted_with_frameshift) / (1 - probability_extend_prev_deleted_with_frameshift) * (dp_access_safe(Y[1], i - 1, j) + dp_access_safe(Y[2], i - 1, j));
@@ -1263,6 +1270,10 @@ int finalizeProfile(Profile &p, char *consensusSequence,
       if (tantanProbs[i] >= 0.5) probs[k] = end[k];
       double p = probs[k];
       probs[k] = (0.99 /* minus stop codon */ * p);
+#ifdef DUMMER_SCORING
+      probs[k] /= end[k];
+#endif
+
       minVal = std::min(minVal, probs[k]);
     }
     if (alphabetSize == 20) {
