@@ -29,7 +29,7 @@
 #include <getopt.h>
 #include <queue>
 
-#define OPT_e 10.0
+#define OPT_e 1e-5
 #define OPT_s 2
 #define OPT_m 0 // mask-filter doesnt work well on DNA
 #define OPT_t 1000
@@ -626,7 +626,7 @@ NucDist infer_nucleotide_distribution_equal_synonyms(
         char aa = (char)toupper((unsigned char)kv.first);
         auto it = aa2codons.find(aa);
         sm += kv.second;
-        std::cout << kv.first << " probs " << kv.second << std::endl;
+        //std::cout << kv.first << " probs " << kv.second << std::endl;
 
         const std::vector<std::string>& codons = it->second;
         double perCodon = kv.second / (double)codons.size();
@@ -640,7 +640,7 @@ NucDist infer_nucleotide_distribution_equal_synonyms(
         }
     }
 
-    std::cout << "assert " << sm << " == 1" << std::endl;
+    //std::cout << "assert " << sm << " == 1" << std::endl;
     // At this point:
     // - overall sums to 3 (because each codon contributes 3 bases) after AA normalization,
     // - pos1/pos2/pos3 each sum to 1.
@@ -872,7 +872,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
             //   similarities.push_back(s);
             // }
 
-            while(pq.size() >= 32) {
+            while(pq.size() >= 2) {
               pq.pop();
             }
           }
@@ -1248,7 +1248,7 @@ int finalizeProfile(Profile &p, char *consensusSequence,
 
   auto ret = new NucDist(infer_nucleotide_distribution_equal_synonyms(dist));
   p.debug = ret;
-  std::cout << ret->overall.at('A') << ' ' << ret->overall.at('C') << ' ' << ret->overall.at('G') << ' ' << ret->overall.at('T') << '\n';
+  //std::cout << ret->overall.at('A') << ' ' << ret->overall.at('C') << ' ' << ret->overall.at('G') << ' ' << ret->overall.at('T') << '\n';
   
   for (int i = 0; ; ++i) {
     Float *probs = p.values + i * p.width;
