@@ -29,7 +29,7 @@
 #include <getopt.h>
 #include <queue>
 
-#define OPT_e 1e-5
+#define OPT_e 10
 #define OPT_s 2
 #define OPT_m 0 // mask-filter doesnt work well on DNA
 #define OPT_t 1000
@@ -709,7 +709,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 		      int sequenceLength, Float *scratch,
 		      Float minProbRatio) {
 
-    std::cout << "findSimilarities called on " << (sequenceLength) << " x " << profile.length << std::endl;
+    //std::cout << "findSimilarities called on " << (sequenceLength) << " x " << profile.length << std::endl;
     // need original characters to do DNA -> protein
     // TODO: remove this hack
     const char *alphabet = getAlphabet(profile.width - nonLetterWidth);
@@ -882,11 +882,11 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     }
 
     while(!pq.empty()) {
-      std::cout << "add one with " << (pq.top().probRatio * scale) << std::endl;
+      //std::cout << "add one with " << (pq.top().probRatio * scale) << std::endl;
       similarities.push_back(pq.top());
       pq.pop();
     }
-    std::cout << "findSimilarities finished" << std::endl;
+    //std::cout << "findSimilarities finished" << std::endl;
 }
 
 int contigToSequencePos(Contig contig, size_t strandNum, int posInContig) {
