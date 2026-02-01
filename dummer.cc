@@ -724,11 +724,11 @@ struct {
   std::array<DP_2D, 3> Y, Z;
 
   void resize_if_need(size_t r, size_t c) {
-    if(r != this->r || c != this->c) {
-      W = {
+    W = {
         make_dp_table(r, c),
         make_dp_table(r, c)
       };
+    if(r != this->r || c != this->c) {
       X = make_dp_table(r, c);
       Y = {
         make_dp_table(r, c),
