@@ -843,11 +843,15 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
             if(actual_j + 2 < sequenceLength) {
               auto [emitNum, divisor] = decoded[actual_j];
               X[i][j] = params_cur.enter_match_probability * params_emission_probabilities[emitNum] * divisor * w[3];
+            } else {
+              X[i][j] = 0;
             }
           } else {
             if(actual_j - 2 >= 0) {
               auto [emitNum, divisor] = decoded[actual_j - 2];
               X[i][j] = params_cur.enter_match_probability * params_emission_probabilities[emitNum] * divisor * w[3];
+            } else {
+              X[i][j] = 0;
             }
           }          
           
