@@ -777,7 +777,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     })> pq;
 
     // MEGA HACK to avoid retranslating every pHMM (unsure if actually helps)
-    if(!similarities.size()) {
+//    if(!similarities.size()) {
       decoded.clear();
       decoded.resize(sequenceLength);
       
@@ -801,7 +801,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       for(int i = 0; i < sequenceLength - 2; i++) {
         decoded[i] = translate_wrapper(sequence_decompressed, i);
       }
-    }
+  //  }
     
     scratch_v2.resize_if_need(profile.length + 1, sequenceLength + 1);
     auto &W = scratch_v2.W;
@@ -825,7 +825,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
           adj = actual_i + 1;
         }
 
-        const Params &params_cur = profile.values_v2[i];
+        const Params &params_cur = profile.values_v2[actual_i];
         const Float *params_emission_probabilities = params + 4;
         
 
@@ -833,7 +833,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
           int actual_j = reverse ? (sequenceLength - 1 - j) : j; // actual j TODO RENAME
           std::array<Float, 4> w;
           for(int w_i = 1; w_i <= 3; w_i++) {
-            w[w_i] = dp_access_safe(W[reverse], i, j - w_i);
+            w[w_i] = dp_access_safe(W[reverse], i, j - w_i) + scale;
           }
           // w[1] = dp_access_safe(W[reverse], i, j - 1);
           // w[2] = dp_access_safe(W[reverse], i, j - 2);
@@ -863,10 +863,9 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
           Z[2][i][j] = params_cur.alpha_prime[2] * w[2];
 
           W[reverse][i][j] += Z[0][i][j] + Z[1][i][j] + Z[2][i][j];
-          W[reverse][i][j] += scale;
 
           // Z[i][j] already computed at this point
-          w[0] = W[reverse][i][j];
+          w[0] = W[reverse][i][j] + scale;
           
           Y[0][i][j] = params_cur.delta_prime[0] * w[0] +
                        params_cur.epsilon_prime[0] * dp_access_safe(Y[0], i - 1, j) +
@@ -887,12 +886,12 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
             //std::cout << (profile.length - 1 - i) << " " << (sequenceLength - 1 - (j - 1)) << " = " << wEndAnchored << std::endl;
             
             Float wMidAnchored = wEndAnchored * wBegAnchored;
-            // if(i == 456 - 1 && j == 19820) {
-            //   std::cout << "debug sum of probabilities of ending at phmm idx 456 " << wBegAnchored << std::endl;
-            // }
-            // if(actual_i == 9 - 1 && actual_j == 18491 - 1) {
-            //   std::cout << "debug sum of probabilities of starting at phmm idx 9 " << wEndAnchored << std::endl;
-            // }
+            if(i == 456 - 1 && j == 19820) {
+               std::cout << "debug sum of probabilities of ending at phmm idx 456 " << wBegAnchored << std::endl;
+            }
+            if(actual_i == 9 - 1 && actual_j == 18491 - 1) {
+               std::cout << "debug sum of probabilities of starting at phmm idx 9 " << wEndAnchored << std::endl;
+            }
 
             // assert(!std::isnan(wMidAnchored));
             AlignedSimilarity s = {wMidAnchored / scale, i, j, wEndAnchored};
@@ -909,12 +908,22 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
             // }
           }
         }
-        W[reverse][i][sequenceLength] = scale; // boundary
+        //W[reverse][i][sequenceLength] = scale; // boundary
       }
     }
 
+    if(minProbRatio >= 0)
     similarities.push_back(sel);
-    //std::cout << "findSimilarities finished" << std::endl;
+    else {
+        int i = sel.anchor1, j = sel.anchor2;
+        AlignedSimilarity b = sel;
+        b.probRatio = W[0][i][j];                                 
+        similarities.push_back(b);
+        b.probRatio = W[1][i][j];
+        similarities.push_back(b);
+        similarities.push_back(sel);
+    }
+    //std::cout << "findSimilarities finished with " << (sel.probRatio * scale) << std::endl;
 }
 
 int contigToSequencePos(Contig contig, size_t strandNum, int posInContig) {
@@ -1304,8 +1313,8 @@ int finalizeProfile(Profile &p, char *consensusSequence,
     double epsilon1 = probs[p.width + 3];
 
     double deltaFS = delta * FRAMESHIFT_MULTIPLIER;
-    p.values_v2.rbegin()->delta_prime[0] = delta * (1 - epsilon);
-    p.values_v2.rbegin()->delta_prime[1] = p.values_v2.rbegin()->delta_prime[2] = deltaFS * (1 - epsilon);
+    p.values_v2.rbegin()->delta_prime[0] = delta * (1 - epsilon1);
+    p.values_v2.rbegin()->delta_prime[1] = p.values_v2.rbegin()->delta_prime[2] = deltaFS * (1 - epsilon1);
 
     for(int i = 0; i <= 2; i++) {
       p.values_v2.rbegin()->epsilon_prime[i] = epsilon * (1 - epsilon1) / (1 - epsilon);
@@ -1317,7 +1326,7 @@ int finalizeProfile(Profile &p, char *consensusSequence,
     double c = (1 - alpha - delta);
     if (epsilon >= 1) return 0;
     probs[2] = delta;
-    probs[3] = epsilon;
+    probs[3] = 1; // workaround -1 emitted by stop codon
     Float minVal = c;
     for (int k = 4; k < 4 + alphabetSize; ++k) {
       if (tantanProbs[i] >= 0.5) probs[k] = end[k];
