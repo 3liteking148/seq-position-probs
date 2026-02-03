@@ -756,6 +756,12 @@ static void normalize(std::unordered_map<char,double>& m) {
     for (auto &kv : m) s += kv.second;
     if (s <= 0) return;
     for (auto &kv : m) kv.second /= s;
+
+    // hardcode probabilities
+    m['A'] = 0.25;
+    m['T'] = 0.25;
+    m['G'] = 0.25;
+    m['C'] = 0.25;
 }
 struct NucDist {
     std::unordered_map<char, double> overall{{'A',0},{'C',0},{'G',0},{'T',0}};
