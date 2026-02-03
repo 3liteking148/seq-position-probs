@@ -324,52 +324,187 @@ void addReverseMatch(std::vector<SegmentPair> &alignment, int pos1, int pos2) {
   alignment.push_back(sp);
 }
 
+using DP_2D = std::vector<std::vector<Float>>;
+DP_2D make_dp_table(size_t rows, size_t cols) {
+    return DP_2D(rows, std::vector<Float>(cols));
+}
+
+struct metadata {
+  Float metric = 0;
+  void *dest = nullptr;
+  int dest_i, dest_j;
+
+  metadata(Float init) : metric(init) {}
+
+  metadata add_cost(Float cost) {
+    metadata ret = *this;
+    ret.metric += cost;
+
+    return ret;
+  };
+
+  constexpr bool operator < (const metadata& r) const noexcept {
+    return this->metric < r.metric;
+  }
+};
+
+using DP_2Dv2 = std::vector<std::vector<metadata>>;
+DP_2Dv2 make_dp_table_v2(size_t rows, size_t cols) {
+    return DP_2Dv2(rows, std::vector<metadata>(cols, NAN));
+}
+
+inline double dp_access_safe(DP_2D &dp, int i, int j, double err = 0) {
+  if(0 <= i && i < dp.size() && 0 <= j && j < dp[0].size()) {
+    return dp[i][j];
+  }
+  return err;
+}
+
+struct {
+  size_t r = -1, c = -1;
+  std::array<DP_2D, 2> W;
+  DP_2D X;
+  std::array<DP_2D, 3> Y, Z;
+
+  void resize_if_need(size_t r, size_t c, bool reset_w = true) {
+    if(reset_w) {
+      W = {
+        make_dp_table(r, c),
+        make_dp_table(r, c)
+      };
+    }
+    
+    if(r != this->r || c != this->c) {
+      X = make_dp_table(r, c);
+      Y = {
+        make_dp_table(r, c),
+        make_dp_table(r, c),
+        make_dp_table(r, c)
+      };
+      Z = {
+        make_dp_table(r, c),
+        make_dp_table(r, c),
+        make_dp_table(r, c)
+      };
+    }
+  }
+} scratch_v2;
+std::vector<std::pair<int, Float>> decoded;
+
+template <typename T, typename U>
+std::pair<T, U> operator+(const std::pair<T, U>& a,
+                          const std::pair<T, U>& b)
+{
+    return { a.first + b.first, b.second};
+}
 void addForwardAlignment(std::vector<SegmentPair> &alignment,
 			 Profile profile, const char *sequence,
 			 int sequenceLength, const Float *scratch,
 			 int iBeg, int jBeg, double half) {
-  long rowSize = simdRoundUp(sequenceLength + 1) + simdLen;
-  const char *seq = sequence + jBeg;
+  
+  /*
+  TODO memory optimization: per-diagonal indexing using row (profile) indexes
+  0 0 0 0
+  1 1 1
+  2 2
+  3
 
-  for (int size = 16; ; size *= 2) {
-    int iEnd = std::min(iBeg + size, profile.length + 1);
-    int jEnd = std::min(jBeg + size, sequenceLength + 1);
-    int jLen = jEnd - jBeg;
-    std::vector<double> scratch2(jLen * 2);  // use "double" to avoid underflow
-    double *X = scratch2.data();
-    double *Y = X + jLen;
-    double wSum = 0;
+  base cases:
+    idx = 0 X and Y are 0 (only insertions allowed)
+    idx = row #: X and Z are 0 (only deletions allowed)
+  */
 
-    for (int i = iBeg; i < iEnd; ++i) {
-      const Float *Wbackward = scratch + (i+1) * rowSize + jBeg + 1;
-      double a = profile.values[i * profile.width + 0];
-      double b = profile.values[i * profile.width + 1];
-      double d = profile.values[i * profile.width + 2];
-      double e = profile.values[i * profile.width + 3];
-      const Float *S = profile.values + i * profile.width + 4;
+  //scratch_v2.resize_if_need(std::min(profile.length + 1, sequenceLength + 1), std::min(profile.length + 1, sequenceLength + 1));
+  
+  std::array<DP_2Dv2, 2> W{
+      make_dp_table_v2(profile.length + 1, sequenceLength + 1),
+      make_dp_table_v2(profile.length + 1, sequenceLength + 1)
+  };
+  DP_2Dv2 X = make_dp_table_v2(profile.length + 1, sequenceLength);
+  std::array<DP_2Dv2, 3> Y{
+      make_dp_table_v2(profile.length + 1, sequenceLength),
+      make_dp_table_v2(profile.length + 1, sequenceLength),
+      make_dp_table_v2(profile.length + 1, sequenceLength)
+  };
+  std::array<DP_2Dv2, 3> Z{
+      make_dp_table_v2(profile.length + 1, sequenceLength),
+      make_dp_table_v2(profile.length + 1, sequenceLength),
+      make_dp_table_v2(profile.length + 1, sequenceLength)
+  };
 
-      double x = (i == iBeg) ? scale : 0;
-      double z = 0;
-      for (int j = 0; j < jLen; ++j) {
-	double y = Y[j];
-	double w = x + y + z;
-	wSum += w;
-	Y[j] = d * w + e * y;
-	x = X[j];
-	z = a * w + b * z;
-	if (i == profile.length || jBeg + j == sequenceLength) continue;
-	X[j] = S[seq[j]] * w;
-	if (X[j] * Wbackward[j] > half * scale) {
-	  addForwardMatch(alignment, i, jBeg + j);
-	}
-      }
+  addForwardMatch(alignment, iBeg, jBeg);
+  //std::cout << "anchor is " << iBeg << " and " << jBeg << std::endl;
 
-      if (wSum >= half) return;
+  auto dp_access_safe_v2 = [&](DP_2Dv2 &dp, int i, int j) {
+    if(0 <= i && i < dp.size() && 0 <= j && j < dp[0].size()) {
+      metadata ret(dp[i][j].metric);
+      ret.dest = &dp;
+      ret.dest_i = i;
+      ret.dest_j = j;
+      return ret;
     }
 
-    // this line should be unnecessary, except for problems such as overflow:
-    if (iEnd >= profile.length && jEnd >= sequenceLength) break;
+    metadata ret(-INFINITY);
+    return ret;
+  };
+
+  for(int radius = std::max(profile.length - iBeg, sequenceLength - 1 - jBeg); radius >= 0; radius--) {
+    for(int i = iBeg, j = jBeg + radius; i <= profile.length && j >= jBeg; i++, j--) {
+      if(j >= sequenceLength) continue;
+
+      std::array<Float, 4> w;
+      const Params &params_cur = profile.values_v2[i];
+      const Params &params_later = profile.values_v2[i + 1];
+      const Float *params = profile.values + (i) * profile.width;
+      const Float *params_emission_probabilities = params + 4;
+      
+      if(j + 1 < sequenceLength) {
+        auto [emitNum, divisor] = decoded[j + 1]; // upto j emitted alr
+        X[i][j] = dp_access_safe_v2(W[0], i + 1, j + 3).add_cost(log(params_emission_probabilities[emitNum] * divisor));
+      } else {
+        X[i][j] = metadata(-INFINITY);
+      }
+      Y[0][i][j] = std::max(dp_access_safe_v2(W[0], i + 1, j + 0), dp_access_safe_v2(Y[0], i + 1, j + 0).add_cost(log(params_later.epsilon_prime[0])));
+      Y[1][i][j] = std::max(dp_access_safe_v2(W[0], i + 1, j + 2), dp_access_safe_v2(Y[0], i + 1, j + 2).add_cost(log(params_later.epsilon_prime[1])));
+      Y[2][i][j] = std::max(dp_access_safe_v2(W[0], i + 1, j + 1), dp_access_safe_v2(Y[0], i + 1, j + 1).add_cost(log(params_later.epsilon_prime[2])));
+      
+      Z[0][i][j] = std::max(dp_access_safe_v2(W[0], i, j + 3), dp_access_safe_v2(Z[0], i, j + 3).add_cost(log(params_cur.beta_prime[0])));
+      for(int k = 1; k <= 2; k++) {
+        Z[k][i][j] = std::max(dp_access_safe_v2(W[0], i, j + k), dp_access_safe_v2(Z[0], i, j + k).add_cost(log(params_cur.beta_prime[k])));
+      }
+
+      W[0][i][j] = std::max({
+        metadata(0), // end here
+        dp_access_safe_v2(X, i, j).add_cost(log(params_cur.enter_match_probability)),
+        dp_access_safe_v2(Y[0], i, j).add_cost(log(params_cur.delta_prime[0])),
+        dp_access_safe_v2(Y[1], i, j).add_cost(log(params_cur.delta_prime[1])),
+        dp_access_safe_v2(Y[2], i, j).add_cost(log(params_cur.delta_prime[2])),
+        dp_access_safe_v2(Z[0], i, j).add_cost(log(params_cur.alpha_prime[0])),
+        dp_access_safe_v2(Z[1], i, j).add_cost(log(params_cur.alpha_prime[1])),
+        dp_access_safe_v2(Z[2], i, j).add_cost(log(params_cur.alpha_prime[2]))});
+    }
   }
+  
+  bool is_print = false;
+  int i = iBeg, j = jBeg;
+  auto cur = &X[iBeg][jBeg];
+  while(true) {
+    //std::cout << i << " " << j << " " << (cur->metric) << std::endl;
+    if(is_print) {
+      addForwardMatch(alignment, i, j + 3);
+    }
+
+    if(cur->dest != nullptr) {
+      is_print = cur->dest == &X;
+      i = cur->dest_i;
+      j = cur->dest_j;
+      cur = &((*((DP_2Dv2*)cur->dest))[i][j]);
+    } else {
+      break;
+    }
+    
+  } 
+
 }
 
 void addReverseAlignment(std::vector<SegmentPair> &alignment,
@@ -502,8 +637,8 @@ void addMidAnchored(std::vector<AlignedSimilarity> &similarities,
   // if (!maybeLocalMaximum(profile, sequence, sequenceLength, scratch,
 	// 		 anchor1, anchor2, wMidAnchored)) return;
   AlignedSimilarity s = {wMidAnchored / scale, anchor1, anchor2, wEndAnchored};
-  // addForwardAlignment(s.alignment, profile, sequence, sequenceLength,
-	// 	      scratch, anchor1, anchor2, wBegAnchored / 2);
+  addForwardAlignment(s.alignment, profile, sequence, sequenceLength,
+		      scratch, anchor1, anchor2, wBegAnchored / 2);
   similarities.push_back(s);
 }
 
@@ -705,46 +840,7 @@ char translate(const char* dna, int i) {
 }
 // vibe-coded section end
 
-using DP_2D = std::vector<std::vector<Float>>;
-DP_2D make_dp_table(size_t rows, size_t cols) {
-    return DP_2D(rows, std::vector<Float>(cols));
-}
 
-inline double dp_access_safe(DP_2D &dp, int i, int j) {
-  if(0 <= i && i < dp.size() && 0 <= j && j < dp[0].size()) {
-    return dp[i][j];
-  }
-  return 0.0;
-}
-
-struct {
-  size_t r = -1, c = -1;
-  std::array<DP_2D, 2> W;
-  DP_2D X;
-  std::array<DP_2D, 3> Y, Z;
-
-  void resize_if_need(size_t r, size_t c) {
-    W = {
-        make_dp_table(r, c),
-        make_dp_table(r, c)
-      };
-    if(r != this->r || c != this->c) {
-      X = make_dp_table(r, c);
-      Y = {
-        make_dp_table(r, c),
-        make_dp_table(r, c),
-        make_dp_table(r, c)
-      };
-      Z = {
-        make_dp_table(r, c),
-        make_dp_table(r, c),
-        make_dp_table(r, c)
-      };
-    }
-  }
-} scratch_v2;
-
-std::vector<std::pair<int, Float>> decoded;
 void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 		      Profile profile, const char *sequence,
 		      int sequenceLength, Float *scratch,
@@ -803,7 +899,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       }
   //  }
     
-    scratch_v2.resize_if_need(profile.length + 1, sequenceLength + 1);
+    scratch_v2.resize_if_need(profile.length + 1, sequenceLength);
     auto &W = scratch_v2.W;
     auto &X = scratch_v2.X;
     auto &Y = scratch_v2.Y;
@@ -811,110 +907,109 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
     Float mx = 0;
     AlignedSimilarity sel;
-    for(int reverse = 1; reverse >= 0; reverse--) {
-      for(int i = 0; i <= profile.length; i++ ) {
-        //std::cout << "start " << i << std::endl;
-        int actual_i = reverse ? (profile.length - i) : i; // actual i TODO RENAME
+     
+    for(int i = profile.length; i >= 0; i--) {
+      const Float *params = profile.values + (i) * profile.width;
+      const Float *params_emission_probabilities = params + 4;
 
-        const Float *params = profile.values + (actual_i) * profile.width;
+      const Params &params_cur = profile.values_v2[i];
+      const Params &params_later = profile.values_v2[i + 1];
 
-        int adj;
-        if(reverse) {
-          adj = actual_i - 1;
+      for(int j = sequenceLength - 1; j >= 0; j--) {
+        if(j + 1 < sequenceLength) {
+          auto [emitNum, divisor] = decoded[j + 1]; // upto j emitted alr
+          X[i][j] = params_emission_probabilities[emitNum] * divisor * dp_access_safe(W[1], i + 1, j + 3);
         } else {
-          adj = actual_i + 1;
+          X[i][j] = 0;
+        }
+        Y[0][i][j] = dp_access_safe(W[1], i + 1, j + 0) + params_later.epsilon_prime[0] * dp_access_safe(Y[0], i + 1, j + 0);
+        Y[1][i][j] = dp_access_safe(W[1], i + 1, j + 2) + params_later.epsilon_prime[1] * dp_access_safe(Y[0], i + 1, j + 2);
+        Y[2][i][j] = dp_access_safe(W[1], i + 1, j + 1) + params_later.epsilon_prime[2] * dp_access_safe(Y[0], i + 1, j + 1);
+      
+        Z[0][i][j] = dp_access_safe(W[1], i, j + 3) + params_cur.beta_prime[0] * dp_access_safe(Z[0], i, j + 3);
+        for(int k = 1; k <= 2; k++) {
+          Z[k][i][j] = dp_access_safe(W[1], i, j + k) + params_cur.beta_prime[k] * dp_access_safe(Z[0], i, j + k);
         }
 
-        const Params &params_cur = profile.values_v2[actual_i];
-        const Float *params_emission_probabilities = params + 4;
-        
-
-        for(int j = 0; j < sequenceLength; j++) {
-          int actual_j = reverse ? (sequenceLength - 1 - j) : j; // actual j TODO RENAME
-          std::array<Float, 4> w;
-          for(int w_i = 1; w_i <= 3; w_i++) {
-            w[w_i] = dp_access_safe(W[reverse], i, j - w_i) + scale;
-          }
-          // w[1] = dp_access_safe(W[reverse], i, j - 1);
-          // w[2] = dp_access_safe(W[reverse], i, j - 2);
-          // w[3] = dp_access_safe(W[reverse], i, j - 3);
-
-          if(reverse) {
-            if(actual_j + 2 < sequenceLength) {
-              auto [emitNum, divisor] = decoded[actual_j];
-              X[i][j] = params_cur.enter_match_probability * params_emission_probabilities[emitNum] * divisor * w[3];
-            } else {
-              X[i][j] = 0;
-            }
-          } else {
-            if(actual_j - 2 >= 0) {
-              auto [emitNum, divisor] = decoded[actual_j - 2];
-              X[i][j] = params_cur.enter_match_probability * params_emission_probabilities[emitNum] * divisor * w[3];
-            } else {
-              X[i][j] = 0;
-            }
-          }          
-          
-          Z[0][i][j] = params_cur.alpha_prime[0] * w[3] +
-                       params_cur.beta_prime[0] * dp_access_safe(Z[0], i, j - 3) + 
-                       params_cur.beta_prime[1] * dp_access_safe(Z[1], i, j - 3) + 
-                       params_cur.beta_prime[2] * dp_access_safe(Z[2], i, j - 3);
-          Z[1][i][j] = params_cur.alpha_prime[1] * w[1];
-          Z[2][i][j] = params_cur.alpha_prime[2] * w[2];
-
-          W[reverse][i][j] += Z[0][i][j] + Z[1][i][j] + Z[2][i][j];
-
-          // Z[i][j] already computed at this point
-          w[0] = W[reverse][i][j] + scale;
-          
-          Y[0][i][j] = params_cur.delta_prime[0] * w[0] +
-                       params_cur.epsilon_prime[0] * dp_access_safe(Y[0], i - 1, j) +
-                       params_cur.epsilon_prime[1] * dp_access_safe(Y[1], i - 1, j) + 
-                       params_cur.epsilon_prime[2] * dp_access_safe(Y[2], i - 1, j);
-          Y[1][i][j] = params_cur.delta_prime[1] * w[2];
-          Y[2][i][j] = params_cur.delta_prime[2] * w[1];
-
-          //store at next hmm state
-          if(i + 1 <= profile.length) W[reverse][i + 1][j] += X[i][j] + Y[0][i][j] + Y[1][i][j] + Y[2][i][j];
-
-          
-
-          if(!reverse && i) {
-            auto wBegAnchored = W[0][i][j];
-            
-            auto wEndAnchored = dp_access_safe(W[1], profile.length - i, sequenceLength - 1 - (j + 1));
-            //std::cout << (profile.length - 1 - i) << " " << (sequenceLength - 1 - (j - 1)) << " = " << wEndAnchored << std::endl;
-            
-            Float wMidAnchored = wEndAnchored * wBegAnchored;
-            if(i == 456 - 1 && j == 19820) {
-               std::cout << "debug sum of probabilities of ending at phmm idx 456 " << wBegAnchored << std::endl;
-            }
-            if(actual_i == 9 - 1 && actual_j == 18491 - 1) {
-               std::cout << "debug sum of probabilities of starting at phmm idx 9 " << wEndAnchored << std::endl;
-            }
-
-            // assert(!std::isnan(wMidAnchored));
-            AlignedSimilarity s = {wMidAnchored / scale, i, j, wEndAnchored};
-            //AlignedSimilarity s = {wBegAnchored, i, j, wEndAnchored};
-            if(s.probRatio > mx) {
-              mx = s.probRatio;
-              sel = s;
-            }
-
-            // if(i == 12 && j == 743) {
-            //   std::cout << "actual idx: " << sequenceLength - 1 - (sequenceLength - 1 - (j - 1)) << std::endl;
-            //   assert(sequenceLength - 1 - (sequenceLength - 1 - (j - 1)) == 742);
-            //   similarities.push_back(s);
-            // }
-          }
-        }
-        //W[reverse][i][sequenceLength] = scale; // boundary
+        W[1][i][j] = dp_access_safe(X, i, j) * params_cur.enter_match_probability +
+          dp_access_safe(Y[0], i, j) * params_cur.delta_prime[0] +
+          dp_access_safe(Y[1], i, j) * params_cur.delta_prime[1] +
+          dp_access_safe(Y[2], i, j) * params_cur.delta_prime[2] +
+          dp_access_safe(Z[0], i, j) * params_cur.alpha_prime[0] +
+          dp_access_safe(Z[1], i, j) * params_cur.alpha_prime[1] +
+          dp_access_safe(Z[2], i, j) * params_cur.alpha_prime[2] +
+          scale;
       }
     }
 
-    if(minProbRatio >= 0)
-    similarities.push_back(sel);
-    else {
+    for(int i = 0; i <= profile.length; i++ ) {
+      const Float *params = profile.values + (i) * profile.width;
+
+      const Params &params_cur = profile.values_v2[i];
+      const Float *params_emission_probabilities = params + 4;
+      
+
+      for(int j = 0; j < sequenceLength; j++) {
+        std::array<Float, 4> w;
+        for(int w_i = 1; w_i <= 3; w_i++) {
+          w[w_i] = dp_access_safe(W[0], i, j - w_i) + (j - w_i >= -1 ? scale : 0);
+        }
+
+        if(j - 2 >= 0) {
+          auto [emitNum, divisor] = decoded[j - 2];
+          X[i][j] = params_cur.enter_match_probability * params_emission_probabilities[emitNum] * divisor * w[3];
+        } else {
+          X[i][j] = 0;
+        }       
+        
+        Z[0][i][j] = params_cur.alpha_prime[0] * w[3] +
+                      params_cur.beta_prime[0] * dp_access_safe(Z[0], i, j - 3) + 
+                      params_cur.beta_prime[1] * dp_access_safe(Z[1], i, j - 3) + 
+                      params_cur.beta_prime[2] * dp_access_safe(Z[2], i, j - 3);
+        Z[1][i][j] = params_cur.alpha_prime[1] * w[1];
+        Z[2][i][j] = params_cur.alpha_prime[2] * w[2];
+
+        W[0][i][j] += Z[0][i][j] + Z[1][i][j] + Z[2][i][j];
+
+        // Z[i][j] already computed at this point
+        w[0] = W[0][i][j] + scale;
+        
+        Y[0][i][j] = params_cur.delta_prime[0] * w[0] +
+                      params_cur.epsilon_prime[0] * dp_access_safe(Y[0], i - 1, j) +
+                      params_cur.epsilon_prime[1] * dp_access_safe(Y[1], i - 1, j) + 
+                      params_cur.epsilon_prime[2] * dp_access_safe(Y[2], i - 1, j);
+        Y[1][i][j] = params_cur.delta_prime[1] * w[2];
+        Y[2][i][j] = params_cur.delta_prime[2] * w[1];
+
+        //store at next hmm state
+        if(i + 1 <= profile.length) W[0][i + 1][j] += X[i][j] + Y[0][i][j] + Y[1][i][j] + Y[2][i][j];
+
+        auto wEndAnchored = W[0][i][j];
+        auto wBegAnchored = W[1][i][j];
+        //std::cout << (profile.length - 1 - i) << " " << (sequenceLength - 1 - (j - 1)) << " = " << wEndAnchored << std::endl;
+        
+        Float wMidAnchored = wEndAnchored * wBegAnchored;
+        if(i == 456 - 1 && j == 19820) {
+            std::cout << "debug sum of probabilities of ending at phmm idx 456 " << wEndAnchored << std::endl;
+        }
+        if(i == 9 - 1 && j == 18491 - 1) {
+            std::cout << "debug sum of probabilities of starting at phmm idx 9 " << wBegAnchored << std::endl;
+        }
+
+        // assert(!std::isnan(wMidAnchored));
+        AlignedSimilarity s = {wMidAnchored / scale, i, j, wEndAnchored};
+        //AlignedSimilarity s = {wBegAnchored, i, j, wEndAnchored};
+        if(s.probRatio > mx) {
+          mx = s.probRatio;
+          sel = s;
+        }
+      }
+      //W[reverse][i][sequenceLength] = scale; // boundary
+    }
+
+    if(minProbRatio >= 0) {
+      addMidAnchored(similarities, profile, sequence, sequenceLength, scratch, sel.anchor1, sel.anchor2, sel.probRatio * scale / sel.wEndAnchored, sel.wEndAnchored);
+    } else {
         int i = sel.anchor1, j = sel.anchor2;
         AlignedSimilarity b = sel;
         b.probRatio = W[0][i][j];                                 
