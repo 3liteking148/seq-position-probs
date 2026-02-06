@@ -37,6 +37,7 @@
 #define OPT_b 100
 
 //#define DUMMER_SCORING
+#define EVALUE
 
 #ifdef DOUBLE
 typedef double Float;
@@ -47,6 +48,10 @@ typedef float Float;
 typedef SimdFlt SimdFloat;
 const int simdLen = simdFltLen;
 #endif
+
+const Float STOP_CODON_PROB = 0.001;
+const Float FRAMESHIFT1_MULTIPLIER = 0.001;
+const Float FRAMESHIFT2_MULTIPLIER = 0.0005;
 
 int simdRoundUp(int x) {  // lowest multiple of simdLen that is >= x
   return x - 1 - (x - 1) % simdLen + simdLen;
@@ -96,6 +101,7 @@ struct Params { // TODO: maybe SIMD order
 struct Profile {  // position-specific (insert, delete, letter) probabilities
   Float *values;  // probabilities or probability ratios
   std::vector<Params> values_v2;
+  std::vector<Float> bg_probs;
   int width;   // number of values per position
   int length;  // number of positions
   size_t nameIdx;
@@ -269,6 +275,7 @@ int strandPosition(size_t strandNum, int seqLength, int position) {
   return (strandNum % 2) ? seqLength - position : position;
 }
 
+Float xx_null;
 void printSimilarity(const char *names, Profile p, Sequence s,
 		     const FinalSimilarity &sim, double evalue) {
   char strand = "+-"[sim.strandNum % 2];
@@ -282,7 +289,7 @@ void printSimilarity(const char *names, Profile p, Sequence s,
   int w2 = std::max(numOfDigits(sim.start1), numOfDigits(start2));
   int w3 = std::max(numOfDigits(span1), numOfDigits(span2));
   int w4 = std::max(numOfDigits(p.length), numOfDigits(s.length));
-  std::cout << "a score=" << log2(sim.probRatio)+shift << " E=" << evalue
+  std::cout << "a score=" << (log2(sim.probRatio)+shift) << " E=" << evalue
 	    << " anchor=" << sim.anchor1 << "," << anchor2 << "\n";
   std::cout << "s " << std::left << std::setw(w1) << names + p.nameIdx << " "
 	    << std::right << std::setw(w2) << sim.start1 << " "
@@ -844,6 +851,12 @@ char translate(const char* dna, int i) {
     auto it = codonTable.find(codon);
     return (it != codonTable.end()) ? it->second : '?';
 }
+Float log_sum_exp(Float a, Float b) {
+  if (a == -INFINITY) return b;
+  if (b == -INFINITY) return a;
+  Float m = std::max(a, b);
+  return m + log2(exp2(a - m) + exp2(b - m));
+}
 // vibe-coded section end
 
 
@@ -880,8 +893,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
     // MEGA HACK to avoid retranslating every pHMM (unsure if actually helps)
 //    if(!similarities.size()) {
-      decoded.clear();
-      decoded.resize(sequenceLength);
+      decoded = std::vector<std::pair<int, Float>>(sequenceLength, {-1, NAN});
       
       auto translate_wrapper = [&](std::string &dna, int i) -> std::pair<int, Float> {
           NucDist dist = *reinterpret_cast<NucDist*>(profile.debug);
@@ -890,10 +902,12 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
   #ifdef DUMMER_SCORING
           Float divisor = 1;
   #else
-          Float divisor = dump.at(translated).size() * dist.overall[dna[i]] * dist.overall[dna[i + 1]] * dist.overall[dna[i + 2]]; // remove background probability 0.25^3, and also dedupliate emission
+          //Float divisor = aa2codons.at(translated).size() * dist.overall[dna[i]] * dist.overall[dna[i + 1]] * dist.overall[dna[i + 2]]; // remove background probability 0.25^3, and also dedupliate emission
+          //Float divisor = aa2codons.at(translated).size();
+          Float divisor = 1;
   #endif
           if(translated == '*') {
-            return {-1, 0.01 / divisor}; // for now
+            return {-1, STOP_CODON_PROB / divisor}; // for now
           }
 
           int toNum = charToNumber[translated];
@@ -905,6 +919,35 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       }
   //  }
     
+    std::vector<Float> dp(sequenceLength + 1);
+    #define XX 0.00
+
+    for (int i = sequenceLength - 1; i >= 0; i--) {
+      auto [emitNum, divisor] = decoded[i];
+      Float t1 = -INFINITY;
+      Float t2;
+      if (i + 3 <= sequenceLength) {
+        t1 = log2(1 - XX)
+          + log2(profile.bg_probs[emitNum + 4])
+          + dp[i + 3];
+        t2 = log2(XX * 0.25) + dp[i + 1];
+      } else {
+        t2 = log2(0.25) + dp[i + 1];
+      }
+      
+      
+      dp[i] = log_sum_exp(t1, t2);
+    }
+    //xx_null = dp[0];
+    xx_null = (dp[0] + dp[1] + dp[2]) / 3;
+    //std::cout << "dp is " << xx_null << " in place of " << (-2 * sequenceLength) << std::endl;
+    
+    //auto half = pow(2, (-2 * sequenceLength - xx_null) / 2.0);
+    auto distribute1 = pow(2, -(xx_null / sequenceLength));
+    auto distribute2 = distribute1 * distribute1;
+    auto distribute3 = distribute2 * distribute1;
+    //std::cout << "redist " << distribute1 << std::endl;
+
     scratch_v2.resize_if_need(profile.length + 1, sequenceLength);
     auto &W = scratch_v2.W;
     auto &X = scratch_v2.X;
@@ -922,28 +965,27 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       const Params &params_later = profile.values_v2[i + 1];
 
       for(int j = sequenceLength - 1; j >= 0; j--) {
-        if(j + 1 < sequenceLength) {
+        if(j + 3 < sequenceLength) {
           auto [emitNum, divisor] = decoded[j + 1]; // upto j emitted alr
-          X[i][j] = params_emission_probabilities[emitNum] * divisor * dp_access_safe(W[1], i + 1, j + 3);
+          X[i][j] = params_emission_probabilities[emitNum] * divisor * distribute3 * dp_access_safe(W[1], i + 1, j + 3);
         } else {
           X[i][j] = 0;
         }
         Y[0][i][j] = dp_access_safe(W[1], i + 1, j + 0) + params_later.epsilon_prime[0] * dp_access_safe(Y[0], i + 1, j + 0);
-        Y[1][i][j] = dp_access_safe(W[1], i + 1, j + 2) + params_later.epsilon_prime[1] * dp_access_safe(Y[0], i + 1, j + 2);
-        Y[2][i][j] = dp_access_safe(W[1], i + 1, j + 1) + params_later.epsilon_prime[2] * dp_access_safe(Y[0], i + 1, j + 1);
+        Y[1][i][j] = dp_access_safe(W[1], i + 1, j + 2) + params_later.epsilon_prime[1] * 0.25 * 0.25 * distribute2 * dp_access_safe(Y[0], i + 1, j + 2);
+        Y[2][i][j] = dp_access_safe(W[1], i + 1, j + 1) + params_later.epsilon_prime[2] * 0.25 * distribute1 * dp_access_safe(Y[0], i + 1, j + 1);
       
-        Z[0][i][j] = dp_access_safe(W[1], i, j + 3) + params_cur.beta_prime[0] * dp_access_safe(Z[0], i, j + 3);
-        for(int k = 1; k <= 2; k++) {
-          Z[k][i][j] = dp_access_safe(W[1], i, j + k) + params_cur.beta_prime[k] * dp_access_safe(Z[0], i, j + k);
-        }
+        Z[0][i][j] = dp_access_safe(W[1], i, j + 3) + params_cur.beta_prime[0] * 0.25 * 0.25 * 0.25 * distribute3 * dp_access_safe(Z[0], i, j + 3);
+        Z[1][i][j] = dp_access_safe(W[1], i, j + 1) + params_cur.beta_prime[1] * 0.25 * distribute1 * dp_access_safe(Z[0], i, j + 1);
+        Z[2][i][j] = dp_access_safe(W[1], i, j + 2) + params_cur.beta_prime[2] * 0.25 * 0.25 * distribute2 * dp_access_safe(Z[0], i, j + 2);
 
         W[1][i][j] = dp_access_safe(X, i, j) * params_cur.enter_match_probability +
           dp_access_safe(Y[0], i, j) * params_cur.delta_prime[0] +
-          dp_access_safe(Y[1], i, j) * params_cur.delta_prime[1] +
-          dp_access_safe(Y[2], i, j) * params_cur.delta_prime[2] +
-          dp_access_safe(Z[0], i, j) * params_cur.alpha_prime[0] +
-          dp_access_safe(Z[1], i, j) * params_cur.alpha_prime[1] +
-          dp_access_safe(Z[2], i, j) * params_cur.alpha_prime[2] +
+          dp_access_safe(Y[1], i, j) * params_cur.delta_prime[1] * 0.25 * 0.25 * distribute2 +
+          dp_access_safe(Y[2], i, j) * params_cur.delta_prime[2] * 0.25 * distribute1 +
+          dp_access_safe(Z[0], i, j) * params_cur.alpha_prime[0] * 0.25 * 0.25 * 0.25 * distribute3 +
+          dp_access_safe(Z[1], i, j) * params_cur.alpha_prime[1] * 0.25 * distribute1 +
+          dp_access_safe(Z[2], i, j) * params_cur.alpha_prime[2] * 0.25 * 0.25 * distribute2 +
           scale;
       }
     }
@@ -955,7 +997,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       const Float *params_emission_probabilities = params + 4;
       
 
-      for(int j = 0; j < sequenceLength; j++) {
+      for(int j = 0; j < sequenceLength; j += 3) {
         std::array<Float, 4> w;
         for(int w_i = 1; w_i <= 3; w_i++) {
           w[w_i] = dp_access_safe(W[0], i, j - w_i) + (j - w_i >= -1 ? scale : 0);
@@ -963,17 +1005,17 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
         if(j - 2 >= 0) {
           auto [emitNum, divisor] = decoded[j - 2];
-          X[i][j] = params_cur.enter_match_probability * params_emission_probabilities[emitNum] * divisor * w[3];
+          X[i][j] = params_cur.enter_match_probability * params_emission_probabilities[emitNum] * divisor * distribute3 * w[3];
         } else {
           X[i][j] = 0;
         }       
         
-        Z[0][i][j] = params_cur.alpha_prime[0] * w[3] +
-                      params_cur.beta_prime[0] * dp_access_safe(Z[0], i, j - 3) + 
-                      params_cur.beta_prime[1] * dp_access_safe(Z[1], i, j - 3) + 
-                      params_cur.beta_prime[2] * dp_access_safe(Z[2], i, j - 3);
-        Z[1][i][j] = params_cur.alpha_prime[1] * w[1];
-        Z[2][i][j] = params_cur.alpha_prime[2] * w[2];
+        Z[0][i][j] = params_cur.alpha_prime[0] * 0.25 * 0.25 * 0.25 * distribute3 * w[3] +
+                      params_cur.beta_prime[0] * 0.25 * 0.25 * 0.25 * distribute3 * dp_access_safe(Z[0], i, j - 3) + 
+                      params_cur.beta_prime[1] * 0.25 * 0.25 * 0.25 * distribute3 * dp_access_safe(Z[1], i, j - 3) + 
+                      params_cur.beta_prime[2] * 0.25 * 0.25 * 0.25 * distribute3 * dp_access_safe(Z[2], i, j - 3);
+        Z[1][i][j] = params_cur.alpha_prime[1] * 0.25 * distribute1 * w[1];
+        Z[2][i][j] = params_cur.alpha_prime[2] * 0.25 * 0.25 * distribute2 * w[2];
 
         W[0][i][j] += Z[0][i][j] + Z[1][i][j] + Z[2][i][j];
 
@@ -984,12 +1026,13 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
                       params_cur.epsilon_prime[0] * dp_access_safe(Y[0], i - 1, j) +
                       params_cur.epsilon_prime[1] * dp_access_safe(Y[1], i - 1, j) + 
                       params_cur.epsilon_prime[2] * dp_access_safe(Y[2], i - 1, j);
-        Y[1][i][j] = params_cur.delta_prime[1] * w[2];
-        Y[2][i][j] = params_cur.delta_prime[2] * w[1];
+        Y[1][i][j] = params_cur.delta_prime[1] * 0.25 * 0.25 * distribute2 * w[2];
+        Y[2][i][j] = params_cur.delta_prime[2] * 0.25 * distribute1 * w[1];
 
         //store at next hmm state
         if(i + 1 <= profile.length) W[0][i + 1][j] += X[i][j] + Y[0][i][j] + Y[1][i][j] + Y[2][i][j];
 
+        
         auto wEndAnchored = W[0][i][j];
         auto wBegAnchored = W[1][i][j];
         //std::cout << (profile.length - 1 - i) << " " << (sequenceLength - 1 - (j - 1)) << " = " << wEndAnchored << std::endl;
@@ -1014,10 +1057,12 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     }
 
     if(minProbRatio >= 0) {
+      std::cout << "adding " << mx << std::endl;
       addMidAnchored(similarities, profile, sequence, sequenceLength, scratch, sel.anchor1, sel.anchor2, sel.probRatio * scale / sel.wEndAnchored, sel.wEndAnchored);
     } else {
         int i = sel.anchor1, j = sel.anchor2;
         AlignedSimilarity b = sel;
+        //std::cout << log(sel.probRatio) << std::endl;
         b.probRatio = W[0][i][j];                                 
         similarities.push_back(b);
         b.probRatio = W[1][i][j];
@@ -1177,9 +1222,26 @@ void estimateK(Profile &profile, const Float *letterFreqs,
 	      << std::endl;
   }
 
+  auto alphabet = getAlphabet(20);
+  char charToNumber[256];
+  setCharToNumber(charToNumber, alphabet);
   for (int i = 0; i < numOfSequences; ++i) {
     // should be "< sequenceLength", but kept for pseudo-random reproducibility
+#if 1
     for (int j = 0; j <= sequenceLength; ++j) sequence[j] = dist(randGen);
+#else
+    for (int j = 0; j <= sequenceLength; j += 3) {
+      int x = dist(randGen);
+      std::discrete_distribution<> dist2(0, (int)aa2codons[alphabet[x]].size());
+      auto &xx = aa2codons[alphabet[x]][dist2(randGen)];
+      for(int k = 0; k < 3; k++) {
+        if(j + k <= sequenceLength) {
+          sequence[j + k] = charToNumber[xx[k]];
+        }
+      }
+    }
+#endif
+
     for (int j = 0; j < border; ++j) sequence[sequenceLength+j] = sequence[j];
     std::vector<AlignedSimilarity> sims;
     findSimilarities(sims, profile, sequence, sequenceLength + border,
@@ -1250,6 +1312,11 @@ void estimateK(Profile &profile, const Float *letterFreqs,
   } else {
     std::cout << "# K: " << MMmidKsimple/scale << "\n";
   }
+
+  static Float lambdas = 0, n = 0;
+  std::cout << "Lambda: " << MMmidL << "\n";
+  n++, lambdas += MMmidL;
+  std::cout << "Avg Lambda: " << (lambdas / n) << "\n";
 
   profile.gumbelKendAnchored = MMendKsimple;
   profile.gumbelKbegAnchored = MMbegKsimple;
@@ -1371,7 +1438,15 @@ int finalizeProfile(Profile &p, char *consensusSequence,
     end[k] = mean;
     sumOfMeans += mean;
   }
-  for (int k = 4; k < 4 + alphabetSize; ++k) end[k] /= sumOfMeans;
+
+  p.bg_probs.push_back(0);
+  p.bg_probs.push_back(0);
+  p.bg_probs.push_back(0);
+  p.bg_probs.push_back(1); // hack
+  for (int k = 4; k < 4 + alphabetSize; ++k) {
+    end[k] /= sumOfMeans;
+    p.bg_probs.push_back((1 - STOP_CODON_PROB) * end[k]);
+  }
 
   std::unordered_map<char, double> dist;
   char charToNumber[256];
@@ -1380,15 +1455,15 @@ int finalizeProfile(Profile &p, char *consensusSequence,
   for(auto c : std::string(alphabet)) {
     if(c == 'O') c = 'K';
     if(c == 'U') c = 'C';
-    dist[c] = end[4 + charToNumber[c]] * 0.99;
+    dist[c] = end[4 + charToNumber[c]] * (1 - STOP_CODON_PROB);
   }
-  dist['*'] = 0.01;
+  dist['*'] = STOP_CODON_PROB;
 
   auto ret = new NucDist(infer_nucleotide_distribution_equal_synonyms(dist));
   p.debug = ret;
   //std::cout << ret->overall.at('A') << ' ' << ret->overall.at('C') << ' ' << ret->overall.at('G') << ' ' << ret->overall.at('T') << '\n';
   
-  const Float FRAMESHIFT_MULTIPLIER = 0.01;
+
   for (int i = 0; ; ++i) {
     p.values_v2.push_back({0});
 
@@ -1396,9 +1471,11 @@ int finalizeProfile(Profile &p, char *consensusSequence,
     double alpha = probs[0];
     double beta = probs[1];
 
-    double alphaFS = alpha * FRAMESHIFT_MULTIPLIER;
+    double alphaFS1 = alpha * FRAMESHIFT1_MULTIPLIER;
+    double alphaFS2 = alpha * FRAMESHIFT2_MULTIPLIER;
     p.values_v2.rbegin()->alpha_prime[0] = alpha * (1 - beta);
-    p.values_v2.rbegin()->alpha_prime[1] = p.values_v2.rbegin()->alpha_prime[2] = alphaFS * (1 - beta);
+    p.values_v2.rbegin()->alpha_prime[1] = alphaFS1 * (1 - beta);
+    p.values_v2.rbegin()->alpha_prime[2] = alphaFS2 * (1 - beta);
 
     // all beta, are equal for now
     for(int i = 0; i <= 2; i++) {
@@ -1413,15 +1490,17 @@ int finalizeProfile(Profile &p, char *consensusSequence,
     double epsilon = probs[3];
     double epsilon1 = probs[p.width + 3];
 
-    double deltaFS = delta * FRAMESHIFT_MULTIPLIER;
+    double deltaFS1 = delta * FRAMESHIFT1_MULTIPLIER;
+    double deltaFS2 = delta * FRAMESHIFT2_MULTIPLIER;
     p.values_v2.rbegin()->delta_prime[0] = delta * (1 - epsilon1);
-    p.values_v2.rbegin()->delta_prime[1] = p.values_v2.rbegin()->delta_prime[2] = deltaFS * (1 - epsilon1);
+    p.values_v2.rbegin()->delta_prime[1] = deltaFS1 * (1 - epsilon1);
+    p.values_v2.rbegin()->delta_prime[2] = deltaFS2 * (1 - epsilon1);
 
     for(int i = 0; i <= 2; i++) {
       p.values_v2.rbegin()->epsilon_prime[i] = epsilon * (1 - epsilon1) / (1 - epsilon);
     }
 
-    p.values_v2.rbegin()->enter_match_probability = (1 - alpha - 2 * alphaFS - delta - 2 * deltaFS);
+    p.values_v2.rbegin()->enter_match_probability = (1 - alpha - alphaFS1 - alphaFS2 - delta - deltaFS1 - deltaFS2);
 
     
     double c = (1 - alpha - delta);
@@ -1432,7 +1511,7 @@ int finalizeProfile(Profile &p, char *consensusSequence,
     for (int k = 4; k < 4 + alphabetSize; ++k) {
       if (tantanProbs[i] >= 0.5) probs[k] = end[k];
       double p = probs[k];
-      probs[k] = (0.99 /* minus stop codon */ * p);
+      probs[k] = ((1 -STOP_CODON_PROB) /* minus stop codon */ * p);
 #ifdef DUMMER_SCORING
       probs[k] /= end[k];
 #endif
@@ -1784,13 +1863,15 @@ Options for background letter probabilities:\n\
       setCharToNumber(charToNumber, getAlphabet(p.width - nonLetterWidth));
 
       NucDist dist = *reinterpret_cast<NucDist*>(p.debug);
-      Float bgProbsDNA[256];
+      Float bgProbsDNA[256] = {0};
       bgProbsDNA[charToNumber['A']] = dist.overall['A'];
       bgProbsDNA[charToNumber['C']] = dist.overall['C'];
       bgProbsDNA[charToNumber['G']] = dist.overall['G'];
       bgProbsDNA[charToNumber['T']] = dist.overall['T'];
+#ifdef EVALUE
       estimateK(p, bgProbsDNA, &charVec[seqIdx], randomSeqLen,
       border, randomSeqNum, scratch, printVerbosity);
+#endif
   }
 
   if (argc - optind < 2 || numOfProfiles < 1) return 0;
