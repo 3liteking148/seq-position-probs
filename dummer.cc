@@ -408,7 +408,7 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
 			 Profile profile, const char *sequence,
 			 int sequenceLength, const Float *scratch,
 			 int iBeg, int jBeg, double half) {
-  
+  return;
   /*
   TODO memory optimization: per-diagonal indexing using row (profile) indexes
   0 0 0 0
