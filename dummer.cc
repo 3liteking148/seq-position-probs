@@ -49,9 +49,9 @@ typedef SimdFlt SimdFloat;
 const int simdLen = simdFltLen;
 #endif
 
-const Float STOP_CODON_PROB = 0.001;
-const Float FRAMESHIFT1_MULTIPLIER = 0.001;
-const Float FRAMESHIFT2_MULTIPLIER = 0.0005;
+const Float STOP_CODON_PROB = 0.01;
+const Float FRAMESHIFT1_MULTIPLIER = 0.01;
+const Float FRAMESHIFT2_MULTIPLIER = 0.005;
 
 int simdRoundUp(int x) {  // lowest multiple of simdLen that is >= x
   return x - 1 - (x - 1) % simdLen + simdLen;
@@ -936,10 +936,11 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       }
       
       
+      
       dp[i] = log_sum_exp(t1, t2);
     }
     //xx_null = dp[0];
-    xx_null = (dp[0] + dp[1] + dp[2]) / 3;
+    xx_null = log_sum_exp(log_sum_exp(dp[0], dp[1]), dp[2]) - log2(3);
     //std::cout << "dp is " << xx_null << " in place of " << (-2 * sequenceLength) << std::endl;
     
     //auto half = pow(2, (-2 * sequenceLength - xx_null) / 2.0);
@@ -964,10 +965,12 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       const Params &params_cur = profile.values_v2[i];
       const Params &params_later = profile.values_v2[i + 1];
 
+      Float codon_emit_probs = 0;
       for(int j = sequenceLength - 1; j >= 0; j--) {
         if(j + 3 < sequenceLength) {
           auto [emitNum, divisor] = decoded[j + 1]; // upto j emitted alr
-          X[i][j] = params_emission_probabilities[emitNum] * divisor * distribute3 * dp_access_safe(W[1], i + 1, j + 3);
+          codon_emit_probs = params_emission_probabilities[emitNum] * divisor;
+          X[i][j] = codon_emit_probs * distribute3 * dp_access_safe(W[1], i + 1, j + 3);
         } else {
           X[i][j] = 0;
         }
@@ -975,7 +978,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         Y[1][i][j] = dp_access_safe(W[1], i + 1, j + 2) + params_later.epsilon_prime[1] * 0.25 * 0.25 * distribute2 * dp_access_safe(Y[0], i + 1, j + 2);
         Y[2][i][j] = dp_access_safe(W[1], i + 1, j + 1) + params_later.epsilon_prime[2] * 0.25 * distribute1 * dp_access_safe(Y[0], i + 1, j + 1);
       
-        Z[0][i][j] = dp_access_safe(W[1], i, j + 3) + params_cur.beta_prime[0] * 0.25 * 0.25 * 0.25 * distribute3 * dp_access_safe(Z[0], i, j + 3);
+        Z[0][i][j] = dp_access_safe(W[1], i, j + 3) + params_cur.beta_prime[0] * codon_emit_probs * distribute3 * dp_access_safe(Z[0], i, j + 3);
         Z[1][i][j] = dp_access_safe(W[1], i, j + 1) + params_cur.beta_prime[1] * 0.25 * distribute1 * dp_access_safe(Z[0], i, j + 1);
         Z[2][i][j] = dp_access_safe(W[1], i, j + 2) + params_cur.beta_prime[2] * 0.25 * 0.25 * distribute2 * dp_access_safe(Z[0], i, j + 2);
 
@@ -983,7 +986,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
           dp_access_safe(Y[0], i, j) * params_cur.delta_prime[0] +
           dp_access_safe(Y[1], i, j) * params_cur.delta_prime[1] * 0.25 * 0.25 * distribute2 +
           dp_access_safe(Y[2], i, j) * params_cur.delta_prime[2] * 0.25 * distribute1 +
-          dp_access_safe(Z[0], i, j) * params_cur.alpha_prime[0] * 0.25 * 0.25 * 0.25 * distribute3 +
+          dp_access_safe(Z[0], i, j) * params_cur.alpha_prime[0] * codon_emit_probs * distribute3 +
           dp_access_safe(Z[1], i, j) * params_cur.alpha_prime[1] * 0.25 * distribute1 +
           dp_access_safe(Z[2], i, j) * params_cur.alpha_prime[2] * 0.25 * 0.25 * distribute2 +
           scale;
@@ -996,7 +999,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       const Params &params_cur = profile.values_v2[i];
       const Float *params_emission_probabilities = params + 4;
       
-
+      Float codon_emit_probs = 0;
       for(int j = 0; j < sequenceLength; j += 3) {
         std::array<Float, 4> w;
         for(int w_i = 1; w_i <= 3; w_i++) {
@@ -1005,15 +1008,16 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
         if(j - 2 >= 0) {
           auto [emitNum, divisor] = decoded[j - 2];
-          X[i][j] = params_cur.enter_match_probability * params_emission_probabilities[emitNum] * divisor * distribute3 * w[3];
+          codon_emit_probs = params_emission_probabilities[emitNum] * divisor;
+          X[i][j] = params_cur.enter_match_probability * codon_emit_probs * distribute3 * w[3];
         } else {
           X[i][j] = 0;
         }       
         
-        Z[0][i][j] = params_cur.alpha_prime[0] * 0.25 * 0.25 * 0.25 * distribute3 * w[3] +
-                      params_cur.beta_prime[0] * 0.25 * 0.25 * 0.25 * distribute3 * dp_access_safe(Z[0], i, j - 3) + 
-                      params_cur.beta_prime[1] * 0.25 * 0.25 * 0.25 * distribute3 * dp_access_safe(Z[1], i, j - 3) + 
-                      params_cur.beta_prime[2] * 0.25 * 0.25 * 0.25 * distribute3 * dp_access_safe(Z[2], i, j - 3);
+        Z[0][i][j] = params_cur.alpha_prime[0] * codon_emit_probs * distribute3 * w[3] +
+                      params_cur.beta_prime[0] * codon_emit_probs * distribute3 * dp_access_safe(Z[0], i, j - 3) + 
+                      params_cur.beta_prime[1] * codon_emit_probs * distribute3 * dp_access_safe(Z[1], i, j - 3) + 
+                      params_cur.beta_prime[2] * codon_emit_probs * distribute3 * dp_access_safe(Z[2], i, j - 3);
         Z[1][i][j] = params_cur.alpha_prime[1] * 0.25 * distribute1 * w[1];
         Z[2][i][j] = params_cur.alpha_prime[2] * 0.25 * 0.25 * distribute2 * w[2];
 
