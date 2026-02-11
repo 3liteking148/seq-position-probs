@@ -52,7 +52,7 @@ const int simdLen = simdFltLen;
 const Float STOP_CODON_PROB = 0.01;
 const Float FRAMESHIFT1_MULTIPLIER = 0.01;
 const Float FRAMESHIFT2_MULTIPLIER = 0.005;
-#define XX ((FRAMESHIFT1_MULTIPLIER + FRAMESHIFT2_MULTIPLIER) * 1)
+#define XX 0.01
 
 int simdRoundUp(int x) {  // lowest multiple of simdLen that is >= x
   return x - 1 - (x - 1) % simdLen + simdLen;
@@ -107,7 +107,7 @@ struct Profile {  // position-specific (insert, delete, letter) probabilities
   int length;  // number of positions
   size_t nameIdx;
   size_t consensusSequenceIdx;
-  double gumbelKendAnchored, gumbelKbegAnchored, gumbelKmidAnchored;
+  double gumbelKendAnchored, gumbelKbegAnchored, gumbelKmidAnchored, lambda;
   void *debug;
 };
 
@@ -361,7 +361,7 @@ struct metadata {
 
 using DP_2Dv2 = std::vector<std::vector<metadata>>;
 DP_2Dv2 make_dp_table_v2(size_t rows, size_t cols) {
-    return DP_2Dv2(rows, std::vector<metadata>(cols, 0));
+    return DP_2Dv2(rows, std::vector<metadata>(cols, -1e200));
 }
 
 inline double dp_access_safe(DP_2D &dp, int i, int j, double err = 0) {
@@ -455,10 +455,11 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
       return ret;
     }
 
-    metadata ret(0 /* end here */);
+    metadata ret(-1e200 /* end here */);
     return ret;
   };
 
+  //std::cout << "radius: " << std::min(profile.length - iBeg, sequenceLength - 1 - jBeg) << std::endl;
   for(int radius = std::min(profile.length - iBeg, sequenceLength - 1 - jBeg); radius >= 0; radius--) {
     //std::cout << "radius " << radius << std::endl;
     for(int i = iBeg, j = jBeg + radius; i <= profile.length && j >= jBeg; i++, j--) {
@@ -471,7 +472,7 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
       const Float *params_emission_probabilities = params + 4;
       
       Float emit_prob = -INFINITY;
-      if(j + 1 < sequenceLength) {
+      if(j + 3 < sequenceLength) {
         auto [emitNum, divisor] = decoded[j + 1]; // upto j emitted alr
         emit_prob = log(params_emission_probabilities[emitNum] * divisor);
         X[i][j] = dp_access_safe_v2(W[0], i + 1, j + 3).add_cost(emit_prob);
@@ -504,7 +505,8 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
   int i = iBeg, j = jBeg;
   auto cur = &X[iBeg][jBeg];
   while(true) {
-    std::cout << i << " " << j << " " << (cur->metric) << std::endl;
+    //std::cout << i << " " << j << " " << (cur->metric) << std::endl;
+    
     if(is_print) {
       addForwardMatch(alignment, i, j + 3);
     }
@@ -1154,9 +1156,9 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         int i = sel.anchor1, j = sel.anchor2;
         AlignedSimilarity b = sel;
         //std::cout << log(sel.probRatio) << std::endl;
-        b.probRatio = W[0][i][j];                                 
+        b.probRatio = 0;                                 
         similarities.push_back(b);
-        b.probRatio = W[1][i][j];
+        b.probRatio = 0;
         similarities.push_back(b);
         similarities.push_back(sel);
     }
@@ -1425,9 +1427,10 @@ void estimateK(Profile &profile, const Float *letterFreqs,
   n++, lambdas += MMmidL;
   std::cout << "Avg Lambda: " << (lambdas / n) << "\n";
 
-  profile.gumbelKendAnchored = MMendKsimple;
-  profile.gumbelKbegAnchored = MMbegKsimple;
-  profile.gumbelKmidAnchored = MMmidKsimple;
+  profile.gumbelKendAnchored = MMendK;
+  profile.gumbelKbegAnchored = MMbegK;
+  profile.gumbelKmidAnchored = MMmidK;
+  profile.lambda = MMmidL;
 }
 
 int intFromText(const char *text) {
@@ -2052,7 +2055,7 @@ Options for background letter probabilities:\n\
     double k = (evalueOpt > 0) ? p.gumbelKmidAnchored :
       (i % 3 == 0) ? p.gumbelKendAnchored :
       (i % 3 == 1) ? p.gumbelKbegAnchored : p.gumbelKmidAnchored;
-    double evalue = k * totSequenceLength / similarities[i].probRatio;
+    double evalue = k * totSequenceLength / pow(similarities[i].probRatio, p.lambda);
     if (evalueOpt <= 0 && i % 3 == 0) std::cout << "\n";
     if (evalueOpt > 0 && evalue > evalueOpt) continue;
     printSimilarity(charVec.data(), p, s, similarities[i], evalue);
