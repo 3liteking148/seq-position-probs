@@ -31,8 +31,8 @@
 
 #define OPT_e 10
 #define OPT_s 2
-#define OPT_m 0 // mask-filter doesnt work well on DNA
-#define OPT_t 1000
+#define OPT_m 3
+#define OPT_t 30
 #define OPT_l 1000
 #define OPT_b 100
 
@@ -52,7 +52,7 @@ const int simdLen = simdFltLen;
 const Float STOP_CODON_PROB = 0.01;
 const Float FRAMESHIFT1_MULTIPLIER = 0.01;
 const Float FRAMESHIFT2_MULTIPLIER = 0.005;
-#define XX 0.01
+#define BACKGROUND_FRAMESHIFT_RATE (FRAMESHIFT1_MULTIPLIER + FRAMESHIFT2_MULTIPLIER)
 
 int simdRoundUp(int x) {  // lowest multiple of simdLen that is >= x
   return x - 1 - (x - 1) % simdLen + simdLen;
@@ -169,7 +169,7 @@ int numOfDigits(int x) {
 
 const char *getAlphabet(int alphabetSize) {
   assert(alphabetSize == 20 || alphabetSize == 4);
-  return alphabetSize == 20 ? "ACDEFGHIKLMNPQRSTVWYUO"  // 20 + 2 amino acids
+  return alphabetSize == 20 ? "ACDEFGHIKLMNPQRSTVWYUO?"  // 20 + 2 amino acids
     :    alphabetSize ==  4 ? "ACGT" : 0;
 }
 
@@ -348,8 +348,11 @@ struct metadata {
 
   metadata add_cost(Float cost) const {
     metadata ret = *this;
+    if(isnan(cost)) {
+      cost = -INFINITY;
+    }
     ret.metric += cost;
-    assert(!isnan(cost));
+    
 
     return ret;
   };
@@ -764,6 +767,7 @@ std::unordered_map<char, std::vector<std::string>> &build_standard_genetic_code(
     aa2codons['Y'] = {"TAT","TAC"};                             // Tyr
     aa2codons['V'] = {"GTT","GTC","GTA","GTG"};                 // Val
     aa2codons['*'] = {"TAA","TAG","TGA"};
+    aa2codons['?'] = {"???"};  // masked
 
     return aa2codons;
 }
@@ -881,11 +885,13 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     const char *alphabet = getAlphabet(profile.width - nonLetterWidth);
     std::string sequence_decompressed;
     bool contains_prot = false;
+
     for(int i = 0; i < sequenceLength; i++) {
-        assert(sequence[i] < 22);
+        assert(sequence[i] <= 22);
         sequence_decompressed += alphabet[sequence[i]];
         contains_prot |= (alphabet[sequence[i]] != 'A' && alphabet[sequence[i]] != 'C' && alphabet[sequence[i]] != 'G' && alphabet[sequence[i]] != 'T');
     }
+        
     if(!contains_prot) {
         //std::cout << sequence_decompressed << std::endl;
         //exit(0);
@@ -913,8 +919,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
           Float divisor = 1;
   #else
           //Float divisor = aa2codons.at(translated).size() * dist.overall[dna[i]] * dist.overall[dna[i + 1]] * dist.overall[dna[i + 2]]; // remove background probability 0.25^3, and also dedupliate emission
-          //Float divisor = aa2codons.at(translated).size();
-          Float divisor = 1;
+          Float divisor = aa2codons.at(translated).size();
+          //Float divisor = 1;
   #endif
           if(translated == '*') {
             return {-1, STOP_CODON_PROB / divisor}; // for now
@@ -944,18 +950,18 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       }
 #else
       Float t1 = -INFINITY;
-      Float t2;
-      if (i + 3 < sequenceLength) {
-        auto [emitNum, divisor] = decoded[i + 1];
-        t1 = log2(1 - XX)
+      Float t2 = -INFINITY;
+      if (i + 2 < sequenceLength) {
+        auto [emitNum, divisor] = decoded[i];
+        t1 = log2(1 - BACKGROUND_FRAMESHIFT_RATE)
           + log2(profile.bg_probs[emitNum + 4] * divisor)
           + dp[i + 3];
         
       } else {
-        t1 = log2(1 - XX);
+        t1 = log2(1 - BACKGROUND_FRAMESHIFT_RATE);
       }
       
-      t2 = log2(XX * 0.25) + dp[i + 1];
+      t2 = log2(BACKGROUND_FRAMESHIFT_RATE * 0.25) + dp[i + 1];
       
       
       dp[i] = log_sum_exp(t1, t2);
@@ -978,15 +984,15 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       Float t2 = -INFINITY;
       if (i - 2 >= 0) {
         auto [emitNum, divisor] = decoded[i - 2];
-        t1 = log2(1 - XX)
+        t1 = log2(1 - BACKGROUND_FRAMESHIFT_RATE)
           + log2(profile.bg_probs[emitNum + 4] * divisor)
-          + (i - 3 >= 0 ? dp[i - 3] : log2(1.0 / 3.0));
+          + (i - 3 >= 0 ? dp[i - 3] : 0);
       } else {
-        t1 = log2(1.0 / 3.0);
+        t1 = 0;
       }
 
       if(i > 0) {
-        t2 = log2(XX * 0.25) + dp[i - 1];
+        t2 = log2(BACKGROUND_FRAMESHIFT_RATE * 0.25) + dp[i - 1];
       }
 
       auto cur = log_sum_exp(t1, t2);
@@ -1007,7 +1013,12 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 #ifdef DUMMER_SCORING
     xx_null = dp[sequenceLength - 1];
 #else
-    xx_null = dp[sequenceLength - 1];
+    //xx_null = dp[sequenceLength - 1];
+    xx_null = log_sum_exp(log_sum_exp(dp[sequenceLength - 1], dp[sequenceLength - 2]), dp[sequenceLength - 3]); // no div by 3 because cancel out
+
+    //std::cout << dp[sequenceLength - 1] << " " << dp[sequenceLength - 2] << " " << dp[sequenceLength - 3] << std::endl;
+    // std::cout << "to end " << log_sum_exp(log_sum_exp(dp[sequenceLength - 1], dp[sequenceLength - 2]), dp[sequenceLength - 3]) + log2(1.0 / 3.0) << std::endl;
+    // std::cout << "from end " << (log_sum_exp(log_sum_exp(dp_r[0], dp_r[1]), dp_r[2]) + log2(1.0 / 3.0)) << std::endl;
 #endif
     //xx_null = log_sum_exp(log_sum_exp(dp[0], dp[1]), dp[2]) - log2(3);
     auto distribute1 = pow(2, -(xx_null / sequenceLength));
@@ -1052,7 +1063,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         Z[2][i][j] = dp_access_safe(W[1], i, j + 2) + params_cur.beta_prime[2] * 0.25 * 0.25 * distribute2 * dp_access_safe(Z[0], i, j + 2);
 
         int alr_emitted = sequenceLength - 1 - j;
-        auto one = exp2(-(xx_null / sequenceLength) * alr_emitted + dp_r[j]);
+        auto one = exp2(-(xx_null / sequenceLength) * alr_emitted + (dp_r[j + 1]));
 
         if(i == 300) {
           //std::cout << j << " one is " << one << std::endl;
@@ -1105,7 +1116,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         W[0][i][j] += Z[0][i][j] + Z[1][i][j] + Z[2][i][j];
 
         // Z[i][j] already computed at this point
-        auto one = exp2(-(xx_null / sequenceLength) * (j + 1) + dp[j]);
+        auto one = exp2(-(xx_null / sequenceLength) * (j + 1) + (j > 0 ? dp[j - 1] : 0));
         if(sequenceLength >= 2000 && i == 300) {
           //std::cout << j << " one is den: " << (-(xx_null / sequenceLength) * (j + 1)) << " num: " << dp[j] << std::endl;
         }
@@ -1323,7 +1334,7 @@ void estimateK(Profile &profile, const Float *letterFreqs,
 #if 0
     for (int j = 0; j <= sequenceLength; ++j) sequence[j] = dist(randGen);
 #else
-    static std::bernoulli_distribution frameshiftDist(XX);
+    static std::bernoulli_distribution frameshiftDist(BACKGROUND_FRAMESHIFT_RATE);
     static const char bases[] = {'A', 'C', 'G', 'T'};
     static std::uniform_int_distribution<int> distDNA(0, 3);
     static std::uniform_int_distribution<int> distOffset(0, 2);
@@ -1553,10 +1564,15 @@ int finalizeProfile(Profile &p, char *consensusSequence,
   p.bg_probs.push_back(0);
   p.bg_probs.push_back(0);
   p.bg_probs.push_back(1); // hack
+  Float minVal = 1;
   for (int k = 4; k < 4 + alphabetSize; ++k) {
     end[k] /= sumOfMeans;
     p.bg_probs.push_back((1 - STOP_CODON_PROB) * end[k]);
+    minVal = std::min(minVal, (1 - STOP_CODON_PROB) * end[k]);
   }
+  p.bg_probs.push_back(0);
+  p.bg_probs.push_back(0);
+  p.bg_probs.push_back(1.0 / 64.0);
 
   std::unordered_map<char, double> dist;
   char charToNumber[256];
@@ -1600,8 +1616,8 @@ int finalizeProfile(Profile &p, char *consensusSequence,
     double epsilon = probs[3];
     double epsilon1 = probs[p.width + 3];
 
-    double deltaFS1 = delta * FRAMESHIFT1_MULTIPLIER;
-    double deltaFS2 = delta * FRAMESHIFT2_MULTIPLIER;
+    double deltaFS1 = FRAMESHIFT1_MULTIPLIER;
+    double deltaFS2 = FRAMESHIFT2_MULTIPLIER;
     p.values_v2.rbegin()->delta_prime[0] = delta * (1 - epsilon1);
     p.values_v2.rbegin()->delta_prime[1] = deltaFS1 * (1 - epsilon1);
     p.values_v2.rbegin()->delta_prime[2] = deltaFS2 * (1 - epsilon1);
@@ -1629,7 +1645,7 @@ int finalizeProfile(Profile &p, char *consensusSequence,
       probs[4 + 20] = probs[4 + 1];  // selenocysteine = cysteine
       probs[4 + 21] = probs[4 + 8];  // pyrrolysine = lysine
     }
-    probs[4 + alphabetSize + 2] = minVal;  // for masked sequence letters
+    probs[4 + alphabetSize + 2] = 1.0 / 64.0;  // for masked sequence letters
     if (tantanProbs[i] >= 0.5) consensusSequence[i] |= 32;
   }
 
@@ -1747,8 +1763,30 @@ Float *resizeMem(Float *v, size_t &size,
 
 void makeMaskedSequence(char *sequence, int length, int alphabetSize) {
   std::vector<float> tantanProbs(length);
-  calcTantanProbabilities((const unsigned char *)sequence, length,
-			  alphabetSize > 4, tantanProbs.data());
+  std::string seq2;
+  for(int i = 0; i < length; i++) {
+    char val = '\0';
+    switch(sequence[i]) {
+      case 0:
+        val = 0;
+        break;
+      case 1:
+        val = 1;
+        break;
+      case 5:
+        val = 2;
+        break;
+      case 16:
+        val = 3;
+        break;
+      default:
+        assert(0);
+    }
+    seq2 += val;
+  }
+
+  calcTantanProbabilities((const unsigned char *)seq2.c_str(), length,
+			  false, tantanProbs.data());
   int mask = alphabetSize + 2;
   for (int i = 0; i < length; ++i) {
     sequence[length + i] = (tantanProbs[i] < 0.5) ? sequence[i] : mask;
