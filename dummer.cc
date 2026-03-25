@@ -1013,7 +1013,6 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 #ifdef DUMMER_SCORING
     xx_null = dp[sequenceLength - 1];
 #else
-    //xx_null = dp[sequenceLength - 1];
     xx_null = log_sum_exp(log_sum_exp(dp[sequenceLength - 1], dp[sequenceLength - 2]), dp[sequenceLength - 3]); // no div by 3 because cancel out
 
     //std::cout << dp[sequenceLength - 1] << " " << dp[sequenceLength - 2] << " " << dp[sequenceLength - 3] << std::endl;
@@ -1116,7 +1115,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         W[0][i][j] += Z[0][i][j] + Z[1][i][j] + Z[2][i][j];
 
         // Z[i][j] already computed at this point
-        auto one = exp2(-(xx_null / sequenceLength) * (j + 1) + (j > 0 ? dp[j - 1] : 0));
+        auto one = exp2(-(xx_null / sequenceLength) * (j + 1) + dp[j]);
         if(sequenceLength >= 2000 && i == 300) {
           //std::cout << j << " one is den: " << (-(xx_null / sequenceLength) * (j + 1)) << " num: " << dp[j] << std::endl;
         }
@@ -1616,8 +1615,8 @@ int finalizeProfile(Profile &p, char *consensusSequence,
     double epsilon = probs[3];
     double epsilon1 = probs[p.width + 3];
 
-    double deltaFS1 = FRAMESHIFT1_MULTIPLIER;
-    double deltaFS2 = FRAMESHIFT2_MULTIPLIER;
+    double deltaFS1 = FRAMESHIFT2_MULTIPLIER;
+    double deltaFS2 = FRAMESHIFT1_MULTIPLIER;
     p.values_v2.rbegin()->delta_prime[0] = delta * (1 - epsilon1);
     p.values_v2.rbegin()->delta_prime[1] = deltaFS1 * (1 - epsilon1);
     p.values_v2.rbegin()->delta_prime[2] = deltaFS2 * (1 - epsilon1);
