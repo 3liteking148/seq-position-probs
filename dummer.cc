@@ -946,7 +946,6 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
           + log2(profile.bg_probs[emitNum + 4] * divisor)
           + dp[i + 3];
       } else {
-        t1 = log2(1 - BACKGROUND_FRAMESHIFT_RATE);
         t1 = log2(1 - BACKGROUND_FRAMESHIFT_RATE)
           + log2(0.25) * (sequenceLength - i);
       }
@@ -969,14 +968,11 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         t1 += log2(profile.bg_probs[emitNum + 4] * divisor)
           + log2(1.0 / 3.0);
       } else {
-        t1 = 0;
         t1 += log2(0.25) * (i + 1)
           + log2(1.0 / 3.0);
       }
 
-      if(i > 0) {
-        t2 = log2(BACKGROUND_FRAMESHIFT_RATE * 0.25) + dp[i - 1];
-      }
+      t2 = log2(BACKGROUND_FRAMESHIFT_RATE * 0.25) + (i > 0 ? dp[i - 1] : log2(1.0 / 3.0));
 
       auto cur = log_sum_exp(t1, t2);
       dp[i] = cur;
