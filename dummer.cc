@@ -103,6 +103,7 @@ struct Profile {  // position-specific (insert, delete, letter) probabilities
   Float *values;  // probabilities or probability ratios
   std::vector<Params> values_v2;
   std::vector<Float> bg_probs;
+  std::vector<Float> dp, dp_r;
   int width;   // number of values per position
   int length;  // number of positions
   size_t nameIdx;
@@ -935,20 +936,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       }
   //  }
     
-    std::vector<Float> dp(sequenceLength + 1), denom_multiplier_l(sequenceLength + 1), denom_multiplier_r(sequenceLength + 3, 1);
-    
-
-    // add compensate and merge denominators to actual/real denom
+    std::vector<Float> dp(sequenceLength + 1);
     for (int i = sequenceLength - 1; i >= 0; i--) {
-#ifdef DUMMER_SCORING
-      if(i + 3 < sequenceLength) {
-        auto [emitNum, divisor] = decoded[i + 1];
-        assert(profile.bg_probs[emitNum + 4] * divisor != 0);
-        dp[i] = log2(profile.bg_probs[emitNum + 4] * divisor) + dp[i + 3];
-      } else {
-        dp[i] = 0;
-      }
-#else
       Float t1 = -INFINITY;
       Float t2 = -INFINITY;
       if (i + 2 < sequenceLength) {
@@ -956,39 +945,33 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         t1 = log2(1 - BACKGROUND_FRAMESHIFT_RATE)
           + log2(profile.bg_probs[emitNum + 4] * divisor)
           + dp[i + 3];
-        
       } else {
         t1 = log2(1 - BACKGROUND_FRAMESHIFT_RATE);
+        t1 = log2(1 - BACKGROUND_FRAMESHIFT_RATE)
+          + log2(0.25) * (sequenceLength - i);
       }
-      
+
       t2 = log2(BACKGROUND_FRAMESHIFT_RATE * 0.25) + dp[i + 1];
-      
-      
       dp[i] = log_sum_exp(t1, t2);
-#endif
-      denom_multiplier_r[i] = exp2(-(dp[i] - (i + 1 < sequenceLength ? dp[i + 1] : 0)));
     }
 
     std::vector dp_r(dp);
     //std::cout << "dp is " << xx_null << " in place of " << (-2 * sequenceLength) << std::endl;
     for (int i = 0; i < sequenceLength; i++) {
-#ifdef DUMMER_SCORING
-      if(i >= 3) {
-        auto [emitNum, divisor] = decoded[i - 2];
-        dp[i] = log2(profile.bg_probs[emitNum + 4] * divisor) + dp[i - 3];
-      } else {
-        dp[i] = log2(1.0 / 3.0);
-      }
-#else
-      Float t1 = -INFINITY;
+      Float t1 = log2(1 - BACKGROUND_FRAMESHIFT_RATE);
       Float t2 = -INFINITY;
-      if (i - 2 >= 0) {
+      if (i >= 3) {
         auto [emitNum, divisor] = decoded[i - 2];
-        t1 = log2(1 - BACKGROUND_FRAMESHIFT_RATE)
-          + log2(profile.bg_probs[emitNum + 4] * divisor)
-          + (i - 3 >= 0 ? dp[i - 3] : 0);
+        t1 += log2(profile.bg_probs[emitNum + 4] * divisor)
+          + dp[i - 3];
+      } else if (i == 2) {
+        auto [emitNum, divisor] = decoded[i - 2];
+        t1 += log2(profile.bg_probs[emitNum + 4] * divisor)
+          + log2(1.0 / 3.0);
       } else {
         t1 = 0;
+        t1 += log2(0.25) * (i + 1)
+          + log2(1.0 / 3.0);
       }
 
       if(i > 0) {
@@ -996,30 +979,17 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       }
 
       auto cur = log_sum_exp(t1, t2);
-      auto delta = dp[sequenceLength - 1 - i] - cur; 
       dp[i] = cur;
-
-#endif
-
-      
-      denom_multiplier_l[i] = exp2(-(dp[i] - (i - 1 >= 0 ? dp[i - 1] : 0)));
-      // double anti_overflow = delta;
-      // if(true) {
-      //   std::cout << "i: " << i << " delta: " << cur << " - " << og_dp[i] << std::endl;
-      // }
-
-      //std::cout << dp[i] << ' ' << dp_r[i] << " = " << (dp[i] + dp_r[i]) << std::endl;
     }
-#ifdef DUMMER_SCORING
-    xx_null = dp[sequenceLength - 1];
-#else
-    xx_null = log_sum_exp(log_sum_exp(dp[sequenceLength - 1], dp[sequenceLength - 2]), dp[sequenceLength - 3]); // no div by 3 because cancel out
 
-    //std::cout << dp[sequenceLength - 1] << " " << dp[sequenceLength - 2] << " " << dp[sequenceLength - 3] << std::endl;
-    // std::cout << "to end " << log_sum_exp(log_sum_exp(dp[sequenceLength - 1], dp[sequenceLength - 2]), dp[sequenceLength - 3]) + log2(1.0 / 3.0) << std::endl;
-    // std::cout << "from end " << (log_sum_exp(log_sum_exp(dp_r[0], dp_r[1]), dp_r[2]) + log2(1.0 / 3.0)) << std::endl;
-#endif
-    //xx_null = log_sum_exp(log_sum_exp(dp[0], dp[1]), dp[2]) - log2(3);
+    profile.dp = dp;
+    profile.dp_r = dp_r;
+
+
+    xx_null = dp_r[0]; // all at lower right
+    for (int i = 0; i < sequenceLength; i++) {
+      xx_null = log_sum_exp(xx_null, dp[i] + dp_r[i + 1]);
+    }
     auto distribute1 = pow(2, -(xx_null / sequenceLength));
     auto distribute2 = distribute1 * distribute1;
     auto distribute3 = distribute2 * distribute1;
@@ -1090,9 +1060,11 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
         for(int w_i = 1; w_i <= 3; w_i++) {
           int alr_emitted = j - w_i;
-          Float one = 1;
+          Float one;
           if(alr_emitted >= 0) {
             one = exp2(-(xx_null / sequenceLength) * (alr_emitted + 1) + dp[alr_emitted]);
+          } else {
+            one = 1.0 / 3.0; // frame probability only, no match/etc
           }
           w[w_i] = dp_access_safe(W[0], i, j - w_i) + (j - w_i >= -1 ? (scale * one) : 0);
         }
