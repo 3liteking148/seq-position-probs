@@ -29,7 +29,7 @@
 #include <getopt.h>
 #include <queue>
 
-#define OPT_e 10
+#define OPT_e 100
 #define OPT_s 2
 #define OPT_m 3
 #define OPT_t 1000
@@ -465,7 +465,6 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
       make_dp_table_v2(profile.length + 1, sequenceLength)
   };
 
-  addForwardMatch(alignment, iBeg, jBeg);
   //std::cout << "anchor is " << iBeg << " and " << jBeg << std::endl;
 
   auto null = profile.not_align_probs;
@@ -555,47 +554,125 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment,
 			 Profile profile, const char *sequence,
 			 int sequenceLength, const Float *scratch,
 			 int iEnd, int jEnd, double half) {
-  long rowSize = simdRoundUp(sequenceLength + 1) + simdLen;
-  const char *seq = sequence + jEnd;
+   /*
+  TODO memory optimization: per-diagonal indexing using row (profile) indexes
+  0 0 0 0
+  1 1 1
+  2 2
+  3
 
-  for (int size = 16; ; size *= 2) {
-    int iBeg = std::max(iEnd - size, -1);
-    int jBeg = std::max(jEnd - size, -1);
-    int jLen = jEnd - jBeg;
-    std::vector<double> scratch2(jLen * 2);  // use "double" to avoid underflow
-    double *X = scratch2.data() + jLen;
-    double *Y = X + jLen;
-    double wSum = 0;
+  base cases:
+    idx = 0 X and Y are 0 (only insertions allowed)
+    idx = row #: X and Z are 0 (only deletions allowed)
+  */
 
-    for (int i = iEnd-1; i >= iBeg; --i) {
-      const Float *Xforward = (i >= 0) ? scratch + i * rowSize + jEnd : 0;
-      double a = profile.values[(i+1) * profile.width + 0];
-      double b = profile.values[(i+1) * profile.width + 1];
-      double d = profile.values[(i+1) * profile.width + 2];
-      double e = profile.values[(i+1) * profile.width + 3];
-      const Float *S = (i >= 0) ? profile.values + i * profile.width + 4 : 0;
+  //scratch_v2.resize_if_need(std::min(profile.length + 1, sequenceLength + 1), std::min(profile.length + 1, sequenceLength + 1));
+  std::array<DP_2Dv2, 2> W{
+      make_dp_table_v2(profile.length + 1, sequenceLength + 1),
+      make_dp_table_v2(profile.length + 1, sequenceLength + 1)
+  };
+  DP_2Dv2 X = make_dp_table_v2(profile.length + 1, sequenceLength);
+  std::array<DP_2Dv2, 3> Y{
+      make_dp_table_v2(profile.length + 1, sequenceLength),
+      make_dp_table_v2(profile.length + 1, sequenceLength),
+      make_dp_table_v2(profile.length + 1, sequenceLength)
+  };
+  std::array<DP_2Dv2, 3> Z{
+      make_dp_table_v2(profile.length + 1, sequenceLength),
+      make_dp_table_v2(profile.length + 1, sequenceLength),
+      make_dp_table_v2(profile.length + 1, sequenceLength)
+  };
 
-      double x = (i == iEnd-1) ? scale : 0;
-      double z = 0;
-      for (int j = -1; j >= -jLen; --j) {
-	double y = Y[j];
-	double w = x + d * y + a * z;  // this is: W[i+1][jEnd+j+1]
-	wSum += w;
-	Y[j] = w + e * y;
-	x = X[j];
-	z = w + b * z;
-	if (i < 0 || jEnd + j < 0) continue;
-	X[j] = S[seq[j]] * w;
-	if (Xforward[j] * w > half * scale) {
-	  addReverseMatch(alignment, i, jEnd + j);
-	}
+  //std::cout << "anchor is " << iBeg << " and " << jBeg << std::endl;
+
+  auto null = profile.not_align_probs;
+  auto distribute1 = -(null / sequenceLength);
+  auto distribute2 = distribute1 * 2;
+  auto distribute3 = distribute1 * 3;
+
+  // x-drop
+  Float x_param = 100;
+
+  W[1][iEnd][jEnd] = 0;
+  metadata cur_max = -INFINITY;
+  for(int radius = 0;; radius++) {
+    bool has_non_empty = false;
+    for(int i = iEnd, j = jEnd - radius; i >= 0 && j <= jEnd; i--, j++) {
+      if(j >= sequenceLength) continue;
+
+      const Params &params_cur = profile.values_v2[i];
+      const Float *params = profile.values + (i) * profile.width;
+      const Float *params_emission_probabilities = params + 4;
+
+      Float codon_emit_probs = -INFINITY;
+      if(j - 2 >= 0) {
+        auto [emitNum, divisor] = decoded[j - 2]; // upto j emitted alr
+        codon_emit_probs = log2(params_emission_probabilities[emitNum] * divisor);
+        metadata(X, i, j).add_cost(log2(params_cur.enter_match_probability)).add_cost(codon_emit_probs).add_cost(distribute3).push_to(W[1], i, j - 3);
       }
 
-      if (wSum >= half) return;
+      for (int k = 0; k < 3; k++) {
+        metadata(Y[k], i, j).add_cost(log2(params_cur.epsilon_prime[k])).push_to(Y[k], i - 1, j);
+      }
+      metadata(Y[0], i, j).add_cost((log2(params_cur.delta_prime[0]))).push_to(W[1], i, j - 0);
+      metadata(Y[1], i, j).add_cost((log2(params_cur.delta_prime[1]))).add_cost(log2(0.25) * 2).add_cost(distribute1).push_to(W[1], i, j - 2);
+      metadata(Y[2], i, j).add_cost((log2(params_cur.delta_prime[2]))).add_cost(log2(0.25) * 1).add_cost(distribute2).push_to(W[1], i, j - 1);
+
+      if (W[1][i][j].metric > -INFINITY) {
+        has_non_empty = true;
+      }
+
+      int to_emit_by_null = j;
+      auto one = (-(xx_null / sequenceLength) * to_emit_by_null + (profile.dp[j]));
+      cur_max = std::max(cur_max, metadata(W[1], i, j).add_cost(one));
+      //std::cout << "do work on " << i << " " << j << " " << W[0][i][j].metric << " " << cur_max.metric << std::endl;
+
+      metadata(W[1], i, j).push_to(Z[0], i, j);
+      metadata(W[1], i, j).push_to(Z[1], i, j);
+      metadata(W[1], i, j).push_to(Z[2], i, j);
+      metadata(W[1], i, j).push_to(X, i - 1, j);
+      metadata(W[1], i, j).push_to(Y[0], i - 1, j);
+      metadata(W[1], i, j).push_to(Y[1], i - 1, j);
+      metadata(W[1], i, j).push_to(Y[2], i - 1, j);
+
+
+      for (int k = 0; k < 3; k++) {
+        metadata(Z[k], i, j).add_cost(log2(params_cur.beta_prime[k])).add_cost(codon_emit_probs).add_cost(distribute3).push_to(Z[k], i, j - 3);
+      }
+      metadata(Z[0], i, j).add_cost((log2(params_cur.alpha_prime[0]))).add_cost(codon_emit_probs).add_cost(distribute3).push_to(W[1], i, j - 3);
+      metadata(Z[1], i, j).add_cost((log2(params_cur.alpha_prime[1]))).add_cost(log2(0.25) * 1).add_cost(distribute1).push_to(W[1], i, j - 1);
+      metadata(Z[2], i, j).add_cost((log2(params_cur.alpha_prime[2]))).add_cost(log2(0.25) * 2).add_cost(distribute2).push_to(W[1], i, j - 2);
+
+
     }
 
-    // this line should be unnecessary, except for problems such as overflow:
-    if (iBeg <= 0 && jBeg <= 0) break;
+    if (!has_non_empty) break;
+  }
+
+  std::vector<std::pair<int, int>> path;
+  bool is_print = false;
+  int i = cur_max.dest_i, j = cur_max.dest_j;
+  auto cur = &W[1][i][j];
+  std::cout << "src: " << iEnd << " " << jEnd << std::endl;
+
+  while(true) {
+    if(is_print) {
+      // X already advances sequence positions
+      path.emplace_back(i, j - 2);
+    }
+
+    if(cur->dest != nullptr) {
+      is_print = cur->dest == &X;
+      i = cur->dest_i;
+      j = cur->dest_j;
+      cur = &((*((DP_2Dv2*)cur->dest))[i][j]);
+    } else {
+      break;
+    }
+  }
+  std::reverse(path.begin(), path.end());
+  for (const auto& p : path) {
+    addReverseMatch(alignment, p.first, p.second);
   }
 }
 
@@ -689,10 +766,10 @@ void addMidAnchored(std::vector<AlignedSimilarity> &similarities,
 void finishMidAnchored(AlignedSimilarity &s,
 		       Profile profile, const char *sequence,
 		       int sequenceLength, const Float *scratch) {
-  // reverse(s.alignment.begin(), s.alignment.end());
-  // addReverseAlignment(s.alignment, profile, sequence, sequenceLength,
-	// 	      scratch, s.anchor1, s.anchor2, s.wEndAnchored / 2);
-  // reverse(s.alignment.begin(), s.alignment.end());
+  reverse(s.alignment.begin(), s.alignment.end());
+  addReverseAlignment(s.alignment, profile, sequence, sequenceLength,
+		      scratch, s.anchor1, s.anchor2, s.wEndAnchored / 2);
+  reverse(s.alignment.begin(), s.alignment.end());
 }
 
 bool isLess(const AlignedSimilarity &a, const AlignedSimilarity &b) {
@@ -1154,6 +1231,9 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     if(minProbRatio >= 0) {
       //std::cout << "adding " << log2(mx) << std::endl;
       addMidAnchored(similarities, profile, sequence, sequenceLength, scratch, sel.anchor1, sel.anchor2, sel.probRatio * scale / sel.wEndAnchored, sel.wEndAnchored);
+      for (auto &x : similarities) {
+        finishMidAnchored(x, profile, sequence, sequenceLength, scratch);
+      }
     } else {
         int i = sel.anchor1, j = sel.anchor2;
         AlignedSimilarity b = sel;
