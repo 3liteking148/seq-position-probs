@@ -1015,9 +1015,6 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         if(j + 3 < sequenceLength) {
           auto [emitNum, divisor] = decoded[j + 1]; // upto j emitted alr
           codon_emit_probs = params_emission_probabilities[emitNum] * divisor;
-          X[i][j] = codon_emit_probs * distribute3 * dp_access_safe(W[1], i + 1, j + 3);
-        } else {
-          X[i][j] = 0;
         }
 
         int alr_emitted = sequenceLength - 1 - j;
@@ -1026,7 +1023,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         if(i == 300) {
           //std::cout << j << " one is " << one << std::endl;
         }
-        W[1][i][j] = dp_access_safe(X, i, j) * params_cur.enter_match_probability +
+        W[1][i][j] = dp_access_safe(X, i + 1, j + 3) * params_cur.enter_match_probability * codon_emit_probs * distribute3 +
           dp_access_safe(Y[0], i + 1, j + 0) * params_cur.delta_prime[0] +
           dp_access_safe(Y[1], i + 1, j + 2) * params_cur.delta_prime[1] * 0.25 * 0.25 * distribute2 +
           dp_access_safe(Y[2], i + 1, j + 1) * params_cur.delta_prime[2] * 0.25 * distribute1 +
@@ -1034,6 +1031,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
           dp_access_safe(Z[1], i, j + 1) * params_cur.alpha_prime[1] * 0.25 * distribute1 +
           dp_access_safe(Z[2], i, j + 2) * params_cur.alpha_prime[2] * 0.25 * 0.25 * distribute2 +
           one * scale;
+
+        X[i][j] = dp_access_safe(W[1], i, j);
 
         Y[0][i][j] = dp_access_safe(W[1], i, j) + params_later.epsilon_prime[0] * dp_access_safe(Y[0], i + 1, j);
         Y[1][i][j] = dp_access_safe(W[1], i, j) + params_later.epsilon_prime[1] * dp_access_safe(Y[0], i + 1, j);
