@@ -1101,8 +1101,9 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
           codon_emit_probs = params_emission_probabilities[emitNum] * divisor;
         }
 
-        int alr_emitted = sequenceLength - 1 - j;
-        auto one = exp2(-(xx_null / sequenceLength) * alr_emitted + (dp_r[j + 1]));
+        int last_idx_emitted_by_null = j + 1;
+        int cnt_emitted_by_null = sequenceLength - 1 - j;
+        auto one = exp2(-(xx_null / sequenceLength) * cnt_emitted_by_null + (dp_r[last_idx_emitted_by_null]));
 
         W[1][i][j] = dp_access_safe(X, i + 1, j + 3) * params_cur.enter_match_probability * codon_emit_probs * distribute3 +
           dp_access_safe(Y[0], i + 1, j + 0) * params_cur.delta_prime[0] +
@@ -1136,14 +1137,20 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
 
         for(int w_i = 1; w_i <= 3; w_i++) {
-          int alr_emitted = j - w_i;
+          int last_idx_emitted_by_null = j - w_i;
+          int cnt_emitted_by_null = last_idx_emitted_by_null + 1;
           Float one;
-          if(alr_emitted >= 0) {
-            one = exp2(-(xx_null / sequenceLength) * (alr_emitted + 1) + dp[alr_emitted]);
+          if(last_idx_emitted_by_null >= 0) {
+            one = exp2(-(xx_null / sequenceLength) * cnt_emitted_by_null + dp[last_idx_emitted_by_null]);
           } else {
-            one = 1.0 / 3.0; // frame probability only, no match/etc
+            one = 1.0 / 3.0; // probability of having frame only, no emissions have happened yet
           }
-          w[w_i] = dp_access_safe(W[0], i, j - w_i) + (j - w_i >= -1 ? (scale * one) : 0);
+
+          if (j - w_i >= -1) {
+            w[w_i] = dp_access_safe(W[0], i, j - w_i) + (scale * one);
+          } else {
+            w[w_i] = 0;
+          }
         }
 
         if(j - 2 >= 0) {
