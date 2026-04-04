@@ -39,6 +39,9 @@
 //#define DUMMER_SCORING
 #define EVALUE
 
+// uncomment to use codon probabilities instead of base probabilities to generate random sequences
+#define ESTIMATOR_USE_RANDOM_CODONS
+
 #ifdef DOUBLE
 typedef double Float;
 typedef SimdDbl SimdFloat;
@@ -1402,9 +1405,7 @@ void estimateK(Profile &profile, const Float *letterFreqs,
   setCharToNumber(charToNumber, alphabet);
   for (int i = 0; i < numOfSequences; ++i) {
     // should be "< sequenceLength", but kept for pseudo-random reproducibility
-#if 0
-    for (int j = 0; j <= sequenceLength; ++j) sequence[j] = dist(randGen);
-#else
+#ifdef ESTIMATOR_USE_RANDOM_CODONS
     static std::bernoulli_distribution frameshiftDist(BACKGROUND_FRAMESHIFT_RATE);
     static const char bases[] = {'A', 'C', 'G', 'T'};
     static std::uniform_int_distribution<int> distDNA(0, 3);
@@ -1431,6 +1432,8 @@ void estimateK(Profile &profile, const Float *letterFreqs,
         }
       }
     }
+#else
+    for (int j = 0; j <= sequenceLength; ++j) sequence[j] = dist(randGen);
 #endif
 
     for (int j = 0; j < border; ++j) sequence[sequenceLength+j] = sequence[j];
@@ -2078,15 +2081,20 @@ Options for background letter probabilities:\n\
       char charToNumber[256];
       setCharToNumber(charToNumber, getAlphabet(p.width - nonLetterWidth));
 
-      NucDist dist = *reinterpret_cast<NucDist*>(p.debug);
-      Float bgProbsDNA[256] = {0};
-      bgProbsDNA[charToNumber['A']] = dist.overall['A'];
-      bgProbsDNA[charToNumber['C']] = dist.overall['C'];
-      bgProbsDNA[charToNumber['G']] = dist.overall['G'];
-      bgProbsDNA[charToNumber['T']] = dist.overall['T'];
 #ifdef EVALUE
+#ifdef ESTIMATOR_USE_RANDOM_CODONS
       estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen,
       border, randomSeqNum, scratch, printVerbosity);
+#else
+    NucDist dist = *reinterpret_cast<NucDist*>(p.debug);
+    Float bgProbsDNA[256] = {0};
+    bgProbsDNA[charToNumber['A']] = dist.overall['A'];
+    bgProbsDNA[charToNumber['C']] = dist.overall['C'];
+    bgProbsDNA[charToNumber['G']] = dist.overall['G'];
+    bgProbsDNA[charToNumber['T']] = dist.overall['T'];
+    estimateK(p, bgProbsDNA, &charVec[seqIdx], randomSeqLen,
+      border, randomSeqNum, scratch, printVerbosity);
+#endif
 #endif
   }
 
