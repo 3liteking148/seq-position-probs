@@ -27,6 +27,7 @@
 #include <string.h>
 
 #include <getopt.h>
+#include <memory>
 #include <queue>
 
 #define OPT_e 100
@@ -35,9 +36,11 @@
 #define OPT_t 1000
 #define OPT_l 1000
 #define OPT_b 100
+#define OPT_x 100 // 0 to enable greedy mode
 
 //#define DUMMER_SCORING
 #define EVALUE
+#define ALIGN
 
 // uncomment to use codon probabilities instead of base probabilities to generate random sequences
 #define ESTIMATOR_USE_RANDOM_CODONS
@@ -100,6 +103,12 @@ struct Params { // TODO: maybe SIMD order
   Float delta_prime[3];
   Float epsilon_prime[3];
   Float enter_match_probability;
+
+  Float log2_alpha_prime[3];
+  Float log2_beta_prime[3];
+  Float log2_delta_prime[3];
+  Float log2_epsilon_prime[3];
+  Float log2_enter_match_probability;
 };
 
 struct Profile {  // position-specific (insert, delete, letter) probabilities
@@ -140,6 +149,13 @@ struct AlignedSimilarity {
   int anchor1, anchor2;
   Float wEndAnchored;
   std::vector<SegmentPair> alignment;
+
+  bool operator<(const AlignedSimilarity &other) const {
+    return this->probRatio < other.probRatio;
+  }
+  bool operator>(const AlignedSimilarity &other) const {
+    return this->probRatio > other.probRatio;
+  }
 };
 
 struct FinalSimilarity {
@@ -476,8 +492,6 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
   auto distribute3 = distribute1 * 3;
 
   // x-drop
-  Float x_param = 100;
-
   W[0][iBeg][jBeg] = 0;
   metadata cur_max = -INFINITY;
   for(int radius = 0;; radius++) {
@@ -499,27 +513,29 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
       metadata(X, i, j).push_to(W[0], i, j);
       for (int k = 0; k < 3; k++) {
         metadata(Y[k], i, j).push_to(W[0], i, j);
-        metadata(Y[k], i, j).add_cost(log2(params_later.epsilon_prime[k])).push_to(Y[0], i + 1, j);
+        metadata(Y[k], i, j).add_cost(params_later.log2_epsilon_prime[k]).push_to(Y[0], i + 1, j);
 
         metadata(Z[k], i, j).push_to(W[0], i, j);
-        metadata(Z[k], i, j).add_cost(log2(params_cur.beta_prime[k])).add_cost(codon_emit_probs).add_cost(distribute3).push_to(Z[0], i, j + 3);
+        metadata(Z[k], i, j).add_cost(params_cur.log2_beta_prime[k]).add_cost(codon_emit_probs).add_cost(distribute3).push_to(Z[0], i, j + 3);
       }
 
-      if (W[0][i][j].metric > -INFINITY) {
-        has_non_empty = true;
+      if (W[0][i][j].metric < cur_max.metric - OPT_x) {
+        continue;
       }
+
+      has_non_empty = true;
 
       int to_emit_by_null = sequenceLength - 1 - j;
       auto one = (-(xx_null / sequenceLength) * to_emit_by_null + (profile.dp_r[j + 1]));
       cur_max = std::max(cur_max, metadata(W[0], i, j).add_cost(one));
       //std::cout << "do work on " << i << " " << j << " " << W[0][i][j].metric << " " << cur_max.metric << std::endl;
-      metadata(W[0], i, j).add_cost(log2(params_cur.enter_match_probability)).add_cost(codon_emit_probs).add_cost(distribute3).push_to(X, i + 1, j + 3);
-      metadata(W[0], i, j).add_cost(log2(params_cur.delta_prime[0])).push_to(Y[0], i + 1, j + 0);
-      metadata(W[0], i, j).add_cost(log2(params_cur.delta_prime[1])).add_cost(log2(0.25) * 2).add_cost(distribute2).push_to(Y[1], i + 1, j + 2);
-      metadata(W[0], i, j).add_cost(log2(params_cur.delta_prime[2])).add_cost(log2(0.25) * 1).add_cost(distribute1).push_to(Y[2], i + 1, j + 1);
-      metadata(W[0], i, j).add_cost(log2(params_cur.alpha_prime[0])).add_cost(codon_emit_probs).add_cost(distribute3).push_to(Z[0], i, j + 3);
-      metadata(W[0], i, j).add_cost(log2(params_cur.alpha_prime[1])).add_cost(log2(0.25) * 1).add_cost(distribute1).push_to(Z[1], i, j + 2);
-      metadata(W[0], i, j).add_cost(log2(params_cur.alpha_prime[2])).add_cost(log2(0.25) * 2).add_cost(distribute2).push_to(Z[2], i, j + 1);
+      metadata(W[0], i, j).add_cost(params_cur.log2_enter_match_probability).add_cost(codon_emit_probs).add_cost(distribute3).push_to(X, i + 1, j + 3);
+      metadata(W[0], i, j).add_cost(params_cur.log2_delta_prime[0]).push_to(Y[0], i + 1, j + 0);
+      metadata(W[0], i, j).add_cost(params_cur.log2_delta_prime[1]).add_cost(log2(0.25) * 2).add_cost(distribute2).push_to(Y[1], i + 1, j + 2);
+      metadata(W[0], i, j).add_cost(params_cur.log2_delta_prime[2]).add_cost(log2(0.25) * 1).add_cost(distribute1).push_to(Y[2], i + 1, j + 1);
+      metadata(W[0], i, j).add_cost(params_cur.log2_alpha_prime[0]).add_cost(codon_emit_probs).add_cost(distribute3).push_to(Z[0], i, j + 3);
+      metadata(W[0], i, j).add_cost(params_cur.log2_alpha_prime[1]).add_cost(log2(0.25) * 1).add_cost(distribute1).push_to(Z[1], i, j + 2);
+      metadata(W[0], i, j).add_cost(params_cur.log2_alpha_prime[2]).add_cost(log2(0.25) * 2).add_cost(distribute2).push_to(Z[2], i, j + 1);
     }
 
     if (!has_non_empty) break;
@@ -593,9 +609,6 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment,
   auto distribute2 = distribute1 * 2;
   auto distribute3 = distribute1 * 3;
 
-  // x-drop
-  Float x_param = 100;
-
   W[1][iEnd][jEnd] = 0;
   metadata cur_max = -INFINITY;
   for(int radius = 0;; radius++) {
@@ -611,19 +624,20 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment,
       if(j - 2 >= 0) {
         auto [emitNum, divisor] = decoded[j - 2]; // upto j emitted alr
         codon_emit_probs = log2(params_emission_probabilities[emitNum] * divisor);
-        metadata(X, i, j).add_cost(log2(params_cur.enter_match_probability)).add_cost(codon_emit_probs).add_cost(distribute3).push_to(W[1], i, j - 3);
+        metadata(X, i, j).add_cost(params_cur.log2_enter_match_probability).add_cost(codon_emit_probs).add_cost(distribute3).push_to(W[1], i, j - 3);
       }
 
       for (int k = 0; k < 3; k++) {
-        metadata(Y[k], i, j).add_cost(log2(params_cur.epsilon_prime[k])).push_to(Y[k], i - 1, j);
+        metadata(Y[k], i, j).add_cost(params_cur.log2_epsilon_prime[k]).push_to(Y[k], i - 1, j);
       }
-      metadata(Y[0], i, j).add_cost((log2(params_cur.delta_prime[0]))).push_to(W[1], i, j - 0);
-      metadata(Y[1], i, j).add_cost((log2(params_cur.delta_prime[1]))).add_cost(log2(0.25) * 2).add_cost(distribute1).push_to(W[1], i, j - 2);
-      metadata(Y[2], i, j).add_cost((log2(params_cur.delta_prime[2]))).add_cost(log2(0.25) * 1).add_cost(distribute2).push_to(W[1], i, j - 1);
+      metadata(Y[0], i, j).add_cost(params_cur.log2_delta_prime[0]).push_to(W[1], i, j - 0);
+      metadata(Y[1], i, j).add_cost(params_cur.log2_delta_prime[1]).add_cost(log2(0.25) * 2).add_cost(distribute1).push_to(W[1], i, j - 2);
+      metadata(Y[2], i, j).add_cost(params_cur.log2_delta_prime[2]).add_cost(log2(0.25) * 1).add_cost(distribute2).push_to(W[1], i, j - 1);
 
-      if (W[1][i][j].metric > -INFINITY) {
-        has_non_empty = true;
+      if (W[1][i][j].metric < cur_max.metric - OPT_x) {
+        continue;
       }
+      has_non_empty = true; // TODO: Z isnt 100% pushed
 
       int to_emit_by_null = j;
       auto one = (-(xx_null / sequenceLength) * to_emit_by_null + (profile.dp[j]));
@@ -640,11 +654,11 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment,
 
 
       for (int k = 0; k < 3; k++) {
-        metadata(Z[k], i, j).add_cost(log2(params_cur.beta_prime[k])).add_cost(codon_emit_probs).add_cost(distribute3).push_to(Z[k], i, j - 3);
+        metadata(Z[k], i, j).add_cost(params_cur.log2_beta_prime[k]).add_cost(codon_emit_probs).add_cost(distribute3).push_to(Z[k], i, j - 3);
       }
-      metadata(Z[0], i, j).add_cost((log2(params_cur.alpha_prime[0]))).add_cost(codon_emit_probs).add_cost(distribute3).push_to(W[1], i, j - 3);
-      metadata(Z[1], i, j).add_cost((log2(params_cur.alpha_prime[1]))).add_cost(log2(0.25) * 1).add_cost(distribute1).push_to(W[1], i, j - 1);
-      metadata(Z[2], i, j).add_cost((log2(params_cur.alpha_prime[2]))).add_cost(log2(0.25) * 2).add_cost(distribute2).push_to(W[1], i, j - 2);
+      metadata(Z[0], i, j).add_cost((params_cur.log2_alpha_prime[0])).add_cost(codon_emit_probs).add_cost(distribute3).push_to(W[1], i, j - 3);
+      metadata(Z[1], i, j).add_cost((params_cur.log2_alpha_prime[1])).add_cost(log2(0.25) * 1).add_cost(distribute1).push_to(W[1], i, j - 1);
+      metadata(Z[2], i, j).add_cost((params_cur.log2_alpha_prime[2])).add_cost(log2(0.25) * 2).add_cost(distribute2).push_to(W[1], i, j - 2);
 
 
     }
@@ -761,8 +775,10 @@ void addMidAnchored(std::vector<AlignedSimilarity> &similarities,
   // if (!maybeLocalMaximum(profile, sequence, sequenceLength, scratch,
 	// 		 anchor1, anchor2, wMidAnchored)) return;
   AlignedSimilarity s = {wMidAnchored / scale, anchor1, anchor2, wEndAnchored};
+#ifdef ALIGN
   addForwardAlignment(s.alignment, profile, sequence, sequenceLength,
 		      scratch, anchor1, anchor2, wBegAnchored / 2);
+#endif
   similarities.push_back(s);
 }
 
@@ -770,8 +786,10 @@ void finishMidAnchored(AlignedSimilarity &s,
 		       Profile profile, const char *sequence,
 		       int sequenceLength, const Float *scratch) {
   reverse(s.alignment.begin(), s.alignment.end());
+#ifdef ALIGN
   addReverseAlignment(s.alignment, profile, sequence, sequenceLength,
 		      scratch, s.anchor1, s.anchor2, s.wEndAnchored / 2);
+#endif
   reverse(s.alignment.begin(), s.alignment.end());
 }
 
@@ -969,7 +987,7 @@ char translate(const char* dna, int i) {
     auto it = codonTable.find(codon);
     return (it != codonTable.end()) ? it->second : '?';
 }
-Float log_sum_exp(Float a, Float b) {
+Float log2_sum_exp(Float a, Float b) {
   if (a == -INFINITY) return b;
   if (b == -INFINITY) return a;
   Float m = std::max(a, b);
@@ -1039,7 +1057,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       }
 
       t2 = log2(BACKGROUND_FRAMESHIFT_RATE * 0.25) + dp[i + 1];
-      dp[i] = log_sum_exp(t1, t2);
+      dp[i] = log2_sum_exp(t1, t2);
     }
 
     std::vector dp_r(dp);
@@ -1061,7 +1079,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
       t2 = log2(BACKGROUND_FRAMESHIFT_RATE * 0.25) + (i > 0 ? dp[i - 1] : log2(1.0 / 3.0));
 
-      auto cur = log_sum_exp(t1, t2);
+      auto cur = log2_sum_exp(t1, t2);
       dp[i] = cur;
     }
 
@@ -1071,7 +1089,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
     xx_null = dp_r[0]; // all at lower right
     for (int i = 0; i < sequenceLength; i++) {
-      xx_null = log_sum_exp(xx_null, dp[i] + dp_r[i + 1]);
+      xx_null = log2_sum_exp(xx_null, dp[i] + dp_r[i + 1]);
     }
     profile.not_align_probs = xx_null;
     auto distribute1 = pow(2, -(xx_null / sequenceLength));
@@ -1083,9 +1101,6 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     auto &X = scratch_v2.X;
     auto &Y = scratch_v2.Y;
     auto &Z = scratch_v2.Z;
-
-    Float mx = 0;
-    AlignedSimilarity sel;
 
     for(int i = profile.length; i >= 0; i--) {
       const Float *params = profile.values + (i) * profile.width;
@@ -1126,6 +1141,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       }
     }
 
+    std::vector opt_profile_position(sequenceLength, (AlignedSimilarity){-INFINITY});
     for(int i = 0; i <= profile.length; i++ ) {
       const Float *params = profile.values + (i) * profile.width;
 
@@ -1202,21 +1218,32 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
         // assert(!std::isnan(wMidAnchored));
         AlignedSimilarity s = {wMidAnchored, i, j, wEndAnchored};
-        if(s.probRatio > mx) {
-          mx = s.probRatio;
-          sel = s;
-        }
+        opt_profile_position[j] = std::max(opt_profile_position[j], s);
       }
       //W[reverse][i][sequenceLength] = scale; // boundary
     }
 
     if(minProbRatio >= 0) {
-      //std::cout << "adding " << log2(mx) << std::endl;
-      addMidAnchored(similarities, profile, sequence, sequenceLength, scratch, sel.anchor1, sel.anchor2, sel.probRatio * scale / sel.wEndAnchored, sel.wEndAnchored);
-      for (auto &x : similarities) {
-        finishMidAnchored(x, profile, sequence, sequenceLength, scratch);
+      std::ranges::sort(opt_profile_position, std::greater<>());
+      std::vector<bool>  aligned(sequenceLength);
+      for (auto &aligned_similarity : opt_profile_position) {
+        if (aligned_similarity.probRatio >= minProbRatio && !aligned[aligned_similarity.anchor2]) {
+          std::cout << "adding " << aligned_similarity.anchor2 << " of score " << aligned_similarity.probRatio << std::endl;
+          double evalue = profile.gumbelKmidAnchored * sequenceLength / pow(aligned_similarity.probRatio, profile.lambda);
+          std::cout << "E: " << evalue << std::endl;
+          addMidAnchored(similarities, profile, sequence, sequenceLength, scratch, aligned_similarity.anchor1, aligned_similarity.anchor2, aligned_similarity.probRatio * scale / aligned_similarity.wEndAnchored, aligned_similarity.wEndAnchored);
+          auto &x = similarities.back();
+          finishMidAnchored(x, profile, sequence, sequenceLength, scratch);
+
+          // dumb heuristic
+          int startIdx = std::max(simBeg2(x) - 3 * profile.length, 0);
+          int endIdx   = std::min(simEnd2(x) + 3 * profile.length, sequenceLength - 1);
+          std::cout << startIdx << " " << endIdx << std::endl;
+          std::fill(aligned.begin() + startIdx, aligned.begin() + endIdx, true);
+        }
       }
     } else {
+        auto sel = *std::max_element(opt_profile_position.begin(), opt_profile_position.end());
         int i = sel.anchor1, j = sel.anchor2;
         AlignedSimilarity b = sel;
         //std::cout << log(sel.probRatio) << std::endl;
@@ -1661,6 +1688,11 @@ int finalizeProfile(Profile &p, char *consensusSequence,
       p.values_v2.rbegin()->beta_prime[i] = beta;
     }
 
+    for (int i = 0; i <= 2; i++) {
+      p.values_v2.rbegin()->log2_alpha_prime[i] = log2(p.values_v2.rbegin()->alpha_prime[i]);
+      p.values_v2.rbegin()->log2_beta_prime[i] = log2(p.values_v2.rbegin()->beta_prime[i]);
+    }
+
     probs[0] = alpha;
 
     if (i == p.length) break;
@@ -1681,6 +1713,11 @@ int finalizeProfile(Profile &p, char *consensusSequence,
 
     p.values_v2.rbegin()->enter_match_probability = (1 - alpha - alphaFS1 - alphaFS2 - delta - deltaFS1 - deltaFS2);
 
+    for (int i = 0; i <= 2; i++) {
+      p.values_v2.rbegin()->log2_delta_prime[i] = log2(p.values_v2.rbegin()->delta_prime[i]);
+      p.values_v2.rbegin()->log2_epsilon_prime[i] = log2(p.values_v2.rbegin()->epsilon_prime[i]);
+    }
+    p.values_v2.rbegin()->log2_enter_match_probability = log2(p.values_v2.rbegin()->enter_match_probability);
 
     double c = (1 - alpha - delta);
     if (epsilon >= 1) return 0;
