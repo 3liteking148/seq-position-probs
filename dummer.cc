@@ -996,16 +996,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         contains_prot |= (alphabet[sequence[i]] != 'A' && alphabet[sequence[i]] != 'C' && alphabet[sequence[i]] != 'G' && alphabet[sequence[i]] != 'T');
     }
 
-    if(!contains_prot) {
-        //std::cout << sequence_decompressed << std::endl;
-        //exit(0);
-    }
-
     char charToNumber[256];
     setCharToNumber(charToNumber, alphabet);
-
-
-    auto &dump = build_standard_genetic_code();
 
     std::priority_queue<AlignedSimilarity, std::vector<AlignedSimilarity>, decltype([](auto a, auto b) {
       return a.probRatio > b.probRatio;
@@ -1019,13 +1011,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
           NucDist dist = *reinterpret_cast<NucDist*>(profile.debug);
           char translated = translate(dna.c_str(), i);
 
-  #ifdef DUMMER_SCORING
-          Float divisor = 1;
-  #else
-          //Float divisor = aa2codons.at(translated).size() * dist.overall[dna[i]] * dist.overall[dna[i + 1]] * dist.overall[dna[i + 2]]; // remove background probability 0.25^3, and also dedupliate emission
           Float divisor = aa2codons.at(translated).size();
-          //Float divisor = 1;
-  #endif
           if(translated == '*') {
             return {-1, STOP_CODON_PROB / divisor}; // for now
           }
@@ -1037,7 +1023,6 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       for(int i = 0; i < sequenceLength - 2; i++) {
         decoded[i] = translate_wrapper(sequence_decompressed, i);
       }
-  //  }
 
     std::vector<Float> dp(sequenceLength + 1);
     for (int i = sequenceLength - 1; i >= 0; i--) {
@@ -1058,7 +1043,6 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     }
 
     std::vector dp_r(dp);
-    //std::cout << "dp is " << xx_null << " in place of " << (-2 * sequenceLength) << std::endl;
     for (int i = 0; i < sequenceLength; i++) {
       Float t1 = log2(1 - BACKGROUND_FRAMESHIFT_RATE);
       Float t2 = -INFINITY;
@@ -1093,10 +1077,6 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     auto distribute1 = pow(2, -(xx_null / sequenceLength));
     auto distribute2 = distribute1 * distribute1;
     auto distribute3 = distribute2 * distribute1;
-    //auto half = pow(2, (-2 * sequenceLength - xx_null) / 2.0);
-
-
-    //std::cout << "redist " << distribute1 << std::endl;
 
     scratch_v2.resize_if_need(profile.length + 1, sequenceLength);
     auto &W = scratch_v2.W;
@@ -1124,9 +1104,6 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         int alr_emitted = sequenceLength - 1 - j;
         auto one = exp2(-(xx_null / sequenceLength) * alr_emitted + (dp_r[j + 1]));
 
-        if(i == 300) {
-          //std::cout << j << " one is " << one << std::endl;
-        }
         W[1][i][j] = dp_access_safe(X, i + 1, j + 3) * params_cur.enter_match_probability * codon_emit_probs * distribute3 +
           dp_access_safe(Y[0], i + 1, j + 0) * params_cur.delta_prime[0] +
           dp_access_safe(Y[1], i + 1, j + 2) * params_cur.delta_prime[1] * 0.25 * 0.25 * distribute2 +
@@ -1215,14 +1192,9 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
             std::cout << "debug sum of probabilities of starting at phmm idx 9 " << wBegAnchored << std::endl;
         }
 
-        // if(i == 67) {
-        //   std::cout << "debug f " << dp[j] << " " << dp_r[j] << " to " << dp[sequenceLength - 1] << " -> " << updated_denominator << std::endl;
-        // }
 
         // assert(!std::isnan(wMidAnchored));
         AlignedSimilarity s = {wMidAnchored, i, j, wEndAnchored};
-
-        //AlignedSimilarity s = {wBegAnchored, i, j, wEndAnchored};
         if(s.probRatio > mx) {
           mx = s.probRatio;
           sel = s;
