@@ -379,14 +379,9 @@ struct metadata {
     }
   }
 
-  metadata add_cost(Float cost) const {
-    metadata ret = *this;
-    if(isnan(cost)) {
-      cost = -INFINITY;
-    }
-    ret.metric += cost;
-
-    return ret;
+  metadata& add_cost(Float cost) {
+    this->metric += cost;
+    return *this;
   };
 
   void push_to(DP_2Dv2 &dp, int i, int j) {
@@ -516,7 +511,7 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
         metadata(Y[k], i, j).add_cost(params_later.log2_epsilon_prime[k]).push_to(Y[0], i + 1, j);
 
         metadata(Z[k], i, j).push_to(W[0], i, j);
-        metadata(Z[k], i, j).add_cost(params_cur.log2_beta_prime[k]).add_cost(codon_emit_probs).add_cost(distribute3).push_to(Z[0], i, j + 3);
+        metadata(Z[k], i, j).add_cost(params_cur.log2_beta_prime[k] + codon_emit_probs + distribute3).push_to(Z[0], i, j + 3);
       }
 
       if (W[0][i][j].metric < cur_max.metric - OPT_x) {
@@ -529,13 +524,13 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
       auto one = (-(xx_null / sequenceLength) * to_emit_by_null + (profile.dp_r[j + 1]));
       cur_max = std::max(cur_max, metadata(W[0], i, j).add_cost(one));
       //std::cout << "do work on " << i << " " << j << " " << W[0][i][j].metric << " " << cur_max.metric << std::endl;
-      metadata(W[0], i, j).add_cost(params_cur.log2_enter_match_probability).add_cost(codon_emit_probs).add_cost(distribute3).push_to(X, i + 1, j + 3);
+      metadata(W[0], i, j).add_cost(params_cur.log2_enter_match_probability + codon_emit_probs + distribute3).push_to(X, i + 1, j + 3);
       metadata(W[0], i, j).add_cost(params_cur.log2_delta_prime[0]).push_to(Y[0], i + 1, j + 0);
-      metadata(W[0], i, j).add_cost(params_cur.log2_delta_prime[1]).add_cost(log2(0.25) * 2).add_cost(distribute2).push_to(Y[1], i + 1, j + 2);
-      metadata(W[0], i, j).add_cost(params_cur.log2_delta_prime[2]).add_cost(log2(0.25) * 1).add_cost(distribute1).push_to(Y[2], i + 1, j + 1);
-      metadata(W[0], i, j).add_cost(params_cur.log2_alpha_prime[0]).add_cost(codon_emit_probs).add_cost(distribute3).push_to(Z[0], i, j + 3);
-      metadata(W[0], i, j).add_cost(params_cur.log2_alpha_prime[1]).add_cost(log2(0.25) * 1).add_cost(distribute1).push_to(Z[1], i, j + 2);
-      metadata(W[0], i, j).add_cost(params_cur.log2_alpha_prime[2]).add_cost(log2(0.25) * 2).add_cost(distribute2).push_to(Z[2], i, j + 1);
+      metadata(W[0], i, j).add_cost(params_cur.log2_delta_prime[1] + log2(0.25) * 2 + distribute2).push_to(Y[1], i + 1, j + 2);
+      metadata(W[0], i, j).add_cost(params_cur.log2_delta_prime[2] + log2(0.25) * 1 + distribute1).push_to(Y[2], i + 1, j + 1);
+      metadata(W[0], i, j).add_cost(params_cur.log2_alpha_prime[0] + codon_emit_probs + distribute3).push_to(Z[0], i, j + 3);
+      metadata(W[0], i, j).add_cost(params_cur.log2_alpha_prime[1] + log2(0.25) * 1 + distribute1).push_to(Z[1], i, j + 2);
+      metadata(W[0], i, j).add_cost(params_cur.log2_alpha_prime[2] + log2(0.25) * 2 + distribute2).push_to(Z[2], i, j + 1);
     }
 
     if (!has_non_empty) break;
@@ -624,15 +619,15 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment,
       if(j - 2 >= 0) {
         auto [emitNum, divisor] = decoded[j - 2]; // upto j emitted alr
         codon_emit_probs = log2(params_emission_probabilities[emitNum] * divisor);
-        metadata(X, i, j).add_cost(params_cur.log2_enter_match_probability).add_cost(codon_emit_probs).add_cost(distribute3).push_to(W[1], i, j - 3);
+        metadata(X, i, j).add_cost(params_cur.log2_enter_match_probability + codon_emit_probs + distribute3).push_to(W[1], i, j - 3);
       }
 
       for (int k = 0; k < 3; k++) {
         metadata(Y[k], i, j).add_cost(params_cur.log2_epsilon_prime[k]).push_to(Y[k], i - 1, j);
       }
       metadata(Y[0], i, j).add_cost(params_cur.log2_delta_prime[0]).push_to(W[1], i, j - 0);
-      metadata(Y[1], i, j).add_cost(params_cur.log2_delta_prime[1]).add_cost(log2(0.25) * 2).add_cost(distribute1).push_to(W[1], i, j - 2);
-      metadata(Y[2], i, j).add_cost(params_cur.log2_delta_prime[2]).add_cost(log2(0.25) * 1).add_cost(distribute2).push_to(W[1], i, j - 1);
+      metadata(Y[1], i, j).add_cost(params_cur.log2_delta_prime[1] + log2(0.25) * 2 + distribute1).push_to(W[1], i, j - 2);
+      metadata(Y[2], i, j).add_cost(params_cur.log2_delta_prime[2] + log2(0.25) * 1 + distribute2).push_to(W[1], i, j - 1);
 
       if (W[1][i][j].metric < cur_max.metric - OPT_x) {
         continue;
@@ -654,11 +649,11 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment,
 
 
       for (int k = 0; k < 3; k++) {
-        metadata(Z[k], i, j).add_cost(params_cur.log2_beta_prime[k]).add_cost(codon_emit_probs).add_cost(distribute3).push_to(Z[k], i, j - 3);
+        metadata(Z[k], i, j).add_cost(params_cur.log2_beta_prime[k] + codon_emit_probs + distribute3).push_to(Z[k], i, j - 3);
       }
-      metadata(Z[0], i, j).add_cost((params_cur.log2_alpha_prime[0])).add_cost(codon_emit_probs).add_cost(distribute3).push_to(W[1], i, j - 3);
-      metadata(Z[1], i, j).add_cost((params_cur.log2_alpha_prime[1])).add_cost(log2(0.25) * 1).add_cost(distribute1).push_to(W[1], i, j - 1);
-      metadata(Z[2], i, j).add_cost((params_cur.log2_alpha_prime[2])).add_cost(log2(0.25) * 2).add_cost(distribute2).push_to(W[1], i, j - 2);
+      metadata(Z[0], i, j).add_cost((params_cur.log2_alpha_prime[0]) + codon_emit_probs + distribute3).push_to(W[1], i, j - 3);
+      metadata(Z[1], i, j).add_cost((params_cur.log2_alpha_prime[1]) + log2(0.25) * 1 + distribute1).push_to(W[1], i, j - 1);
+      metadata(Z[2], i, j).add_cost((params_cur.log2_alpha_prime[2]) + log2(0.25) * 2 + distribute2).push_to(W[1], i, j - 2);
 
 
     }
