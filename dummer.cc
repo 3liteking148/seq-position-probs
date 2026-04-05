@@ -1199,7 +1199,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         if(i + 1 <= profile.length) W[0][i + 1][j] += X[i][j] + Y[0][i][j] + Y[1][i][j] + Y[2][i][j];
 
 
-        auto wEndAnchored = W[0][i][j];
+        auto wEndAnchored = w[0];
         auto wBegAnchored = W[1][i][j];
 
         Float wMidAnchored = wEndAnchored * wBegAnchored / scale;
