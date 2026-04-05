@@ -38,7 +38,6 @@
 #define OPT_b 100
 #define OPT_x 100 // 0 to enable greedy mode
 
-//#define DUMMER_SCORING
 #define EVALUE
 #define ALIGN
 
@@ -297,7 +296,7 @@ int strandPosition(size_t strandNum, int seqLength, int position) {
   return (strandNum % 2) ? seqLength - position : position;
 }
 
-Float xx_null;
+Float not_align_probs;
 void printSimilarity(const char *names, Profile p, Sequence s,
 		     const FinalSimilarity &sim, double evalue) {
   char strand = "+-"[sim.strandNum % 2];
@@ -353,11 +352,6 @@ void addReverseMatch(std::vector<SegmentPair> &alignment, int pos1, int pos2) {
   alignment.push_back(sp);
 }
 
-using DP_2D = std::vector<std::vector<Float>>;
-DP_2D make_dp_table(size_t rows, size_t cols) {
-    return DP_2D(rows, std::vector<Float>(cols));
-}
-
 struct metadata;
 using DP_2Dv2 = std::vector<std::vector<metadata>>;
 struct metadata {
@@ -386,7 +380,6 @@ struct metadata {
 
   void push_to(DP_2Dv2 &dp, int i, int j) {
     if(0 <= i && i < dp.size() && 0 <= j && j < dp[0].size()) {
-      //std::cout << "write to " << i << " " << j << std::endl;
       dp[i][j] = std::max(dp[i][j], *this);
     }
   }
@@ -401,26 +394,6 @@ DP_2Dv2 make_dp_table_v2(size_t rows, size_t cols) {
     return DP_2Dv2(rows, std::vector<metadata>(cols, -INFINITY));
 }
 
-inline double dp_access_safe(DP_2D &dp, int i, int j, double err = 0) {
-  if(0 <= i && i < dp.size() && 0 <= j && j < dp[0].size()) {
-    return dp[i][j];
-  }
-  return err;
-}
-
-struct {
-  size_t r = -1, c = -1;
-  std::array<DP_2D, 2> W;
-
-  void resize_if_need(size_t r, size_t c, bool reset_w = true) {
-    if(reset_w) {
-      W = {
-        make_dp_table(r, c),
-        make_dp_table(r, c)
-      };
-    }
-  }
-} scratch_v2;
 std::vector<std::pair<int, Float>> decoded;
 
 template <typename T, typename U>
@@ -505,7 +478,7 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
       has_non_empty = true;
 
       int to_emit_by_null = sequenceLength - 1 - j;
-      auto one = (-(xx_null / sequenceLength) * to_emit_by_null + (profile.dp_r[j + 1]));
+      auto one = (-(not_align_probs / sequenceLength) * to_emit_by_null + (profile.dp_r[j + 1]));
       cur_max = std::max(cur_max, metadata(W[0], i, j).add_cost(one));
       //std::cout << "do work on " << i << " " << j << " " << W[0][i][j].metric << " " << cur_max.metric << std::endl;
       metadata(W[0], i, j).add_cost(params_cur.log2_enter_match_probability + codon_emit_probs + distribute3).push_to(X, i + 1, j + 3);
@@ -619,7 +592,7 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment,
       has_non_empty = true; // TODO: Z isnt 100% pushed
 
       int to_emit_by_null = j;
-      auto one = (-(xx_null / sequenceLength) * to_emit_by_null + (profile.dp[j]));
+      auto one = (-(not_align_probs / sequenceLength) * to_emit_by_null + (profile.dp[j]));
       cur_max = std::max(cur_max, metadata(W[1], i, j).add_cost(one));
       //std::cout << "do work on " << i << " " << j << " " << W[0][i][j].metric << " " << cur_max.metric << std::endl;
 
@@ -972,9 +945,59 @@ Float log2_sum_exp(Float a, Float b) {
   Float m = std::max(a, b);
   return m + log2(exp2(a - m) + exp2(b - m));
 }
+
+template <typename T, bool Rolling = false>
+class FlatMatrix {
+  std::vector<T> data;
+  size_t cols;
+  size_t logical_rows;
+
+public:
+  FlatMatrix() : cols(0), logical_rows(0) {}
+
+  void resize(size_t r, size_t c, T init = T()) {
+    logical_rows = r;
+    cols = c;
+    if constexpr (Rolling) {
+      data.resize(2 * c);
+      data.assign(2 * c, init);
+    } else {
+      data.resize(r * c);
+      data.assign(r * c, init);
+    }
+  }
+
+  inline T& operator()(size_t i, size_t j) {
+    // assert(0 <= i && i < logical_rows);
+    // assert(0 <= j && j < cols);
+    if constexpr (Rolling) {
+      return data[(i & 1) * cols + j];
+    } else {
+      return data[i * cols + j];
+    }
+  }
+
+  inline const T& operator()(size_t i, size_t j) const {
+    if constexpr (Rolling) {
+      return data[(i & 1) * cols + j];
+    } else {
+      return data[i * cols + j];
+    }
+  }
+
+  // Crucial for DP: clear the current row before calculating it
+  // so data from the "previous-previous" row doesn't pollute your maximums
+  inline void clear_row(size_t i, T init_val = T()) {
+    size_t actual_row = Rolling ? (i & 1) : i;
+    auto row_start = data.begin() + (actual_row * cols);
+    std::fill(row_start, row_start + cols, init_val);
+  }
+};
+
 // vibe-coded section end
 
-
+FlatMatrix<Float, true> W0;
+FlatMatrix<Float> W1;
 void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 		      Profile profile, const char *sequence,
 		      int sequenceLength, Float *scratch,
@@ -995,10 +1018,6 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
 
     char charToNumber[256];
     setCharToNumber(charToNumber, alphabet);
-
-    std::priority_queue<AlignedSimilarity, std::vector<AlignedSimilarity>, decltype([](auto a, auto b) {
-      return a.probRatio > b.probRatio;
-    })> pq;
 
     // MEGA HACK to avoid retranslating every pHMM (unsure if actually helps)
 //    if(!similarities.size()) {
@@ -1066,27 +1085,26 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
     profile.dp_r = dp_r;
 
 
-    xx_null = dp_r[0]; // all at lower right
+    not_align_probs = dp_r[0]; // all at lower right
     for (int i = 0; i < sequenceLength; i++) {
-      xx_null = log2_sum_exp(xx_null, dp[i] + dp_r[i + 1]);
+      not_align_probs = log2_sum_exp(not_align_probs, dp[i] + dp_r[i + 1]);
     }
-    profile.not_align_probs = xx_null;
-    auto distribute1 = pow(2, -(xx_null / sequenceLength));
+    profile.not_align_probs = not_align_probs;
+    auto distribute1 = pow(2, -(not_align_probs / sequenceLength));
     auto distribute2 = distribute1 * distribute1;
     auto distribute3 = distribute2 * distribute1;
 
-    scratch_v2.resize_if_need(profile.length + 1, sequenceLength);
-    auto &W = scratch_v2.W;
+    W0.resize(profile.length + 1, sequenceLength + 4);
+    W1.resize(profile.length + 2, sequenceLength + 4);
 
-    std::vector<Float> W_next(sequenceLength + 4, 0.0);
     std::vector<Float> Y0_next(sequenceLength + 4, 0.0);
     std::vector<Float> Y1_next(sequenceLength + 4, 0.0);
     std::vector<Float> Y2_next(sequenceLength + 4, 0.0);
 
-    std::vector<Float> W_curr(sequenceLength + 4, 0.0);
     std::vector<Float> Y0_curr(sequenceLength + 4, 0.0);
     std::vector<Float> Y1_curr(sequenceLength + 4, 0.0);
     std::vector<Float> Y2_curr(sequenceLength + 4, 0.0);
+    std::vector<Float> one(sequenceLength + 4, 0.0);
 
     for(int i = profile.length; i >= 0; i--) {
       const Params &params_cur = profile.values_v2[i];
@@ -1112,19 +1130,21 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
           codon_emit_probs = params_emission_probabilities[emitNum] * divisor;
         }
 
-        auto one = exp2(-(xx_null / sequenceLength) * (sequenceLength - 1 - j) + dp_r[j + 1]);
+        if (i == profile.length) {
+          one[j] = exp2(-(not_align_probs / sequenceLength) * (sequenceLength - 1 - j) + dp_r[j + 1]);
+        }
 
         Float w_val =
-          W_next[j + 3] /* X[i+1][j+3] */ * params_cur.enter_match_probability * codon_emit_probs * distribute3 +
+          W1(i + 1, j + 3) /* X[i+1][j+3] */ * params_cur.enter_match_probability * codon_emit_probs * distribute3 +
           Y0_next[j + 0] * params_cur.delta_prime[0] +
           Y1_next[j + 2] * params_cur.delta_prime[1] * 0.25 * 0.25 * distribute2 +
           Y2_next[j + 1] * params_cur.delta_prime[2] * 0.25 * distribute1 +
           Z0_ring[r_3]  * params_cur.alpha_prime[0] * codon_emit_probs * distribute3 +
           Z1_ring[r_1]  * params_cur.alpha_prime[1] * 0.25 * distribute1 +
           Z2_ring[r_2]  * params_cur.alpha_prime[2] * 0.25 * 0.25 * distribute2 +
-          one * scale;
+          one[j] * scale;
 
-        W[1][i][j] = W_curr[j] = w_val;
+        W1(i, j) = w_val;
 
 
         Y0_curr[j] = w_val + params_later.epsilon_prime[0] * Y0_next[j];
@@ -1137,7 +1157,6 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         Z2_ring[r_0] = w_val + params_cur.beta_prime[2] * codon_emit_probs * distribute3 * z0_future;
       }
 
-      std::swap(W_curr, W_next);
       std::swap(Y0_curr, Y0_next);
       std::swap(Y1_curr, Y1_next);
       std::swap(Y2_curr, Y2_next);
@@ -1161,21 +1180,19 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
       Float Z2_ring[4] = {0, 0, 0, 0};
 
       for(int j = 0; j < sequenceLength; j++) {
-        std::array<Float, 4> w;
-        for(int w_i = 1; w_i <= 3; w_i++) {
-          int last_idx_emitted_by_null = j - w_i;
-          int cnt_emitted_by_null = last_idx_emitted_by_null + 1;
-          Float one;
-          if(last_idx_emitted_by_null >= 0) {
-            one = exp2(-(xx_null / sequenceLength) * cnt_emitted_by_null + dp[last_idx_emitted_by_null]);
-          } else {
-            one = 1.0 / 3.0; // probability of having frame only, no emissions have happened yet
-          }
+        int last_idx_emitted_by_null = j;
+        int cnt_emitted_by_null = last_idx_emitted_by_null + 1;
+        if(i == 0) {
+          one[j] = exp2(-(not_align_probs / sequenceLength) * cnt_emitted_by_null + dp[last_idx_emitted_by_null]);
+        }
 
-          if (j - w_i >= -1) {
-            w[w_i] = dp_access_safe(W[0], i, j - w_i) + (scale * one);
-          } else {
-            w[w_i] = 0;
+        std::array<Float, 4> w = {};
+        for(int w_i = 1; w_i <= 3; w_i++) {
+          if (j - w_i == -1) {
+            Float one_val = (1.0 / 3.0);  // probability of having frame only, no emissions have happened yet
+            w[w_i] = scale * one_val;
+          } else if (j - w_i >= 0) {
+            w[w_i] = W0(i, j - w_i);
           }
         }
 
@@ -1197,12 +1214,11 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         Z1_ring[r_0] = params_cur.alpha_prime[1] * 0.25 * distribute1 * w[1];
         Z2_ring[r_0] = params_cur.alpha_prime[2] * 0.25 * 0.25 * distribute2 * w[2];
 
-        W[0][i][j] += Z0_ring[r_0] + Z1_ring[r_0] + Z2_ring[r_0];
+        w[0] = W0(i, j);
+        w[0] += Z0_ring[r_0] + Z1_ring[r_0] + Z2_ring[r_0] + one[j] * scale;
+        W0(i, j) = w[0];
 
         // Z[i][j] already computed at this point
-        auto one = exp2(-(xx_null / sequenceLength) * (j + 1) + dp[j]);
-        w[0] = W[0][i][j] + scale * one;
-
         Y0_curr[j] = params_cur.delta_prime[0] * w[0] +
                       params_cur.epsilon_prime[0] * Y0_next[j] +
                       params_cur.epsilon_prime[1] * Y1_next[j] +
@@ -1211,11 +1227,11 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         Y2_curr[j] = params_cur.delta_prime[2] * 0.25 * distribute1 * w[1];
 
         //store at next hmm state
-        if(i + 1 <= profile.length) W[0][i + 1][j] += X_ij + Y0_curr[j] + Y1_curr[j] + Y2_curr[j];
+        if(i + 1 <= profile.length) W0(i + 1, j) += X_ij + Y0_curr[j] + Y1_curr[j] + Y2_curr[j];
 
 
         auto wEndAnchored = w[0];
-        auto wBegAnchored = W[1][i][j];
+        auto wBegAnchored = W1(i, j);
 
         Float wMidAnchored = wEndAnchored * wBegAnchored / scale;
         if(i == 456 - 1 && j == 19820) {
@@ -1228,7 +1244,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities,
         AlignedSimilarity s = {wMidAnchored, i, j, wEndAnchored};
         opt_profile_position[j] = std::max(opt_profile_position[j], s);
       }
-      std::swap(W_curr, W_next);
+
+      W0.clear_row(i);
       std::swap(Y0_curr, Y0_next);
       std::swap(Y1_curr, Y1_next);
       std::swap(Y2_curr, Y2_next);

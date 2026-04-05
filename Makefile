@@ -1,4 +1,4 @@
-CXXFLAGS = -Wall -O3 -g -std=c++20 -march=native
+CXXFLAGS = -Wall -Ofast -g -std=c++20 -march=native
 
 all: bin/dummer bin/dummerl bin/dummer-build
 
