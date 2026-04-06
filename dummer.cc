@@ -403,58 +403,107 @@ std::pair<T, U> operator+(const std::pair<T, U>& a,
     return { a.first + b.first, b.second};
 }
 
+enum class TraceState : uint8_t {
+    NONE = 0, W, X, Y0, Y1, Y2, Z0, Z1, Z2
+};
+
+struct DP_Cell {
+    Float metric = -INFINITY;
+    TraceState backpointer = TraceState::NONE;
+
+    inline void update(Float new_metric, TraceState state) {
+        if (new_metric > metric) {
+            metric = new_metric;
+            backpointer = state;
+        }
+    }
+};
+
+struct DP_Bundle {
+    DP_Cell W, X, Y0, Y1, Y2, Z0, Z1, Z2;
+};
+
 void addForwardAlignment(std::vector<SegmentPair> &alignment,
-			 Profile profile, const char *sequence,
-			 int sequenceLength, const Float *scratch,
-			 int iBeg, int jBeg, double half) {
-  /*
-  TODO memory optimization: per-diagonal indexing using row (profile) indexes
-  0 0 0 0
-  1 1 1
-  2 2
-  3
+     Profile profile, const char *sequence,
+     int sequenceLength, const Float *scratch,
+     int iBeg, int jBeg, double half) {
 
-  base cases:
-    idx = 0 X and Y are 0 (only insertions allowed)
-    idx = row #: X and Z are 0 (only deletions allowed)
-  */
+  size_t rows = profile.length + 2;
+  size_t cols = sequenceLength + 4;
+  std::vector<DP_Bundle> dp(rows * cols);
 
-  //scratch_v2.resize_if_need(std::min(profile.length + 1, sequenceLength + 1), std::min(profile.length + 1, sequenceLength + 1));
-  std::array<DP_2Dv2, 2> W{
-      make_dp_table_v2(profile.length + 1, sequenceLength + 1),
-      make_dp_table_v2(profile.length + 1, sequenceLength + 1)
-  };
-  DP_2Dv2 X = make_dp_table_v2(profile.length + 1, sequenceLength);
-  std::array<DP_2Dv2, 3> Y{
-      make_dp_table_v2(profile.length + 1, sequenceLength),
-      make_dp_table_v2(profile.length + 1, sequenceLength),
-      make_dp_table_v2(profile.length + 1, sequenceLength)
-  };
-  std::array<DP_2Dv2, 3> Z{
-      make_dp_table_v2(profile.length + 1, sequenceLength),
-      make_dp_table_v2(profile.length + 1, sequenceLength),
-      make_dp_table_v2(profile.length + 1, sequenceLength)
+  auto get_dp = [&](int i, int j) -> DP_Bundle& {
+      return dp[i * cols + j];
   };
 
-  //std::cout << "anchor is " << iBeg << " and " << jBeg << std::endl;
-
-  auto null = profile.not_align_probs;
-  auto distribute1 = -(null / sequenceLength);
+  auto null_prob = profile.not_align_probs;
+  auto distribute1 = -(null_prob / sequenceLength);
   auto distribute2 = distribute1 * 2;
   auto distribute3 = distribute1 * 3;
 
-  // x-drop
-  W[0][iBeg][jBeg] = 0;
-  metadata cur_max = -INFINITY;
-  for(int radius = 0;; radius++) {
-    bool has_non_empty = false;
-    for(int i = iBeg, j = jBeg + radius; i <= profile.length && j >= jBeg; i++, j--) {
-      if(j >= sequenceLength) continue;
+  get_dp(iBeg, jBeg).W.metric = 0;
+
+  Float cur_max_metric = -INFINITY;
+  int max_dest_i = iBeg, max_dest_j = jBeg;
+  TraceState max_dest_state = TraceState::W;
+
+  int max_radius = (profile.length + 2) + (sequenceLength + 4);
+  std::vector<int> min_i_per_rad(max_radius, INT_MAX);
+  std::vector<int> max_i_per_rad(max_radius, -1);
+
+  min_i_per_rad[0] = iBeg;
+  max_i_per_rad[0] = iBeg;
+
+  auto update_bounds = [&](int rad, int i_val) {
+      if (rad < max_radius) {
+          if (i_val < min_i_per_rad[rad]) min_i_per_rad[rad] = i_val;
+          if (i_val > max_i_per_rad[rad]) max_i_per_rad[rad] = i_val;
+      }
+  };
+
+  for (int radius = 0; radius < max_radius; ++radius) {
+    int r_min_i = min_i_per_rad[radius];
+    int r_max_i = max_i_per_rad[radius];
+
+    if (r_min_i > r_max_i) {
+        bool more_work = false;
+        for (int r = radius + 1; r <= radius + 4 && r < max_radius; ++r) {
+            if (min_i_per_rad[r] <= max_i_per_rad[r]) { more_work = true; break; }
+        }
+        if (!more_work) break;
+        continue;
+    }
+
+    for (int i = r_min_i; i <= r_max_i; ++i) {
+      int j = jBeg + radius - (i - iBeg);
+
+      if (i > profile.length || j >= sequenceLength || j < 0) continue;
+
+      DP_Bundle& cell = get_dp(i, j);
+      cell.W.update(cell.X.metric, TraceState::X);
+      cell.W.update(cell.Y0.metric, TraceState::Y0);
+      cell.W.update(cell.Y1.metric, TraceState::Y1);
+      cell.W.update(cell.Y2.metric, TraceState::Y2);
+      cell.W.update(cell.Z0.metric, TraceState::Z0);
+      cell.W.update(cell.Z1.metric, TraceState::Z1);
+      cell.W.update(cell.Z2.metric, TraceState::Z2);
+
+      Float w0_score = cell.W.metric;
+      if (w0_score < cur_max_metric - OPT_x) continue;
+
+      int to_emit_by_null = sequenceLength - 1 - j;
+      Float one = (-(null_prob / sequenceLength) * to_emit_by_null + (profile.dp_r[j + 1]));
+
+      if (w0_score + one > cur_max_metric) {
+          cur_max_metric = w0_score + one;
+          max_dest_i = i;
+          max_dest_j = j;
+          max_dest_state = TraceState::W;
+      }
 
       const Params &params_cur = profile.values_v2[i];
-      const Params &params_later = profile.values_v2[i + 1];
-      const Float *params = profile.values + (i) * profile.width;
-      const Float *params_emission_probabilities = params + 4;
+      const Params &params_later = (i + 1 <= profile.length) ? profile.values_v2[i + 1] : params_cur;
+      const Float *params_emission_probabilities = profile.values + i * profile.width + 4;
 
       Float codon_emit_probs = -INFINITY;
       if(j + 3 < sequenceLength) {
@@ -462,182 +511,281 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment,
         codon_emit_probs = log2(params_emission_probabilities[emitNum] * divisor);
       }
 
-      metadata(X, i, j).push_to(W[0], i, j);
-      for (int k = 0; k < 3; k++) {
-        metadata(Y[k], i, j).push_to(W[0], i, j);
-        metadata(Y[k], i, j).add_cost(params_later.log2_epsilon_prime[k]).push_to(Y[0], i + 1, j);
-
-        metadata(Z[k], i, j).push_to(W[0], i, j);
-        metadata(Z[k], i, j).add_cost(params_cur.log2_beta_prime[k] + codon_emit_probs + distribute3).push_to(Z[0], i, j + 3);
+      if (i + 1 <= profile.length && j + 3 < sequenceLength) {
+          get_dp(i + 1, j + 3).X.update(w0_score + params_cur.log2_enter_match_probability + codon_emit_probs + distribute3, TraceState::W);
+          update_bounds(radius + 4, i + 1);
       }
 
-      if (W[0][i][j].metric < cur_max.metric - OPT_x) {
-        continue;
+      if (i + 1 <= profile.length) {
+          get_dp(i + 1, j).Y0.update(w0_score + params_cur.log2_delta_prime[0], TraceState::W);
+          update_bounds(radius + 1, i + 1);
+
+          if (j + 2 < sequenceLength) {
+              get_dp(i + 1, j + 2).Y1.update(w0_score + params_cur.log2_delta_prime[1] + log2(0.25) * 2 + distribute2, TraceState::W);
+              update_bounds(radius + 3, i + 1);
+          }
+          if (j + 1 < sequenceLength) {
+              get_dp(i + 1, j + 1).Y2.update(w0_score + params_cur.log2_delta_prime[2] + log2(0.25) * 1 + distribute1, TraceState::W);
+              update_bounds(radius + 2, i + 1);
+          }
+
+          get_dp(i + 1, j).Y0.update(cell.Y0.metric + params_later.log2_epsilon_prime[0], TraceState::Y0);
+          get_dp(i + 1, j).Y0.update(cell.Y1.metric + params_later.log2_epsilon_prime[1], TraceState::Y1);
+          get_dp(i + 1, j).Y0.update(cell.Y2.metric + params_later.log2_epsilon_prime[2], TraceState::Y2);
       }
 
-      has_non_empty = true;
+      if (j + 3 < sequenceLength) {
+          get_dp(i, j + 3).Z0.update(w0_score + params_cur.log2_alpha_prime[0] + codon_emit_probs + distribute3, TraceState::W);
+          update_bounds(radius + 3, i);
+      }
+      if (j + 1 < sequenceLength) {
+          get_dp(i, j + 1).Z1.update(w0_score + params_cur.log2_alpha_prime[1] + log2(0.25) * 1 + distribute1, TraceState::W);
+          update_bounds(radius + 1, i);
+      }
+      if (j + 2 < sequenceLength) {
+          get_dp(i, j + 2).Z2.update(w0_score + params_cur.log2_alpha_prime[2] + log2(0.25) * 2 + distribute2, TraceState::W);
+          update_bounds(radius + 2, i);
+      }
 
-      int to_emit_by_null = sequenceLength - 1 - j;
-      auto one = (-(not_align_probs / sequenceLength) * to_emit_by_null + (profile.dp_r[j + 1]));
-      cur_max = std::max(cur_max, metadata(W[0], i, j).add_cost(one));
-      //std::cout << "do work on " << i << " " << j << " " << W[0][i][j].metric << " " << cur_max.metric << std::endl;
-      metadata(W[0], i, j).add_cost(params_cur.log2_enter_match_probability + codon_emit_probs + distribute3).push_to(X, i + 1, j + 3);
-      metadata(W[0], i, j).add_cost(params_cur.log2_delta_prime[0]).push_to(Y[0], i + 1, j + 0);
-      metadata(W[0], i, j).add_cost(params_cur.log2_delta_prime[1] + log2(0.25) * 2 + distribute2).push_to(Y[1], i + 1, j + 2);
-      metadata(W[0], i, j).add_cost(params_cur.log2_delta_prime[2] + log2(0.25) * 1 + distribute1).push_to(Y[2], i + 1, j + 1);
-      metadata(W[0], i, j).add_cost(params_cur.log2_alpha_prime[0] + codon_emit_probs + distribute3).push_to(Z[0], i, j + 3);
-      metadata(W[0], i, j).add_cost(params_cur.log2_alpha_prime[1] + log2(0.25) * 1 + distribute1).push_to(Z[1], i, j + 2);
-      metadata(W[0], i, j).add_cost(params_cur.log2_alpha_prime[2] + log2(0.25) * 2 + distribute2).push_to(Z[2], i, j + 1);
+      if (j + 3 < sequenceLength) {
+          get_dp(i, j + 3).Z0.update(cell.Z0.metric + params_cur.log2_beta_prime[0] + codon_emit_probs + distribute3, TraceState::Z0);
+          get_dp(i, j + 3).Z0.update(cell.Z1.metric + params_cur.log2_beta_prime[1] + codon_emit_probs + distribute3, TraceState::Z1);
+          get_dp(i, j + 3).Z0.update(cell.Z2.metric + params_cur.log2_beta_prime[2] + codon_emit_probs + distribute3, TraceState::Z2);
+      }
     }
-
-    if (!has_non_empty) break;
   }
 
   std::vector<std::pair<int, int>> path;
-  bool is_print = false;
-  int i = cur_max.dest_i, j = cur_max.dest_j;
-  auto cur = &W[0][i][j];
-  //std::cout << "src: " << iBeg << " " << jBeg << std::endl;
+  int curr_i = max_dest_i;
+  int curr_j = max_dest_j;
+  TraceState curr_state = max_dest_state;
 
-  while(true) {
-    if(is_print) {
-      // X already advances profile and sequence positions
-      path.emplace_back(i - 1, j - 2);
-    }
+  while (true) {
+      DP_Bundle& cell = get_dp(curr_i, curr_j);
+      TraceState bp = TraceState::NONE;
 
-    if(cur->dest != nullptr) {
-      is_print = cur->dest == &X;
-      i = cur->dest_i;
-      j = cur->dest_j;
-      cur = &((*((DP_2Dv2*)cur->dest))[i][j]);
-    } else {
-      break;
-    }
+      switch (curr_state) {
+          case TraceState::W: bp = cell.W.backpointer; break;
+          case TraceState::X:  bp = cell.X.backpointer;  break;
+          case TraceState::Y0: bp = cell.Y0.backpointer; break;
+          case TraceState::Y1: bp = cell.Y1.backpointer; break;
+          case TraceState::Y2: bp = cell.Y2.backpointer; break;
+          case TraceState::Z0: bp = cell.Z0.backpointer; break;
+          case TraceState::Z1: bp = cell.Z1.backpointer; break;
+          case TraceState::Z2: bp = cell.Z2.backpointer; break;
+          default: break;
+      }
+
+      if (bp == TraceState::NONE) break;
+
+      bool is_print = (bp == TraceState::X && curr_state == TraceState::W);
+      if (is_print) {
+          path.emplace_back(curr_i - 1, curr_j - 2);
+      }
+
+      if (curr_state == TraceState::W) {
+          curr_state = bp;
+      } else if (curr_state == TraceState::X) {
+          curr_i -= 1; curr_j -= 3; curr_state = bp;
+      } else if (curr_state == TraceState::Y0) {
+          curr_i -= 1; curr_j -= 0; curr_state = bp;
+      } else if (curr_state == TraceState::Y1) {
+          curr_i -= 1; curr_j -= 2; curr_state = bp;
+      } else if (curr_state == TraceState::Y2) {
+          curr_i -= 1; curr_j -= 1; curr_state = bp;
+      } else if (curr_state == TraceState::Z0) {
+          curr_i -= 0; curr_j -= 3; curr_state = bp;
+      } else if (curr_state == TraceState::Z1) {
+          curr_i -= 0; curr_j -= 1; curr_state = bp;
+      } else if (curr_state == TraceState::Z2) {
+          curr_i -= 0; curr_j -= 2; curr_state = bp;
+      }
   }
   std::reverse(path.begin(), path.end());
   for (const auto& p : path) {
     addForwardMatch(alignment, p.first, p.second);
   }
-
 }
 
 void addReverseAlignment(std::vector<SegmentPair> &alignment,
-			 Profile profile, const char *sequence,
-			 int sequenceLength, const Float *scratch,
-			 int iEnd, int jEnd, double half) {
-   /*
-  TODO memory optimization: per-diagonal indexing using row (profile) indexes
-  0 0 0 0
-  1 1 1
-  2 2
-  3
+     Profile profile, const char *sequence,
+     int sequenceLength, const Float *scratch,
+     int iEnd, int jEnd, double half) {
 
-  base cases:
-    idx = 0 X and Y are 0 (only insertions allowed)
-    idx = row #: X and Z are 0 (only deletions allowed)
-  */
+  size_t rows = profile.length + 2;
+  size_t cols = sequenceLength + 4;
+  std::vector<DP_Bundle> dp(rows * cols);
 
-  //scratch_v2.resize_if_need(std::min(profile.length + 1, sequenceLength + 1), std::min(profile.length + 1, sequenceLength + 1));
-  std::array<DP_2Dv2, 2> W{
-      make_dp_table_v2(profile.length + 1, sequenceLength + 1),
-      make_dp_table_v2(profile.length + 1, sequenceLength + 1)
-  };
-  DP_2Dv2 X = make_dp_table_v2(profile.length + 1, sequenceLength);
-  std::array<DP_2Dv2, 3> Y{
-      make_dp_table_v2(profile.length + 1, sequenceLength),
-      make_dp_table_v2(profile.length + 1, sequenceLength),
-      make_dp_table_v2(profile.length + 1, sequenceLength)
-  };
-  std::array<DP_2Dv2, 3> Z{
-      make_dp_table_v2(profile.length + 1, sequenceLength),
-      make_dp_table_v2(profile.length + 1, sequenceLength),
-      make_dp_table_v2(profile.length + 1, sequenceLength)
+  auto get_dp = [&](int i, int j) -> DP_Bundle& {
+      return dp[i * cols + j];
   };
 
-  //std::cout << "anchor is " << iBeg << " and " << jBeg << std::endl;
-
-  auto null = profile.not_align_probs;
-  auto distribute1 = -(null / sequenceLength);
+  auto null_prob = profile.not_align_probs;
+  auto distribute1 = -(null_prob / sequenceLength);
   auto distribute2 = distribute1 * 2;
   auto distribute3 = distribute1 * 3;
 
-  W[1][iEnd][jEnd] = 0;
-  metadata cur_max = -INFINITY;
-  for(int radius = 0;; radius++) {
-    bool has_non_empty = false;
-    for(int i = iEnd, j = jEnd - radius; i >= 0 && j <= jEnd; i--, j++) {
-      if(j >= sequenceLength) continue;
+  get_dp(iEnd, jEnd).W.metric = 0;
 
+  Float cur_max_metric = -INFINITY;
+  int max_dest_i = iEnd, max_dest_j = jEnd;
+  TraceState max_dest_state = TraceState::W;
+
+  int max_radius = iEnd + jEnd + 4;
+  std::vector<int> min_i_per_rad(max_radius, INT_MAX);
+  std::vector<int> max_i_per_rad(max_radius, -1);
+
+  min_i_per_rad[0] = iEnd;
+  max_i_per_rad[0] = iEnd;
+
+  auto update_bounds = [&](int rad, int i_val) {
+      if (rad < max_radius) {
+          if (i_val < min_i_per_rad[rad]) min_i_per_rad[rad] = i_val;
+          if (i_val > max_i_per_rad[rad]) max_i_per_rad[rad] = i_val;
+      }
+  };
+
+  for (int radius = 0; radius < max_radius; ++radius) {
+    int r_min_i = min_i_per_rad[radius];
+    int r_max_i = max_i_per_rad[radius];
+
+    if (r_min_i > r_max_i) {
+        bool more_work = false;
+        for (int r = radius + 1; r <= radius + 4 && r < max_radius; ++r) {
+            if (min_i_per_rad[r] <= max_i_per_rad[r]) { more_work = true; break; }
+        }
+        if (!more_work) break;
+        continue;
+    }
+
+    for (int i = r_max_i; i >= r_min_i; --i) {
+      int j = jEnd - radius + (iEnd - i);
+      if (i < 0 || j < 0 || j >= sequenceLength) continue;
+
+      DP_Bundle& cell = get_dp(i, j);
       const Params &params_cur = profile.values_v2[i];
-      const Float *params = profile.values + (i) * profile.width;
-      const Float *params_emission_probabilities = params + 4;
+      const Float *params_emission_probabilities = profile.values + i * profile.width + 4;
+
+      // moved to before check
+      cell.W.update(cell.Y0.metric + params_cur.log2_delta_prime[0], TraceState::Y0);
+
+      Float w_score = cell.W.metric;
+      if (w_score < cur_max_metric - OPT_x) continue;
 
       Float codon_emit_probs = -INFINITY;
       if(j - 2 >= 0) {
-        auto [emitNum, divisor] = decoded[j - 2]; // upto j emitted alr
+        auto [emitNum, divisor] = decoded[j - 2];
         codon_emit_probs = log2(params_emission_probabilities[emitNum] * divisor);
-        metadata(X, i, j).add_cost(params_cur.log2_enter_match_probability + codon_emit_probs + distribute3).push_to(W[1], i, j - 3);
+
+        if (j - 3 >= 0) {
+            get_dp(i, j - 3).W.update(cell.X.metric + params_cur.log2_enter_match_probability + codon_emit_probs + distribute3, TraceState::X);
+            update_bounds(radius + 3, i);
+        }
       }
 
-      for (int k = 0; k < 3; k++) {
-        metadata(Y[k], i, j).add_cost(params_cur.log2_epsilon_prime[k]).push_to(Y[k], i - 1, j);
+      if (i - 1 >= 0) {
+          get_dp(i - 1, j).Y0.update(cell.Y0.metric + params_cur.log2_epsilon_prime[0], TraceState::Y0);
+          get_dp(i - 1, j).Y1.update(cell.Y0.metric + params_cur.log2_epsilon_prime[1], TraceState::Y0);
+          get_dp(i - 1, j).Y2.update(cell.Y0.metric + params_cur.log2_epsilon_prime[2], TraceState::Y0);
+          update_bounds(radius + 1, i - 1);
       }
-      metadata(Y[0], i, j).add_cost(params_cur.log2_delta_prime[0]).push_to(W[1], i, j - 0);
-      metadata(Y[1], i, j).add_cost(params_cur.log2_delta_prime[1] + log2(0.25) * 2 + distribute1).push_to(W[1], i, j - 2);
-      metadata(Y[2], i, j).add_cost(params_cur.log2_delta_prime[2] + log2(0.25) * 1 + distribute2).push_to(W[1], i, j - 1);
-
-      if (W[1][i][j].metric < cur_max.metric - OPT_x) {
-        continue;
+      if (j - 2 >= 0) {
+          get_dp(i, j - 2).W.update(cell.Y1.metric + params_cur.log2_delta_prime[1] + log2(0.25) * 2 + distribute2, TraceState::Y1);
+          update_bounds(radius + 2, i);
       }
-      has_non_empty = true; // TODO: Z isnt 100% pushed
-
-      int to_emit_by_null = j;
-      auto one = (-(not_align_probs / sequenceLength) * to_emit_by_null + (profile.dp[j]));
-      cur_max = std::max(cur_max, metadata(W[1], i, j).add_cost(one));
-      //std::cout << "do work on " << i << " " << j << " " << W[0][i][j].metric << " " << cur_max.metric << std::endl;
-
-      metadata(W[1], i, j).push_to(Z[0], i, j);
-      metadata(W[1], i, j).push_to(Z[1], i, j);
-      metadata(W[1], i, j).push_to(Z[2], i, j);
-      metadata(W[1], i, j).push_to(X, i - 1, j);
-      metadata(W[1], i, j).push_to(Y[0], i - 1, j);
-      metadata(W[1], i, j).push_to(Y[1], i - 1, j);
-      metadata(W[1], i, j).push_to(Y[2], i - 1, j);
-
-
-      for (int k = 0; k < 3; k++) {
-        metadata(Z[k], i, j).add_cost(params_cur.log2_beta_prime[k] + codon_emit_probs + distribute3).push_to(Z[k], i, j - 3);
+      if (j - 1 >= 0) {
+          get_dp(i, j - 1).W.update(cell.Y2.metric + params_cur.log2_delta_prime[2] + log2(0.25) * 1 + distribute1, TraceState::Y2);
+          update_bounds(radius + 1, i);
       }
-      metadata(Z[0], i, j).add_cost((params_cur.log2_alpha_prime[0]) + codon_emit_probs + distribute3).push_to(W[1], i, j - 3);
-      metadata(Z[1], i, j).add_cost((params_cur.log2_alpha_prime[1]) + log2(0.25) * 1 + distribute1).push_to(W[1], i, j - 1);
-      metadata(Z[2], i, j).add_cost((params_cur.log2_alpha_prime[2]) + log2(0.25) * 2 + distribute2).push_to(W[1], i, j - 2);
 
+      int to_emit_by_null = j + 1;
+      Float one = (-(null_prob / sequenceLength) * to_emit_by_null + (profile.dp[j]));
+      if (w_score + one > cur_max_metric) {
+          cur_max_metric = w_score + one;
+          max_dest_i = i;
+          max_dest_j = j;
+          max_dest_state = TraceState::W;
+      }
 
+      // from W
+      if (i - 1 >= 0) {
+          get_dp(i - 1, j).X.update(w_score, TraceState::W);
+          get_dp(i - 1, j).Y0.update(w_score, TraceState::W);
+          get_dp(i - 1, j).Y1.update(w_score, TraceState::W);
+          get_dp(i - 1, j).Y2.update(w_score, TraceState::W);
+          update_bounds(radius + 1, i - 1);
+      }
+      cell.Z0.update(w_score, TraceState::W);
+      cell.Z1.update(w_score, TraceState::W);
+      cell.Z2.update(w_score, TraceState::W);
+
+      if (j - 3 >= 0) {
+          get_dp(i, j - 3).Z0.update(cell.Z0.metric + params_cur.log2_beta_prime[0] + codon_emit_probs + distribute3, TraceState::Z0);
+          get_dp(i, j - 3).Z1.update(cell.Z0.metric + params_cur.log2_beta_prime[1] + codon_emit_probs + distribute3, TraceState::Z0);
+          get_dp(i, j - 3).Z2.update(cell.Z0.metric + params_cur.log2_beta_prime[2] + codon_emit_probs + distribute3, TraceState::Z0);
+          get_dp(i, j - 3).W.update(cell.Z0.metric + params_cur.log2_alpha_prime[0] + codon_emit_probs + distribute3, TraceState::Z0);
+          update_bounds(radius + 3, i);
+      }
+      if (j - 1 >= 0) {
+          get_dp(i, j - 1).W.update(cell.Z1.metric + params_cur.log2_alpha_prime[1] + log2(0.25) * 1 + distribute1, TraceState::Z1);
+          update_bounds(radius + 1, i);
+      }
+      if (j - 2 >= 0) {
+          get_dp(i, j - 2).W.update(cell.Z2.metric + params_cur.log2_alpha_prime[2] + log2(0.25) * 2 + distribute2, TraceState::Z2);
+          update_bounds(radius + 2, i);
+      }
     }
-
-    if (!has_non_empty) break;
   }
 
   std::vector<std::pair<int, int>> path;
-  bool is_print = false;
-  int i = cur_max.dest_i, j = cur_max.dest_j;
-  auto cur = &W[1][i][j];
-  std::cout << "src: " << iEnd << " " << jEnd << std::endl;
+  int curr_i = max_dest_i, curr_j = max_dest_j;
+  TraceState curr_state = max_dest_state;
 
-  while(true) {
-    if(is_print) {
-      // X already advances sequence positions
-      path.emplace_back(i, j - 2);
-    }
-
-    if(cur->dest != nullptr) {
-      is_print = cur->dest == &X;
-      i = cur->dest_i;
-      j = cur->dest_j;
-      cur = &((*((DP_2Dv2*)cur->dest))[i][j]);
-    } else {
+  while (true) {
+    if (curr_i < 0 || curr_i >= rows || curr_j < 0 || curr_j >= cols) {
       break;
     }
+
+    DP_Bundle& cell = get_dp(curr_i, curr_j);
+    TraceState bp = TraceState::NONE;
+
+    switch (curr_state) {
+      case TraceState::W: bp = cell.W.backpointer; break;
+      case TraceState::X:  bp = cell.X.backpointer;  break;
+      case TraceState::Y0: bp = cell.Y0.backpointer; break;
+      case TraceState::Y1: bp = cell.Y1.backpointer; break;
+      case TraceState::Y2: bp = cell.Y2.backpointer; break;
+      case TraceState::Z0: bp = cell.Z0.backpointer; break;
+      case TraceState::Z1: bp = cell.Z1.backpointer; break;
+      case TraceState::Z2: bp = cell.Z2.backpointer; break;
+      default: break;
+    }
+
+    if (bp == TraceState::NONE) break;
+
+    bool is_print = curr_state == TraceState::X;
+    if (is_print) {
+      path.emplace_back(curr_i, curr_j - 2);
+    }
+
+    if (curr_state == TraceState::W) {
+      if (bp == TraceState::X || bp == TraceState::Z0) {
+        curr_j += 3;
+      } else if (bp == TraceState::Y1 || bp == TraceState::Z2) {
+        curr_j += 2;
+      } else if (bp == TraceState::Y2 || bp == TraceState::Z1) {
+        curr_j += 1;
+      }
+    } else if (curr_state == TraceState::X || curr_state == TraceState::Y0 ||
+               curr_state == TraceState::Y1 || curr_state == TraceState::Y2) {
+      curr_i += 1;
+    } else if (curr_state == TraceState::Z0 || curr_state == TraceState::Z1 ||
+              curr_state == TraceState::Z2) {
+       if (bp == TraceState::Z0) {
+         curr_j += 3;
+       }
+    }
+    curr_state = bp;
   }
   std::reverse(path.begin(), path.end());
   for (const auto& p : path) {
