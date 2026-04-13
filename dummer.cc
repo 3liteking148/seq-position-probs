@@ -41,6 +41,9 @@
 #define EVALUE
 #define ALIGN
 
+// using through BATH heuristic pipeline
+#define PIPELINE_MODE
+
 // uncomment to use codon probabilities instead of base probabilities to generate random sequences
 #define ESTIMATOR_USE_RANDOM_CODONS
 
@@ -127,6 +130,12 @@ struct Profile {  // position-specific (insert, delete, letter) probabilities
 struct Sequence {
   size_t nameIdx;
   int length;
+
+#ifdef PIPELINE_MODE
+  size_t w_start, w_end, true_length;
+  std::string target_profile;
+  bool is_plus;
+#endif
 };
 
 struct Contig {
@@ -215,6 +224,25 @@ std::istream &readContig(std::istream &in, Sequence &sequence, Contig &contig,
     getline(in, line);
     std::istringstream iss(line);
     if (!(iss >> word)) return fail(in, "bad sequence data: no name");
+#ifdef PIPELINE_MODE
+    size_t slash = word.find('/');
+    std::string chr = word.substr(0, slash);
+
+    std::string range = word.substr(slash + 1);
+    size_t dash = range.find('-');
+
+    sequence.w_start = std::stoi(range.substr(0, dash));
+    sequence.w_end = std::stoi(range.substr(dash + 1));
+
+    std::string length, profile, strand;
+    if (!(iss >> length >> profile >> strand)) return fail(in, "bad filtered sequence data: no true length, profile, or strand");
+
+    sequence.true_length = stoll(length.substr(length.find('=') + 1));
+    sequence.target_profile = profile.substr(profile.find('=') + 1);
+    sequence.is_plus = strand.find("plus_strand") != std::string::npos;
+    // keep sequence name
+    word = chr;
+#endif
     sequence.nameIdx = vec.size();
     sequence.length = 0;
     const char *name = word.c_str();
@@ -299,17 +327,34 @@ int strandPosition(size_t strandNum, int seqLength, int position) {
 Float not_align_probs;
 void printSimilarity(const char *names, Profile p, Sequence s,
 		     const FinalSimilarity &sim, double evalue) {
+  if (std::isnan(evalue)) {
+    return;
+  }
+#ifdef PIPELINE_MODE
+  char strand = "+-"[!s.is_plus];
+#else
   char strand = "+-"[sim.strandNum % 2];
+#endif
   const char *seq = sim.alignedSequences.data();
   int length = sim.alignedSequences.size() / 2;
   int span1 = length - std::count(seq, seq + length, '-');
   int span2 = length - std::count(seq + length, seq + length * 2, '-');
   int start2 = strandPosition(sim.strandNum, s.length, sim.start2);
-  int anchor2 = strandPosition(sim.strandNum, s.length, sim.anchor2);
+#ifdef PIPELINE_MODE
+  if (s.is_plus) {
+    start2 = s.w_start - 1 + start2;
+  } else {
+    start2 = s.true_length - s.w_end + start2;
+  }
+  int reportSeqLength = s.true_length;
+#else
+  int reportSeqLength = s.length;
+#endif
+  int anchor2 = strandPosition(sim.strandNum, reportSeqLength, sim.anchor2);
   int w1 = std::max(strlen(names + p.nameIdx), strlen(names + s.nameIdx));
   int w2 = std::max(numOfDigits(sim.start1), numOfDigits(start2));
   int w3 = std::max(numOfDigits(span1), numOfDigits(span2));
-  int w4 = std::max(numOfDigits(p.length), numOfDigits(s.length));
+  int w4 = std::max(numOfDigits(p.length), numOfDigits(reportSeqLength));
   std::cout << "a score=" << (log2(sim.probRatio)+shift) << " E=" << evalue
 	    << " anchor=" << sim.anchor1 << "," << anchor2 << "\n";
   std::cout << "s " << std::left << std::setw(w1) << names + p.nameIdx << " "
@@ -321,7 +366,7 @@ void printSimilarity(const char *names, Profile p, Sequence s,
   std::cout << "s " << std::left << std::setw(w1) << names + s.nameIdx << " "
 	    << std::right << std::setw(w2) << start2 << " "
 	    << std::setw(w3) << span2 << " " << strand << " "
-	    << std::setw(w4) << s.length << " ";
+	    << std::setw(w4) << reportSeqLength << " ";
   std::cout.write(seq + length, length);
   std::cout << "\n\n";
 }
@@ -2308,7 +2353,9 @@ Options for background letter probabilities:\n\
   charToNumber['>'] = 126;  // record separator for FASTA-format sequences
   setCharToNumber(charToNumber, alphabet);
   if (alphabetSize == 4) setCharToNumber(charToNumber, "ACGU");  // set U = T
-  if (alphabetSize != 4) strandOpt = 1;
+#ifdef PIPELINE_MODE
+  strandOpt = 1;
+#endif
 
   charVec.resize(seqIdx);
   std::vector<Sequence> sequences;
