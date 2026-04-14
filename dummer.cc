@@ -2392,6 +2392,9 @@ Options for background letter probabilities:\n\
       (std::pow(p.gumbelKmidAnchored * totSequenceLength / evalueOpt, 1.0 / p.lambda)) : -1;
 	  if (verbosity > 1)
 	    std::cerr << "Profile: " << &charVec[p.nameIdx] << "\n";
+#ifdef PIPELINE_MODE
+	  if (!strcmp(&charVec[p.nameIdx], sequence.target_profile.c_str()))
+#endif
 	  findFinalSimilarities(similarities, p, charVec.data(),
 				seqIdx, maskedSeqIdx,
 				contig, scratch, j, strandNum, minProbRatio);
