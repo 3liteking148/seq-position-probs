@@ -203,7 +203,15 @@ const char *getAlphabet(int alphabetSize) {
 }
 
 char complement(char c) {
-  return 3 ^ c;
+  // Map DNA bases correctly using the protein alphabet indices
+  // "ACDEFGHIKLMNPQRSTVWYUO?" -> A=0, C=1, G=5, T=16
+  switch (c) {
+    case 0:  return 16; // A -> T
+    case 16: return 0;  // T -> A
+    case 1:  return 5;  // C -> G
+    case 5:  return 1;  // G -> C
+    default: return c;  // Fallback for masked '?' or unrecognized chars
+  }
 }
 
 void reverseComplement(char *beg, char *end) {
