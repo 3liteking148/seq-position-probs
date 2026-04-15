@@ -29,5 +29,5 @@ if [ $? -ne 0 ]; then
 fi
 
 # Run dummer using the original HMM file and the captured temporary FASTA file
-$SCRIPT_DIR/dummer -v "$HMM_FILE" "$TEMP_FA"
+$SCRIPT_DIR/dummer "$HMM_FILE" "$TEMP_FA"
 cp $TEMP_FA /mnt/tmp/test.txt
