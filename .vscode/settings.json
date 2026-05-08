@@ -1,0 +1,16 @@
+{
+    "editor.formatOnSave": false,
+    "editor.defaultFormatter": "ms-vscode.cpptools",
+    "C_Cpp.clang_format_style": "file",
+    "C_Cpp.codeAnalysis.clangTidy.enabled": true,
+    "C_Cpp.codeAnalysis.clangTidy.useVCPKG": false,
+    "C_Cpp.codeAnalysis.runAutomatically": true,
+    "C_Cpp.codeAnalysis.clangTidy.args": [
+        "--header-filter=.*"
+    ],
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/compile_commands.json",
+    "clang-tidy.enabled": true,
+    "clang-tidy.executable": "clang-tidy",
+    "clang-tidy.lintOnSave": true
+}
+

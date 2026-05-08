@@ -26,4 +26,10 @@ VERSION = \"`test -e .git && $(VERSION1) || $(VERSION2)`\"
 version.hh: FORCE
 	echo $(VERSION) | cmp -s $@ - || echo $(VERSION) > $@
 
+tidy:
+	clang-tidy dummer.cc dummer-build.cc -- $(CXXFLAGS) -DDOUBLE
+
+format:
+	clang-format -i dummer.cc
+
 FORCE:
