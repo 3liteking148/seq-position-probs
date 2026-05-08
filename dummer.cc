@@ -362,7 +362,7 @@ int strandPosition(size_t strandNum, int seqLength, int position) {
     return (strandNum % 2) ? seqLength - position : position;
 }
 
-Float not_align_probs;
+
 void printSimilarity(const char *names, Profile p, Sequence s, const FinalSimilarity &sim,
                      double evalue) {
     if (std::isnan(evalue)) {
@@ -508,23 +508,37 @@ public:
     }
 };
 
-FlatMatrix<Float> W0, W1, X;
-FlatMatrix<DP_Cell> X_pfx, X_sfx;
+struct DPScratch {
+    FlatMatrix<Float> W0, W1, X;
+    FlatMatrix<DP_Cell> X_pfx, X_sfx;
+
+    // Reusable temporary buffers for findSimilarities
+    std::vector<Float> dp, dp_r;
+    std::vector<Float> Y0_next, Y1_next, Y2_next;
+    std::vector<Float> Y0_curr, Y1_curr, Y2_curr;
+    std::vector<Float> one, one_sfx;
+    std::vector<Float> left_side, right_side;
+    std::vector<AlignedSimilarity> opt_profile_position;
+    std::vector<bool> aligned;
+};
+
+
+
 
 // TODO: less dumb gap length correction
 void addForwardAlignment(std::vector<SegmentPair> &alignment, Profile profile, const char *sequence,
-                         int sequenceLength, int iBeg, int jBeg, double half) {
+                         int sequenceLength, int iBeg, int jBeg, double half, DPScratch &scratch) {
 
     std::optional<TraceState> ptr = (TraceState){.i = iBeg, .j = jBeg};
     if (!ptr)
         return;
-    ptr = X_sfx(ptr->i, ptr->j).position;
+    ptr = scratch.X_sfx(ptr->i, ptr->j).position;
     if (!ptr)
         return;
 
-    const Float init = 1.0 / X(ptr->i, ptr->j);
+    const Float init = 1.0 / scratch.X(ptr->i, ptr->j);
     while (ptr) {
-        const auto &cell = X_sfx(ptr->i, ptr->j);
+        const auto &cell = scratch.X_sfx(ptr->i, ptr->j);
         ptr = cell.position;
         if (!ptr)
             break;
@@ -540,18 +554,18 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment, Profile profile, c
 }
 
 void addReverseAlignment(std::vector<SegmentPair> &alignment, Profile profile, const char *sequence,
-                         int sequenceLength, int iEnd, int jEnd, double half) {
+                         int sequenceLength, int iEnd, int jEnd, double half, DPScratch &scratch) {
 
     std::optional<TraceState> ptr = (TraceState){.i = iEnd, .j = jEnd};
     if (!ptr)
         return;
-    ptr = X_pfx(ptr->i, ptr->j).position;
+    ptr = scratch.X_pfx(ptr->i, ptr->j).position;
     if (!ptr)
         return;
 
-    const Float init = 1.0 / X(ptr->i, ptr->j);
+    const Float init = 1.0 / scratch.X(ptr->i, ptr->j);
     while (ptr) {
-        const auto &cell = X_pfx(ptr->i, ptr->j);
+        const auto &cell = scratch.X_pfx(ptr->i, ptr->j);
         ptr = cell.position;
         if (!ptr)
             break;
@@ -639,7 +653,7 @@ bool maybeLocalMaximum(Profile profile, const char *sequence, int sequenceLength
 
 void addMidAnchored(std::vector<AlignedSimilarity> &similarities, Profile profile,
                     const char *sequence, int sequenceLength, int anchor1, int anchor2,
-                    Float wBegAnchored, Float wEndAnchored) {
+                    Float wBegAnchored, Float wEndAnchored, DPScratch &scratch) {
     Float wMidAnchored = wEndAnchored * wBegAnchored;
     // this local maximum check makes it faster when there are many similarities:
     // if (!maybeLocalMaximum(profile, sequence, sequenceLength, scratch,
@@ -647,17 +661,17 @@ void addMidAnchored(std::vector<AlignedSimilarity> &similarities, Profile profil
     AlignedSimilarity s = {wMidAnchored / scale, anchor1, anchor2, wEndAnchored};
 #ifdef ALIGN
     addForwardAlignment(s.alignment, profile, sequence, sequenceLength, anchor1, anchor2,
-                        wBegAnchored / 2);
+                        wBegAnchored / 2, scratch);
 #endif
     similarities.push_back(s);
 }
 
 void finishMidAnchored(AlignedSimilarity &s, Profile profile, const char *sequence,
-                       int sequenceLength) {
+                       int sequenceLength, DPScratch &scratch) {
     reverse(s.alignment.begin(), s.alignment.end());
 #ifdef ALIGN
     addReverseAlignment(s.alignment, profile, sequence, sequenceLength, s.anchor1, s.anchor2,
-                        s.wEndAnchored / 2);
+                        s.wEndAnchored / 2, scratch);
 #endif
     reverse(s.alignment.begin(), s.alignment.end());
 }
@@ -884,8 +898,9 @@ std::vector<uint8_t> decodeSequence(const char *sequence, int sequenceLength, co
 
 void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile profile,
                       const char *sequence, const std::vector<uint8_t> &decoded, int sequenceLength,
-                      Float minProbRatio) {
-    std::vector<Float> dp(sequenceLength + 1);
+                      Float minProbRatio, DPScratch &scratch) {
+    auto &dp = scratch.dp;
+    dp.assign(sequenceLength + 1, 0);
     for (int i = sequenceLength - 1; i >= 0; i--) {
         Float t1 = -INFINITY;
         Float t2 = -INFINITY;
@@ -901,7 +916,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
         dp[i] = log2_sum_exp(t1, t2);
     }
 
-    std::vector dp_r(dp);
+    auto &dp_r = scratch.dp_r;
+    dp_r = dp;
     for (int i = 0; i < sequenceLength; i++) {
         Float t1 = log2(1 - BACKGROUND_FRAMESHIFT_RATE);
         Float t2 = -INFINITY;
@@ -928,7 +944,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
     // for (int i = 0; i < sequenceLength; i++) {
     //   not_align_probs = log2_sum_exp(not_align_probs, dp[i] + dp_r[i + 1]);
     // }
-    not_align_probs = log2_sum_exp(log2_sum_exp(dp[sequenceLength - 1], dp[sequenceLength - 2]),
+    Float not_align_probs = log2_sum_exp(log2_sum_exp(dp[sequenceLength - 1], dp[sequenceLength - 2]),
                                    dp[sequenceLength - 3]);
     profile.not_align_probs = not_align_probs;
     auto distribute1 = exp2(-(not_align_probs / sequenceLength));
@@ -938,25 +954,27 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
     distribute2 *= 0.25 * 0.25;
     distribute1 *= 0.25;
 
-    W0.resize(profile.length + 1, sequenceLength + 4);
-    W1.resize(profile.length + 2, sequenceLength + 4);
+    scratch.W0.resize(profile.length + 1, sequenceLength + 4);
+    scratch.W1.resize(profile.length + 2, sequenceLength + 4);
 
-    std::vector<Float> Y0_next(sequenceLength + 4, 0.0);
-    std::vector<Float> Y1_next(sequenceLength + 4, 0.0);
-    std::vector<Float> Y2_next(sequenceLength + 4, 0.0);
+    const size_t bufSize = sequenceLength + 4;
+    auto &Y0_next = scratch.Y0_next; Y0_next.assign(bufSize, 0.0);
+    auto &Y1_next = scratch.Y1_next; Y1_next.assign(bufSize, 0.0);
+    auto &Y2_next = scratch.Y2_next; Y2_next.assign(bufSize, 0.0);
 
-    std::vector<Float> Y0_curr(sequenceLength + 4, 0.0);
-    std::vector<Float> Y1_curr(sequenceLength + 4, 0.0);
-    std::vector<Float> Y2_curr(sequenceLength + 4, 0.0);
-    std::vector<Float> one(sequenceLength + 4, 0.0);
+    auto &Y0_curr = scratch.Y0_curr; Y0_curr.assign(bufSize, 0.0);
+    auto &Y1_curr = scratch.Y1_curr; Y1_curr.assign(bufSize, 0.0);
+    auto &Y2_curr = scratch.Y2_curr; Y2_curr.assign(bufSize, 0.0);
+    auto &one = scratch.one; one.assign(bufSize, 0.0);
 
     for (int j = 0; j < sequenceLength; j++) {
         one[j] = exp2(-(not_align_probs / sequenceLength) * (sequenceLength - 1 - j) + dp_r[j + 1]);
     }
-    std::vector<Float> one_sfx(one);
-    std::vector<Float> left_side(one.size()), right_side(one.size());
+    auto &one_sfx = scratch.one_sfx; one_sfx = one;
+    auto &left_side = scratch.left_side; left_side.assign(one.size(), 0.0);
+    auto &right_side = scratch.right_side; right_side.assign(one.size(), 0.0);
 
-    X.resize(profile.length + 2, sequenceLength);
+    scratch.X.resize(profile.length + 2, sequenceLength);
     for (int i = profile.length; i >= 0; i--) {
         const Params &params_cur = profile.values_v2[i];
         const Float *params_emission_probabilities = profile.values + (i)*profile.width + 4;
@@ -981,7 +999,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
             }
 
             Float w_val =
-                W1(i + 1, j + 3) /* X[i+1][j+3] */ * params_cur.enter_match_probability *
+                scratch.W1(i + 1, j + 3) /* X[i+1][j+3] */ * params_cur.enter_match_probability *
                     codon_emit_probs * distribute3 +
                 Y0_next[j + 0] * params_cur.delta_prime[0] +
                 Y1_next[j + 2] * params_cur.delta_prime[1] * distribute2 +
@@ -990,7 +1008,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
                 Z1_ring[r_1] * params_cur.alpha_prime[1] * distribute1 +
                 Z2_ring[r_2] * params_cur.alpha_prime[2] * distribute2 + one[j] * scale;
 
-            W1(i, j) = w_val;
+            scratch.W1(i, j) = w_val;
             right_side[j] += w_val;
 
             Y0_curr[j] = w_val + params_cur.epsilon_prime[0] * Y0_next[j];
@@ -1014,8 +1032,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
     fill(Y0_next.begin(), Y0_next.end(), 0);
     fill(Y1_next.begin(), Y1_next.end(), 0);
     fill(Y2_next.begin(), Y2_next.end(), 0);
-    std::vector<AlignedSimilarity> opt_profile_position(sequenceLength,
-                                                        (AlignedSimilarity){-INFINITY});
+    auto &opt_profile_position = scratch.opt_profile_position;
+    opt_profile_position.assign(sequenceLength, (AlignedSimilarity){-INFINITY});
     for (int j = 0; j < sequenceLength; j++) {
         int last_idx_emitted_by_null = j;
         int cnt_emitted_by_null = last_idx_emitted_by_null + 1;
@@ -1044,7 +1062,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
                          3.0); // probability of having frame only, no emissions have happened yet
                     w[w_i] = scale * one_val;
                 } else if (j - w_i >= 0) {
-                    w[w_i] = W0(i, j - w_i);
+                    w[w_i] = scratch.W0(i, j - w_i);
                 }
             }
 
@@ -1061,7 +1079,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
                 X_ij = params_cur.enter_match_probability * codon_emit_probs * distribute3 * w[3];
             }
             if (i + 1 <= profile.length)
-                X(i, j) = X_ij * W1(i + 1, j) / scale;
+                scratch.X(i, j) = X_ij * scratch.W1(i + 1, j) / scale;
 
             Z0_ring[r_0] =
                 bg_codon_emit_probs * distribute3 *
@@ -1070,9 +1088,9 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
             Z1_ring[r_0] = params_cur.alpha_prime[1] * distribute1 * w[1];
             Z2_ring[r_0] = params_cur.alpha_prime[2] * distribute2 * w[2];
 
-            w[0] = W0(i, j);
+            w[0] = scratch.W0(i, j);
             w[0] += Z0_ring[r_0] + Z1_ring[r_0] + Z2_ring[r_0] + one[j] * scale;
-            W0(i, j) = w[0];
+            scratch.W0(i, j) = w[0];
             left_side[j] += w[0];
 
             // Z[i][j] already computed at this point
@@ -1083,10 +1101,10 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
             Y2_curr[j] = params_cur.delta_prime[2] * distribute1 * w[1];
 
             if (i + 1 <= profile.length)
-                W0(i + 1, j) += X_ij + Y0_curr[j] + Y1_curr[j] + Y2_curr[j];
+                scratch.W0(i + 1, j) += X_ij + Y0_curr[j] + Y1_curr[j] + Y2_curr[j];
 
             auto wEndAnchored = w[0];
-            auto wBegAnchored = W1(i, j);
+            auto wBegAnchored = scratch.W1(i, j);
 
             Float wMidAnchored = wEndAnchored * wBegAnchored / scale;
             AlignedSimilarity s = {wMidAnchored, i, j, wEndAnchored};
@@ -1137,18 +1155,18 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
         right_side[j] += right_side[j - 1];
     }
 
-    X_pfx.resize(profile.length + 2, sequenceLength + 4);
-    X_sfx.resize(profile.length + 2, sequenceLength + 4);
+    scratch.X_pfx.resize(profile.length + 2, sequenceLength + 4);
+    scratch.X_sfx.resize(profile.length + 2, sequenceLength + 4);
     for (int i = profile.length; i >= 0; i--) {
         for (int j = sequenceLength - 1; j >= 0; j--) {
-            DP_Cell opt_succ = X_sfx(i + 1, j + 3);
+            DP_Cell opt_succ = scratch.X_sfx(i + 1, j + 3);
 
             // if (i == 120) {
             //   std::cout << j << ": " << (DP_Cell(X(i, j), i, j)).metric << " vs null " <<
             //   DP_Cell(left_side[j]).metric << std::endl;
             // }
-            X_sfx(i, j) = std::max({X_sfx(i + 1, j), X_sfx(i, j + 1), DP_Cell(left_side[j]),
-                                    DP_Cell(X(i, j), i, j) + opt_succ});
+            scratch.X_sfx(i, j) = std::max({scratch.X_sfx(i + 1, j), scratch.X_sfx(i, j + 1), DP_Cell(left_side[j]),
+                                    DP_Cell(scratch.X(i, j), i, j) + opt_succ});
         }
     }
 
@@ -1156,22 +1174,23 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
         for (int j = 0; j < sequenceLength; j++) {
             DP_Cell opt_succ;
             if (i - 1 >= 0 && j - 3 >= 0) {
-                opt_succ = X_pfx(i - 1, j - 3);
+                opt_succ = scratch.X_pfx(i - 1, j - 3);
             }
 
             if (i - 1 >= 0)
-                X_pfx(i, j) = std::max(X_pfx(i, j), X_pfx(i - 1, j));
+                scratch.X_pfx(i, j) = std::max(scratch.X_pfx(i, j), scratch.X_pfx(i - 1, j));
             if (j - 1 >= 0)
-                X_pfx(i, j) = std::max(X_pfx(i, j), X_pfx(i, j - 1));
+                scratch.X_pfx(i, j) = std::max(scratch.X_pfx(i, j), scratch.X_pfx(i, j - 1));
 
-            X_pfx(i, j) = std::max(X_pfx(i, j), DP_Cell(X(i, j), i, j) + opt_succ);
-            X_pfx(i, j) = std::max(X_pfx(i, j), DP_Cell(right_side[j]));
+            scratch.X_pfx(i, j) = std::max(scratch.X_pfx(i, j), DP_Cell(scratch.X(i, j), i, j) + opt_succ);
+            scratch.X_pfx(i, j) = std::max(scratch.X_pfx(i, j), DP_Cell(right_side[j]));
         }
     }
 
     if (minProbRatio >= 0) {
         std::ranges::sort(opt_profile_position, std::greater<>());
-        std::vector<bool> aligned(sequenceLength);
+        auto &aligned = scratch.aligned;
+        aligned.assign(sequenceLength, false);
         for (auto &aligned_similarity : opt_profile_position) {
             if (aligned_similarity.probRatio >= minProbRatio &&
                 !aligned[aligned_similarity.anchor2]) {
@@ -1179,9 +1198,9 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
                                aligned_similarity.anchor1, aligned_similarity.anchor2,
                                aligned_similarity.probRatio * scale /
                                    aligned_similarity.wEndAnchored,
-                               aligned_similarity.wEndAnchored);
+                               aligned_similarity.wEndAnchored, scratch);
                 auto &x = similarities.back();
-                finishMidAnchored(x, profile, sequence, sequenceLength);
+                finishMidAnchored(x, profile, sequence, sequenceLength, scratch);
 
                 // dumb heuristic (4x length accounting for FS)
                 // todo: silence nuclear fallout
@@ -1213,14 +1232,14 @@ int contigToSequencePos(Contig contig, size_t strandNum, int posInContig) {
 void findFinalSimilarities(std::vector<FinalSimilarity> &similarities, Profile profile,
                            const char *charVec, size_t seqIdx, size_t maskedSeqIdx,
                            const std::vector<uint8_t> &decoded, Contig contig, size_t profileNum,
-                           size_t strandNum, Float minProbRatio) {
+                           size_t strandNum, Float minProbRatio, DPScratch &scratch) {
     const char *alphabet = getAlphabet(profile.width - nonLetterWidth);
     const char *profileSeq = charVec + profile.consensusSequenceIdx;
     const char *sequence = charVec + seqIdx;
     const char *maskedSequence = charVec + maskedSeqIdx;
 
     std::vector<AlignedSimilarity> sims;
-    findSimilarities(sims, profile, maskedSequence, decoded, contig.length, minProbRatio);
+    findSimilarities(sims, profile, maskedSequence, decoded, contig.length, minProbRatio, scratch);
 
     for (const auto &x : sims) {
         int anchor2 = contigToSequencePos(contig, strandNum, x.anchor2);
@@ -1334,7 +1353,7 @@ void estimateGumbel(double &mmLambda, double &mmK, double &mmKsimple, double &ml
 }
 
 void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int sequenceLength,
-               int border, int numOfSequences, int printVerbosity) {
+               int border, int numOfSequences, int printVerbosity, DPScratch &scratch) {
     std::mt19937_64 randGen;
     int alphabetSize = profile.width - nonLetterWidth;
 #ifdef ESTIMATOR_USE_RANDOM_CODONS
@@ -1396,7 +1415,7 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
         std::vector<AlignedSimilarity> sims;
         std::vector<uint8_t> decoded =
             decodeSequence(sequence, sequenceLength + border, alphabet, charToNumber);
-        findSimilarities(sims, profile, sequence, decoded, sequenceLength + border, -2);
+        findSimilarities(sims, profile, sequence, decoded, sequenceLength + border, -2, scratch);
         endScores[i] = log(sims[0].probRatio);
         begScores[i] = log(sims[1].probRatio);
         midScores[i] = log(sims[2].probRatio);
@@ -2071,6 +2090,8 @@ Options for background letter probabilities:\n\
 
     int printVerbosity = (argc - optind < 2) * 2 + (evalueOpt <= 0);
 
+    DPScratch scratch;
+
     for (auto &p : profiles) {
         std::cout << "\n";
         std::cout << "# Profile name: " << &charVec[p.nameIdx] << "\n";
@@ -2093,7 +2114,7 @@ Options for background letter probabilities:\n\
 
 #ifdef EVALUE
 #ifdef ESTIMATOR_USE_RANDOM_CODONS
-        estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen, border, randomSeqNum, printVerbosity);
+        estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen, border, randomSeqNum, printVerbosity, scratch);
 #else
         NucDist dist = *reinterpret_cast<NucDist *>(p.debug);
         Float bgProbsDNA[256] = {0};
@@ -2101,8 +2122,8 @@ Options for background letter probabilities:\n\
         bgProbsDNA[charToNumber['C']] = dist.overall['C'];
         bgProbsDNA[charToNumber['G']] = dist.overall['G'];
         bgProbsDNA[charToNumber['T']] = dist.overall['T'];
-        estimateK(p, bgProbsDNA, &charVec[seqIdx], randomSeqLen, border, randomSeqNum, scratch,
-                  printVerbosity);
+        estimateK(p, bgProbsDNA, &charVec[seqIdx], randomSeqLen, border, randomSeqNum,
+                  printVerbosity, scratch);
 #endif
 #endif
     }
@@ -2177,7 +2198,7 @@ Options for background letter probabilities:\n\
                     if (!strcmp(&charVec[p.nameIdx], sequence.target_profile.c_str()))
 #endif
                         findFinalSimilarities(similarities, p, charVec.data(), seqIdx, maskedSeqIdx,
-                                              decoded, contig, j, strandNum, minProbRatio);
+                                              decoded, contig, j, strandNum, minProbRatio, scratch);
                 }
             }
             reverseComplement(seq, seq + contig.length);
