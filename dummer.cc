@@ -1846,6 +1846,10 @@ void makeMaskedSequence(char *sequence, int length, int alphabetSize) {
 }
 
 int main(int argc, char* argv[]) {
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
+  _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
+  _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
+#endif
   build_standard_genetic_code(); // hack
 
   double evalueOpt = OPT_e;
