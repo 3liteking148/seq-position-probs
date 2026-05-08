@@ -418,8 +418,6 @@ void addReverseMatch(std::vector<SegmentPair> &alignment, int pos1, int pos2) {
   alignment.push_back(sp);
 }
 
-std::vector<uint8_t> decoded;
-std::unordered_map<size_t, std::vector<uint8_t>> decode_cache;
 
 template <typename T, typename U>
 std::pair<T, U> operator+(const std::pair<T, U>& a,
@@ -861,35 +859,26 @@ Float log2_sum_exp(Float a, Float b) {
 
 // vibe-coded section end
 
-
-void findSimilarities(std::vector<AlignedSimilarity> &similarities,
-		      Profile profile, int seqIdx, const char *sequence,
-		      int sequenceLength,
-		      Float minProbRatio) {
-  // doesnt work if non pipeline
-  const char *alphabet = getAlphabet(profile.width - nonLetterWidth);
-  if (seqIdx == -1 || !decode_cache.contains(seqIdx)) {
-    auto n = sequenceLength;
+std::vector<uint8_t> decodeSequence(const char *sequence, int sequenceLength, const char *alphabet, const char *charToNumber) {
+    int n = sequenceLength;
     std::string sequence_decompressed;
-    bool contains_prot = false;
-
     for(int i = 0; i < n; i++) {
       assert(sequence[i] <= 22);
       sequence_decompressed += alphabet[sequence[i]];
-      contains_prot |= (alphabet[sequence[i]] != 'A' && alphabet[sequence[i]] != 'C' && alphabet[sequence[i]] != 'G' && alphabet[sequence[i]] != 'T');
     }
 
-    char charToNumber[256];
-    setCharToNumber(charToNumber, alphabet);
-
-    decoded = std::vector<uint8_t>(n, INT_MIN);
+    std::vector<uint8_t> decoded(n, (uint8_t)INT_MIN);
     for(int i = 0; i < n - 2; i++) {
-      decoded[i] = charToNumber[translate(sequence_decompressed.c_str(), i)];
+      decoded[i] = charToNumber[(unsigned char)translate(sequence_decompressed.c_str(), i)];
     }
-    decode_cache[seqIdx] = decoded;
-  } else {
-    decoded = decode_cache[seqIdx];
-  }
+    return decoded;
+}
+
+void findSimilarities(std::vector<AlignedSimilarity> &similarities,
+		      Profile profile, const char *sequence,
+		      const std::vector<uint8_t> &decoded,
+		      int sequenceLength,
+		      Float minProbRatio) {
     std::vector<Float> dp(sequenceLength + 1);
     for (int i = sequenceLength - 1; i >= 0; i--) {
       Float t1 = -INFINITY;
@@ -1205,6 +1194,7 @@ int contigToSequencePos(Contig contig, size_t strandNum, int posInContig) {
 void findFinalSimilarities(std::vector<FinalSimilarity> &similarities,
 			   Profile profile, const char *charVec,
 			   size_t seqIdx, size_t maskedSeqIdx,
+			   const std::vector<uint8_t> &decoded,
 			   Contig contig,
 			   size_t profileNum, size_t strandNum,
 			   Float minProbRatio) {
@@ -1214,7 +1204,7 @@ void findFinalSimilarities(std::vector<FinalSimilarity> &similarities,
   const char *maskedSequence = charVec + maskedSeqIdx;
 
   std::vector<AlignedSimilarity> sims;
-  findSimilarities(sims, profile, seqIdx, maskedSequence, contig.length,
+  findSimilarities(sims, profile, maskedSequence, decoded, contig.length,
 		   minProbRatio);
 
   for (const auto &x : sims) {
@@ -1389,7 +1379,8 @@ void estimateK(Profile &profile, const Float *letterFreqs,
 
     for (int j = 0; j < border; ++j) sequence[sequenceLength+j] = sequence[j];
     std::vector<AlignedSimilarity> sims;
-    findSimilarities(sims, profile, -1, sequence, sequenceLength + border, -2);
+    std::vector<uint8_t> decoded = decodeSequence(sequence, sequenceLength + border, alphabet, charToNumber);
+    findSimilarities(sims, profile, sequence, decoded, sequenceLength + border, -2);
     endScores[i] = log(sims[0].probRatio);
     begScores[i] = log(sims[1].probRatio);
     midScores[i] = log(sims[2].probRatio);
@@ -2126,6 +2117,7 @@ Options for background letter probabilities:\n\
       if (s != strandOpt) {
 	if (maskOpt & 2) makeMaskedSequence(seq, contig.length, alphabetSize);
 	size_t strandNum = sequences.size() * 2 + s;
+        std::vector<uint8_t> decoded = decodeSequence(&charVec[maskedSeqIdx], contig.length, alphabet, charToNumber);
 	for (size_t j = 0; j < numOfProfiles; ++j) {
 	  Profile p = profiles[j];
 	  Float minProbRatio = (evalueOpt > 0) ?
@@ -2136,7 +2128,7 @@ Options for background letter probabilities:\n\
 	  if (!strcmp(&charVec[p.nameIdx], sequence.target_profile.c_str()))
 #endif
 	  findFinalSimilarities(similarities, p, charVec.data(),
-				seqIdx, maskedSeqIdx,
+				seqIdx, maskedSeqIdx, decoded,
 				contig, j, strandNum, minProbRatio);
 	}
       }
