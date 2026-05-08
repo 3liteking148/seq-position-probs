@@ -5,9 +5,11 @@
 // sequences with position-varying probabilities of substitutions,
 // insertions, and deletions", MC Frith 2025
 
-#include "can_i_haz_simd.hh"
 #include "dummer-util.hh"
 #include "tantan-wrapper.hh"
+// clang-format off
+#include "can_i_haz_simd.hh"
+// clang-format on
 
 #include <algorithm>
 #include <array>
