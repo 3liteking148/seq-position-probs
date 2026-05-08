@@ -526,8 +526,8 @@ struct DPScratch {
 
 
 // TODO: less dumb gap length correction
-void addForwardAlignment(std::vector<SegmentPair> &alignment, Profile profile, const char *sequence,
-                         int sequenceLength, int iBeg, int jBeg, double half, DPScratch &scratch) {
+void addForwardAlignment(std::vector<SegmentPair> &alignment, int iBeg, int jBeg,
+                         DPScratch &scratch) {
 
     std::optional<TraceState> ptr = (TraceState){.i = iBeg, .j = jBeg};
     if (!ptr)
@@ -536,7 +536,6 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment, Profile profile, c
     if (!ptr)
         return;
 
-    const Float init = 1.0 / scratch.X(ptr->i, ptr->j);
     while (ptr) {
         const auto &cell = scratch.X_sfx(ptr->i, ptr->j);
         ptr = cell.position;
@@ -553,8 +552,8 @@ void addForwardAlignment(std::vector<SegmentPair> &alignment, Profile profile, c
     }
 }
 
-void addReverseAlignment(std::vector<SegmentPair> &alignment, Profile profile, const char *sequence,
-                         int sequenceLength, int iEnd, int jEnd, double half, DPScratch &scratch) {
+void addReverseAlignment(std::vector<SegmentPair> &alignment, int iEnd, int jEnd,
+                         DPScratch &scratch) {
 
     std::optional<TraceState> ptr = (TraceState){.i = iEnd, .j = jEnd};
     if (!ptr)
@@ -563,7 +562,6 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment, Profile profile, c
     if (!ptr)
         return;
 
-    const Float init = 1.0 / scratch.X(ptr->i, ptr->j);
     while (ptr) {
         const auto &cell = scratch.X_pfx(ptr->i, ptr->j);
         ptr = cell.position;
@@ -579,99 +577,22 @@ void addReverseAlignment(std::vector<SegmentPair> &alignment, Profile profile, c
     }
 }
 
-bool maybeLocalMaximum(Profile profile, const char *sequence, int sequenceLength,
-                       const Float *scratch, int anchor1, int anchor2, Float wMidAnchored) {
-    Float X[minSeparation * 2 - 1];
-    Float Y[minSeparation * 2 - 1];
-    long rowSize = simdRoundUp(sequenceLength + 1) + simdLen;
 
-    int iBeg = std::max(anchor1 - minSeparation + 1, 0);
-    int iEnd = std::min(anchor1 + minSeparation - 1, profile.length);
-    int jBeg = std::max(anchor2 - minSeparation + 1, 0);
-    int jEnd = std::min(anchor2 + minSeparation - 1, sequenceLength);
 
-    const char *seq = sequence + jBeg;
-    const Float *Xfrom = scratch + rowSize * anchor1 + jBeg;
-    const Float *Yfrom = scratch + rowSize * (profile.length + 1) + jBeg;
-
-    for (int i = anchor1 + 1; i <= iEnd; ++i) {
-        const Float *Wbackward = scratch + i * rowSize + jBeg;
-        Float a = profile.values[i * profile.width + 0];
-        Float b = profile.values[i * profile.width + 1];
-        Float d = profile.values[i * profile.width + 2];
-        Float e = profile.values[i * profile.width + 3];
-        const Float *S = profile.values + i * profile.width + 4;
-
-        Float x = 0;
-        Float z = 0;
-        for (int j = 0; j <= jEnd - jBeg; ++j) {
-            Float y = Yfrom[j];
-            Float w = x + y + z + scale;
-            if (w * Wbackward[j] > wMidAnchored)
-                return false; // found higher score
-            x = Xfrom[j];
-            X[j] = S[seq[j]] * w;
-            Y[j] = d * w + e * y;
-            z = a * w + b * z;
-        }
-
-        Xfrom = X;
-        Yfrom = Y;
-    }
-
-    Float *W = X;
-    const Float *Wfrom = (anchor1 < profile.length) ? scratch + rowSize * (anchor1 + 1) + jBeg : Y;
-    std::fill_n(Y, minSeparation * 2 - 1, 0);
-
-    for (int i = anchor1; i >= iBeg; --i) {
-        const Float *Xforward = scratch + i * rowSize + jBeg;
-        Float a = profile.values[i * profile.width + 0];
-        Float b = profile.values[i * profile.width + 1];
-        Float d = profile.values[i * profile.width + 2];
-        Float e = profile.values[i * profile.width + 3];
-        const Float *S = profile.values + i * profile.width + 4;
-
-        Float wOld = 0;
-        Float z = 0;
-        for (int j = jEnd - jBeg; j >= 0; --j) {
-            Float y = Y[j];
-            Float t = S[seq[j]];
-            Float w = t * wOld + d * y + a * z + scale;
-            if (i < anchor1 && w * (Xforward[j] / t) > wMidAnchored)
-                return false;
-            wOld = Wfrom[j];
-            W[j] = w;
-            Y[j] = w + e * y;
-            z = w + b * z;
-        }
-
-        Wfrom = W;
-    }
-
-    return true; // maybe there is no higher score nearby
-}
-
-void addMidAnchored(std::vector<AlignedSimilarity> &similarities, Profile profile,
-                    const char *sequence, int sequenceLength, int anchor1, int anchor2,
+void addMidAnchored(std::vector<AlignedSimilarity> &similarities, int anchor1, int anchor2,
                     Float wBegAnchored, Float wEndAnchored, DPScratch &scratch) {
     Float wMidAnchored = wEndAnchored * wBegAnchored;
-    // this local maximum check makes it faster when there are many similarities:
-    // if (!maybeLocalMaximum(profile, sequence, sequenceLength, scratch,
-    // 		 anchor1, anchor2, wMidAnchored)) return;
     AlignedSimilarity s = {wMidAnchored / scale, anchor1, anchor2, wEndAnchored};
 #ifdef ALIGN
-    addForwardAlignment(s.alignment, profile, sequence, sequenceLength, anchor1, anchor2,
-                        wBegAnchored / 2, scratch);
+    addForwardAlignment(s.alignment, anchor1, anchor2, scratch);
 #endif
     similarities.push_back(s);
 }
 
-void finishMidAnchored(AlignedSimilarity &s, Profile profile, const char *sequence,
-                       int sequenceLength, DPScratch &scratch) {
+void finishMidAnchored(AlignedSimilarity &s, DPScratch &scratch) {
     reverse(s.alignment.begin(), s.alignment.end());
 #ifdef ALIGN
-    addReverseAlignment(s.alignment, profile, sequence, sequenceLength, s.anchor1, s.anchor2,
-                        s.wEndAnchored / 2, scratch);
+    addReverseAlignment(s.alignment, s.anchor1, s.anchor2, scratch);
 #endif
     reverse(s.alignment.begin(), s.alignment.end());
 }
@@ -897,8 +818,8 @@ std::vector<uint8_t> decodeSequence(const char *sequence, int sequenceLength, co
 }
 
 void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile profile,
-                      const char *sequence, const std::vector<uint8_t> &decoded, int sequenceLength,
-                      Float minProbRatio, DPScratch &scratch) {
+                      const std::vector<uint8_t> &decoded, int sequenceLength, Float minProbRatio,
+                      DPScratch &scratch) {
     auto &dp = scratch.dp;
     dp.assign(sequenceLength + 1, 0);
     for (int i = sequenceLength - 1; i >= 0; i--) {
@@ -937,16 +858,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
         dp[i] = cur;
     }
 
-    profile.dp = dp;
-    profile.dp_r = dp_r;
-
-    // not_align_probs = log2(1.0 / 3.0) + dp_r[0]; // all at lower right
-    // for (int i = 0; i < sequenceLength; i++) {
-    //   not_align_probs = log2_sum_exp(not_align_probs, dp[i] + dp_r[i + 1]);
-    // }
     Float not_align_probs = log2_sum_exp(log2_sum_exp(dp[sequenceLength - 1], dp[sequenceLength - 2]),
                                    dp[sequenceLength - 3]);
-    profile.not_align_probs = not_align_probs;
     auto distribute1 = exp2(-(not_align_probs / sequenceLength));
     auto distribute2 = distribute1 * distribute1;
     auto distribute3 = distribute2 * distribute1;
@@ -1194,13 +1107,13 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
         for (auto &aligned_similarity : opt_profile_position) {
             if (aligned_similarity.probRatio >= minProbRatio &&
                 !aligned[aligned_similarity.anchor2]) {
-                addMidAnchored(similarities, profile, sequence, sequenceLength,
-                               aligned_similarity.anchor1, aligned_similarity.anchor2,
+                addMidAnchored(similarities, aligned_similarity.anchor1,
+                               aligned_similarity.anchor2,
                                aligned_similarity.probRatio * scale /
                                    aligned_similarity.wEndAnchored,
                                aligned_similarity.wEndAnchored, scratch);
                 auto &x = similarities.back();
-                finishMidAnchored(x, profile, sequence, sequenceLength, scratch);
+                finishMidAnchored(x, scratch);
 
                 // dumb heuristic (4x length accounting for FS)
                 // todo: silence nuclear fallout
@@ -1213,7 +1126,6 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
         }
     } else {
         auto sel = *std::max_element(opt_profile_position.begin(), opt_profile_position.end());
-        int i = sel.anchor1, j = sel.anchor2;
         AlignedSimilarity b = sel;
         // std::cout << log(sel.probRatio) << std::endl;
         b.probRatio = 0;
@@ -1239,7 +1151,7 @@ void findFinalSimilarities(std::vector<FinalSimilarity> &similarities, Profile p
     const char *maskedSequence = charVec + maskedSeqIdx;
 
     std::vector<AlignedSimilarity> sims;
-    findSimilarities(sims, profile, maskedSequence, decoded, contig.length, minProbRatio, scratch);
+    findSimilarities(sims, profile, decoded, contig.length, minProbRatio, scratch);
 
     for (const auto &x : sims) {
         int anchor2 = contigToSequencePos(contig, strandNum, x.anchor2);
@@ -1415,7 +1327,7 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
         std::vector<AlignedSimilarity> sims;
         std::vector<uint8_t> decoded =
             decodeSequence(sequence, sequenceLength + border, alphabet, charToNumber);
-        findSimilarities(sims, profile, sequence, decoded, sequenceLength + border, -2, scratch);
+        findSimilarities(sims, profile, decoded, sequenceLength + border, -2, scratch);
         endScores[i] = log(sims[0].probRatio);
         begScores[i] = log(sims[1].probRatio);
         midScores[i] = log(sims[2].probRatio);
