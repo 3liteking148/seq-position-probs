@@ -169,6 +169,23 @@ struct InitialSimilarity {
     int anchor2; // 2nd anchor coordinate (don't need to store the 1st one)
 };
 
+struct SequenceData {
+    std::vector<uint8_t> decoded;
+    std::string sequence;
+    std::string maskedSequence;
+    Contig contig;
+    size_t strandNum;
+};
+
+struct SequenceRequest {
+    std::shared_ptr<SequenceData> seqData;
+    Float minProbRatio;
+
+    bool operator<(const SequenceRequest &other) const {
+        return seqData->decoded.size() < other.seqData->decoded.size();
+    }
+};
+
 struct AlignedSimilarity {
     double probRatio;
     int anchor1, anchor2;
@@ -1141,29 +1158,43 @@ int contigToSequencePos(Contig contig, size_t strandNum, int posInContig) {
     return contig.start + strandPosition(strandNum, contig.length, posInContig);
 }
 
-void findFinalSimilarities(std::vector<FinalSimilarity> &similarities, Profile profile,
-                           const char *charVec, size_t seqIdx, size_t maskedSeqIdx,
-                           const std::vector<uint8_t> &decoded, Contig contig, size_t profileNum,
-                           size_t strandNum, Float minProbRatio, DPScratch &scratch) {
+void findFinalSimilarities(std::vector<FinalSimilarity> &similarities, const SequenceRequest &req,
+                           const Profile &profile, size_t profileNum, const char *charVec,
+                           DPScratch &scratch) {
     const char *alphabet = getAlphabet(profile.width - nonLetterWidth);
     const char *profileSeq = charVec + profile.consensusSequenceIdx;
-    const char *sequence = charVec + seqIdx;
-    const char *maskedSequence = charVec + maskedSeqIdx;
+    const char *sequence = req.seqData->sequence.c_str();
+    const char *maskedSequence = req.seqData->maskedSequence.c_str();
 
     std::vector<AlignedSimilarity> sims;
-    findSimilarities(sims, profile, decoded, contig.length, minProbRatio, scratch);
+    findSimilarities(sims, profile, req.seqData->decoded, req.seqData->contig.length,
+                     req.minProbRatio, scratch);
 
     for (const auto &x : sims) {
-        int anchor2 = contigToSequencePos(contig, strandNum, x.anchor2);
-        FinalSimilarity s = {x.probRatio, profileNum, strandNum, x.anchor1,
+        int anchor2 = contigToSequencePos(req.seqData->contig, req.seqData->strandNum, x.anchor2);
+        FinalSimilarity s = {x.probRatio, profileNum, req.seqData->strandNum, x.anchor1,
                              anchor2,     x.anchor1,  anchor2};
         if (!x.alignment.empty()) {
             s.start1 = x.alignment[0].start1;
-            s.start2 = contigToSequencePos(contig, strandNum, x.alignment[0].start2);
+            s.start2 =
+                contigToSequencePos(req.seqData->contig, req.seqData->strandNum, x.alignment[0].start2);
             addAlignedProfile(s.alignedSequences, x.alignment, alphabet, profileSeq);
             addAlignedSequence(s.alignedSequences, x.alignment, alphabet, sequence, maskedSequence);
         }
         similarities.push_back(s);
+    }
+}
+
+void findFinalSimilaritiesBatched(std::vector<FinalSimilarity> &similarities,
+                                  std::vector<std::vector<SequenceRequest>> &allRequests,
+                                  const std::vector<Profile> &profiles, const char *charVec,
+                                  DPScratch &scratch) {
+    for (size_t i = 0; i < profiles.size(); ++i) {
+        auto &requests = allRequests[i];
+        std::sort(requests.begin(), requests.end());
+        for (const auto &req : requests) {
+            findFinalSimilarities(similarities, req, profiles[i], i, charVec, scratch);
+        }
     }
 }
 
@@ -2076,6 +2107,7 @@ Options for background letter probabilities:\n\
         return 1;
     Sequence sequence;
     Contig contig = {0, 0};
+    std::vector<std::vector<SequenceRequest>> allRequests(numOfProfiles);
     while (readContig(in, sequence, contig, charVec, charToNumber)) {
         if (contig.length == 0) {
             sequences.push_back(sequence);
@@ -2097,6 +2129,10 @@ Options for background letter probabilities:\n\
                 size_t strandNum = sequences.size() * 2 + s;
                 std::vector<uint8_t> decoded =
                     decodeSequence(&charVec[maskedSeqIdx], contig.length, alphabet, charToNumber);
+                std::shared_ptr<SequenceData> sd = std::make_shared<SequenceData>(
+                    std::move(decoded), std::string(&charVec[seqIdx], contig.length),
+                    std::string(&charVec[maskedSeqIdx], contig.length), contig, strandNum);
+
                 for (size_t j = 0; j < numOfProfiles; ++j) {
                     Profile p = profiles[j];
                     Float minProbRatio =
@@ -2109,14 +2145,15 @@ Options for background letter probabilities:\n\
 #ifdef PIPELINE_MODE
                     if (!strcmp(&charVec[p.nameIdx], sequence.target_profile.c_str()))
 #endif
-                        findFinalSimilarities(similarities, p, charVec.data(), seqIdx, maskedSeqIdx,
-                                              decoded, contig, j, strandNum, minProbRatio, scratch);
+                        allRequests[j].push_back({sd, minProbRatio});
                 }
             }
             reverseComplement(seq, seq + contig.length);
         }
         charVec.resize(seqIdx);
     }
+
+    findFinalSimilaritiesBatched(similarities, allRequests, profiles, charVec.data(), scratch);
 
     std::cout << "# Total sequence length: " << totSequenceLength << "\n";
 
