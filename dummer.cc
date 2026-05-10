@@ -461,22 +461,7 @@ struct TraceState {
     int i, j;
 };
 
-struct DP_Cell {
-    Float metric;
-    std::optional<TraceState> position, backpointer;
-
-    DP_Cell() : metric(-INFINITY) {}
-    DP_Cell(Float metric) : metric(metric) {}
-    DP_Cell(Float metric, int i, int j) : metric(metric) { position.emplace(i, j); }
-    auto operator<(const DP_Cell &other) const { return metric < other.metric; }
-    DP_Cell operator+(const DP_Cell &other) {
-        if (other.metric > 0) {
-            metric += other.metric;
-            backpointer = other.position;
-        }
-        return *this;
-    }
-};
+using DP_Cell = Float;
 
 template <typename T, bool Rolling = false> class FlatMatrix {
     std::vector<T> data;
@@ -540,68 +525,65 @@ struct DPScratch {
 };
 
 
+struct DP_Cell_v2 {
+    Float metric;
+    int i, j;
+    bool emit = false;
 
+    constexpr bool operator< (const DP_Cell_v2 &other) const {
+        return metric < other.metric;
+    }
+};
 
-// TODO: less dumb gap length correction
-void addForwardAlignment(std::vector<SegmentPair> &alignment, int iBeg, int jBeg,
+void addForwardAlignment(size_t profileLength, size_t sequenceLength, std::vector<SegmentPair> &alignment, int iBeg, int jBeg,
                          DPScratch &scratch) {
 
-    std::optional<TraceState> ptr = (TraceState){.i = iBeg, .j = jBeg};
-    if (!ptr)
-        return;
-    ptr = scratch.X_sfx(ptr->i, ptr->j).position;
-    if (!ptr)
-        return;
+    int i = iBeg, j = jBeg;
+    while (i <= profileLength && j < sequenceLength) {
+        auto choice = std::max({
+            DP_Cell_v2{.metric=scratch.X(i, j) + scratch.X_sfx(i + 1, j + 3), .i=i + 1, .j=j + 3, .emit=true},
+            DP_Cell_v2{.metric=scratch.X_sfx(i + 1, j), .i=i + 1, .j=j, .emit=false},
+            DP_Cell_v2{.metric=scratch.X_sfx(i, j + 1), .i=i, .j=j + 1, .emit=false},
+            DP_Cell_v2{.metric=scratch.left_side[j], .i=INT_MAX, .j=INT_MAX, .emit=false},
+        });
 
-    while (ptr) {
-        const auto &cell = scratch.X_sfx(ptr->i, ptr->j);
-        ptr = cell.position;
-        if (!ptr)
-            break;
-
-        if (ptr->j >= 2) {
-            addForwardMatch(alignment, ptr->i, ptr->j - 2);
+        if (choice.emit && j >= 2) {
+            addForwardMatch(alignment, i, j - 2);
         }
-
-        // if (ptr && abs(ptr->j - cell.backpointer->j) >= 40) break;
-
-        ptr = cell.backpointer;
+        i = choice.i, j = choice.j;
     }
 }
 
 void addReverseAlignment(std::vector<SegmentPair> &alignment, int iEnd, int jEnd,
                          DPScratch &scratch) {
-
-    std::optional<TraceState> ptr = (TraceState){.i = iEnd, .j = jEnd};
-    if (!ptr)
-        return;
-    ptr = scratch.X_pfx(ptr->i, ptr->j).position;
-    if (!ptr)
-        return;
-
-    while (ptr) {
-        const auto &cell = scratch.X_pfx(ptr->i, ptr->j);
-        ptr = cell.position;
-        if (!ptr)
-            break;
-
-        if (ptr->j >= 2) {
-            addReverseMatch(alignment, ptr->i, ptr->j - 2);
+    int i = iEnd, j = jEnd;
+    while (i >= 0 && j >= 0) {
+        DP_Cell opt_succ = 0;
+        if (i - 1 >= 0 && j - 3 >= 0) {
+            opt_succ = scratch.X_pfx(i - 1, j - 3);
         }
+        auto choice = std::max({
+            DP_Cell_v2{.metric=scratch.X(i, j) + opt_succ, .i=i - 1, .j=j - 3, .emit=true},
+            DP_Cell_v2{.metric=(i ? scratch.X_pfx(i - 1, j) : 0), .i=i - 1, .j=j, .emit=false},
+            DP_Cell_v2{.metric=(j ? scratch.X_pfx(i, j - 1) : 0), .i=i, .j=j - 1, .emit=false},
+            DP_Cell_v2{.metric=scratch.right_side[j], .i=INT_MIN, .j=INT_MIN, .emit=false},
+        });
 
-        // if (ptr && abs(ptr->j - cell.backpointer->j) >= 40) break;
-        ptr = cell.backpointer;
+        if (choice.emit && j >= 2) {
+            addReverseMatch(alignment, i, j - 2);
+        }
+        i = choice.i, j = choice.j;
     }
 }
 
 
 
-void addMidAnchored(std::vector<AlignedSimilarity> &similarities, int anchor1, int anchor2,
+void addMidAnchored(size_t profileLength, size_t sequenceLength, std::vector<AlignedSimilarity> &similarities, int anchor1, int anchor2,
                     Float wBegAnchored, Float wEndAnchored, DPScratch &scratch) {
     Float wMidAnchored = wEndAnchored * wBegAnchored;
     AlignedSimilarity s = {wMidAnchored / scale, anchor1, anchor2, wEndAnchored};
 #ifdef ALIGN
-    addForwardAlignment(s.alignment, anchor1, anchor2, scratch);
+    addForwardAlignment(profileLength, sequenceLength, s.alignment, anchor1, anchor2, scratch);
 #endif
     similarities.push_back(s);
 }
@@ -1059,7 +1041,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
             left_side[j + 1] += (BACKGROUND_FRAMESHIFT_RATE) * 0.25 * distribute1 * left_side[j];
 
         left_side[j] *= one_sfx[j];
-
+        left_side[j] = std::max(left_side[j], Float(0.0));
         // std::cout << "left_side[" << j << "] = " << left_side[j] << std::endl;
     }
     for (int j = sequenceLength - 2; j >= 0; j--) {
@@ -1080,6 +1062,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
         }
 
         right_side[j] *= one[j]; // TODO: this one specifically (might be off by 1 idk)
+        right_side[j] = std::max(right_side[j], Float(0.0));
     }
     for (int j = 1; j < sequenceLength; j++) {
         right_side[j] += right_side[j - 1];
@@ -1095,14 +1078,14 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
             //   std::cout << j << ": " << (DP_Cell(X(i, j), i, j)).metric << " vs null " <<
             //   DP_Cell(left_side[j]).metric << std::endl;
             // }
-            scratch.X_sfx(i, j) = std::max({scratch.X_sfx(i + 1, j), scratch.X_sfx(i, j + 1), DP_Cell(left_side[j]),
-                                    DP_Cell(scratch.X(i, j), i, j) + opt_succ});
+            scratch.X_sfx(i, j) = std::max({scratch.X_sfx(i + 1, j), scratch.X_sfx(i, j + 1), left_side[j],
+                                    scratch.X(i, j) + opt_succ});
         }
     }
 
     for (int i = 0; i <= profile.length; i++) {
         for (int j = 0; j < sequenceLength; j++) {
-            DP_Cell opt_succ;
+            DP_Cell opt_succ = 0;
             if (i - 1 >= 0 && j - 3 >= 0) {
                 opt_succ = scratch.X_pfx(i - 1, j - 3);
             }
@@ -1112,8 +1095,8 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
             if (j - 1 >= 0)
                 scratch.X_pfx(i, j) = std::max(scratch.X_pfx(i, j), scratch.X_pfx(i, j - 1));
 
-            scratch.X_pfx(i, j) = std::max(scratch.X_pfx(i, j), DP_Cell(scratch.X(i, j), i, j) + opt_succ);
-            scratch.X_pfx(i, j) = std::max(scratch.X_pfx(i, j), DP_Cell(right_side[j]));
+            scratch.X_pfx(i, j) = std::max(scratch.X_pfx(i, j), scratch.X(i, j) + opt_succ);
+            scratch.X_pfx(i, j) = std::max(scratch.X_pfx(i, j), right_side[j]);
         }
     }
 
@@ -1124,7 +1107,7 @@ void findSimilarities(std::vector<AlignedSimilarity> &similarities, Profile prof
         for (auto &aligned_similarity : opt_profile_position) {
             if (aligned_similarity.probRatio >= minProbRatio &&
                 !aligned[aligned_similarity.anchor2]) {
-                addMidAnchored(similarities, aligned_similarity.anchor1,
+                addMidAnchored(profile.length, sequenceLength, similarities, aligned_similarity.anchor1,
                                aligned_similarity.anchor2,
                                aligned_similarity.probRatio * scale /
                                    aligned_similarity.wEndAnchored,
