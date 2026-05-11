@@ -44,8 +44,8 @@
 #define OPT_b 100
 #define OPT_x 100 // 0 to enable greedy mode
 
-#define EVALUE
-#define ALIGN
+//#define EVALUE
+//#define ALIGN
 
 // using through BATH heuristic pipeline
 #define PIPELINE_MODE
@@ -139,8 +139,6 @@ struct Profile {   // position-specific (insert, delete, letter) probabilities
     Float *values; // probabilities or probability ratios
     std::vector<Params> values_v2;
     std::vector<Float> bg_probs, log2_bg_probs;
-    std::vector<Float> dp, dp_r;
-    Float not_align_probs;
     int width;  // number of values per position
     int length; // number of positions
     size_t nameIdx;
@@ -521,6 +519,22 @@ public:
         auto row_start = data.begin() + (actual_row * cols);
         std::fill(row_start, row_start + cols, init_val);
     }
+
+    // Direct row pointer for hot loops — avoids repeated i*cols multiply
+    inline T *row_ptr(size_t i) {
+        if constexpr (Rolling) {
+            return data.data() + (i & 1) * cols;
+        } else {
+            return data.data() + i * cols;
+        }
+    }
+    inline const T *row_ptr(size_t i) const {
+        if constexpr (Rolling) {
+            return data.data() + (i & 1) * cols;
+        } else {
+            return data.data() + i * cols;
+        }
+    }
 };
 
 struct DPScratch {
@@ -537,6 +551,11 @@ struct DPScratch {
     std::array<std::vector<bool>, simdWidth> aligned;
     std::vector<uint8_t> transposed_decoded;
     std::vector<simd_t> bg_codon_probs;
+
+    // SIMD anchor tracking — avoids scalar per-lane extraction in forward DP
+    std::vector<simd_t> best_wMid;  // best wMidAnchored per j (SIMD)
+    std::vector<simd_t> best_wEnd;  // corresponding wEndAnchored per j
+    std::vector<int> best_i_per_j;  // best profile position i per j (shared across lanes)
 };
 
 
@@ -767,42 +786,58 @@ infer_nucleotide_distribution_equal_synonyms(const std::unordered_map<char, doub
     return out;
 }
 
+// Fast codon translation via flat lookup table (no heap alloc, no hashing)
+// Build a flat 32768-entry codon table indexed by packed 5-bit-per-base key
+static char codonTableFlat[32768];
+static bool codonTableBuilt = false;
+
+static void buildCodonTable() {
+    if (codonTableBuilt) return;
+    memset(codonTableFlat, '?', sizeof(codonTableFlat));
+    static const char *codons[] = {
+        "TTT", "TTC", "TTA", "TTG", "CTT", "CTC", "CTA", "CTG",
+        "ATT", "ATC", "ATA", "ATG", "GTT", "GTC", "GTA", "GTG",
+        "TCT", "TCC", "TCA", "TCG", "CCT", "CCC", "CCA", "CCG",
+        "ACT", "ACC", "ACA", "ACG", "GCT", "GCC", "GCA", "GCG",
+        "TAT", "TAC", "TAA", "TAG", "CAT", "CAC", "CAA", "CAG",
+        "AAT", "AAC", "AAA", "AAG", "GAT", "GAC", "GAA", "GAG",
+        "TGT", "TGC", "TGA", "TGG", "CGT", "CGC", "CGA", "CGG",
+        "AGT", "AGC", "AGA", "AGG", "GGT", "GGC", "GGA", "GGG"
+    };
+
+    static const char aaMap[] = {
+        'F','F','L','L','L','L','L','L','I','I','I','M','V','V','V','V',
+        'S','S','S','S','P','P','P','P','T','T','T','T','A','A','A','A',
+        'Y','Y','*','*','H','H','Q','Q','N','N','K','K','D','D','E','E',
+        'C','C','*','W','R','R','R','R','S','S','R','R','G','G','G','G'
+    };
+    for (int i = 0; i < 64; i++) {
+        unsigned key = ((unsigned)(unsigned char)codons[i][0] & 0x1f)
+                     | (((unsigned)(unsigned char)codons[i][1] & 0x1f) << 5)
+                     | (((unsigned)(unsigned char)codons[i][2] & 0x1f) << 10);
+        codonTableFlat[key] = aaMap[i];
+    }
+    // Also handle lowercase
+    for (int i = 0; i < 64; i++) {
+        char lc[3] = { (char)(codons[i][0] | 0x20), (char)(codons[i][1] | 0x20), (char)(codons[i][2] | 0x20) };
+        unsigned key = ((unsigned)(unsigned char)lc[0] & 0x1f)
+                     | (((unsigned)(unsigned char)lc[1] & 0x1f) << 5)
+                     | (((unsigned)(unsigned char)lc[2] & 0x1f) << 10);
+        codonTableFlat[key] = aaMap[i];
+    }
+    codonTableBuilt = true;
+}
+
+inline char translateFast(const char *dna, int i) {
+    unsigned key = ((unsigned)(unsigned char)dna[i] & 0x1f)
+                 | (((unsigned)(unsigned char)dna[i+1] & 0x1f) << 5)
+                 | (((unsigned)(unsigned char)dna[i+2] & 0x1f) << 10);
+    return codonTableFlat[key];
+}
+
+// Keep original for compatibility but mark as legacy
 char translate(const char *dna, int i) {
-    // Codon table (DNA codons → single-letter amino acid)
-    static const std::unordered_map<std::string, char> codonTable = {
-        {"TTT", 'F'}, {"TTC", 'F'}, {"TTA", 'L'}, {"TTG", 'L'}, {"CTT", 'L'}, {"CTC", 'L'},
-        {"CTA", 'L'}, {"CTG", 'L'}, {"ATT", 'I'}, {"ATC", 'I'}, {"ATA", 'I'}, {"ATG", 'M'},
-        {"GTT", 'V'}, {"GTC", 'V'}, {"GTA", 'V'}, {"GTG", 'V'},
-
-        {"TCT", 'S'}, {"TCC", 'S'}, {"TCA", 'S'}, {"TCG", 'S'}, {"CCT", 'P'}, {"CCC", 'P'},
-        {"CCA", 'P'}, {"CCG", 'P'}, {"ACT", 'T'}, {"ACC", 'T'}, {"ACA", 'T'}, {"ACG", 'T'},
-        {"GCT", 'A'}, {"GCC", 'A'}, {"GCA", 'A'}, {"GCG", 'A'},
-
-        {"TAT", 'Y'}, {"TAC", 'Y'}, {"TAA", '*'}, {"TAG", '*'}, {"CAT", 'H'}, {"CAC", 'H'},
-        {"CAA", 'Q'}, {"CAG", 'Q'}, {"AAT", 'N'}, {"AAC", 'N'}, {"AAA", 'K'}, {"AAG", 'K'},
-        {"GAT", 'D'}, {"GAC", 'D'}, {"GAA", 'E'}, {"GAG", 'E'},
-
-        {"TGT", 'C'}, {"TGC", 'C'}, {"TGA", '*'}, {"TGG", 'W'}, {"CGT", 'R'}, {"CGC", 'R'},
-        {"CGA", 'R'}, {"CGG", 'R'}, {"AGT", 'S'}, {"AGC", 'S'}, {"AGA", 'R'}, {"AGG", 'R'},
-        {"GGT", 'G'}, {"GGC", 'G'}, {"GGA", 'G'}, {"GGG", 'G'}};
-
-    // Make sure we can read 3 characters
-    // if (!dna || dna[i] == '\0' || dna[i+1] == '\0' || dna[i+2] == '\0') {
-    //   std::cout << "error reading " << std::endl;
-    //   return '?';
-    // }
-
-    std::string codon;
-    codon += dna[i];
-    codon += dna[i + 1];
-    codon += dna[i + 2];
-
-    // Convert to uppercase (in case input isn't)
-    // for (char& c : codon)
-    //     c = toupper(c);
-
-    auto it = codonTable.find(codon);
-    return (it != codonTable.end()) ? it->second : '?';
+    return translateFast(dna, i);
 }
 
 Float log2_sum_exp(Float a, Float b) {
@@ -821,18 +856,28 @@ simd_t log2_sum_exp(simd_t a, simd_t b) {
 
 // vibe-coded section end
 
+// Single-pass decode: decompress + translate + charToNumber in one loop
 std::vector<uint8_t> decodeSequence(const char *sequence, int sequenceLength, const char *alphabet,
                                     const char *charToNumber) {
+    buildCodonTable();
     int n = sequenceLength;
-    std::string sequence_decompressed;
+
+    // Decompress sequence in-place to a stack buffer for the codon window
+    // We only need a sliding window of 3 decompressed chars at a time
+    std::vector<uint8_t> decoded(n, (uint8_t)INT_MIN);
+
+    // Pre-decompress into a flat buffer (avoids per-char string append)
+    // Use a local buffer instead of std::string for cache efficiency
+    std::vector<char> decompressed(n);
     for (int i = 0; i < n; i++) {
         assert(sequence[i] <= 22);
-        sequence_decompressed += alphabet[sequence[i]];
+        decompressed[i] = alphabet[(unsigned char)sequence[i]];
     }
 
-    std::vector<uint8_t> decoded(n, (uint8_t)INT_MIN);
+    // Single pass: translate codons and map to numbers
+    const char *dec = decompressed.data();
     for (int i = 0; i < n - 2; i++) {
-        decoded[i] = charToNumber[(unsigned char)translate(sequence_decompressed.c_str(), i)];
+        decoded[i] = charToNumber[(unsigned char)translateFast(dec, i)];
     }
     return decoded;
 }
@@ -875,16 +920,13 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
         Kokkos::Experimental::simd_mask<Float> msk = i + 2 < realSeqLen;
         Kokkos::Experimental::simd_mask<Float> msk2 = i < realSeqLen;
-        auto full_codon = log2(1 - BACKGROUND_FRAMESHIFT_RATE) + bg_codon_emit_probs + dp_r[i + 3];
-        auto partial_codon = log2(1 - BACKGROUND_FRAMESHIFT_RATE) + log2(0.25) * (realSeqLen - i);
-        simd_t t1 = simd_t([&](std::size_t idx) {
-            return msk[idx] ? full_codon[idx] : partial_codon[idx];
-        });
+        simd_t full_codon = (Float)log2(1 - BACKGROUND_FRAMESHIFT_RATE) + bg_codon_emit_probs + dp_r[i + 3];
+        simd_t partial_codon = (Float)log2(1 - BACKGROUND_FRAMESHIFT_RATE) + (Float)log2(0.25) * (realSeqLen - (Float)i);
+        simd_t t1 = Kokkos::Experimental::condition(msk, full_codon, partial_codon);
 
-        auto fs = log2(BACKGROUND_FRAMESHIFT_RATE * 0.25) + dp_r[i + 1];
-        simd_t t2 = simd_t([&](std::size_t idx) {
-            return msk2[idx] ? fs[idx] : -INFINITY;
-        });;
+        simd_t fs = (Float)log2(BACKGROUND_FRAMESHIFT_RATE * 0.25) + dp_r[i + 1];
+        simd_t neg_inf_vec((Float)-INFINITY);
+        simd_t t2 = Kokkos::Experimental::condition(msk2, fs, neg_inf_vec);
 
         dp_r[i] = log2_sum_exp(t1, t2);
     }
@@ -895,36 +937,36 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     const Float log2_1_bg_fs = log2(1 - BACKGROUND_FRAMESHIFT_RATE);
     const Float log2_bg_fs_025 = log2(BACKGROUND_FRAMESHIFT_RATE * 0.25);
     const Float log2_025 = log2(0.25);
+    const simd_t simd_log2_1_bg_fs(log2_1_bg_fs);
+    const simd_t simd_log2_bg_fs_025(log2_bg_fs_025);
+    const simd_t simd_log2_025(log2_025);
+    const simd_t simd_neg_inf(-INFINITY);
 
     for (int i = 0; i < maxSequenceLength; i++) {
-        alignas(64) Float dp_tmp[simdWidth] = {};
-        for (int idx = 0; idx < activeCount; idx++) {
-            int realSequenceLength = decoded[idx]->size();
-            if (i < realSequenceLength) {
-                Float t1 = log2(1 - BACKGROUND_FRAMESHIFT_RATE);
-                Float t2 = -INFINITY;
+        // Vectorized bg emission lookup via transposed_base
+        const char* indices = (const char*)&transposed_base[(i - 2) * simdWidth];
+        SimdFloat bg_raw = simdLookup(log2_bg_probs_ptr, indices);
+        simd_t bg_codon_emit_probs(bg_raw);
+
+        // Mask for variable-length sequences (per-lane)
+        Kokkos::Experimental::simd_mask<Float> msk_valid = (Float)i < realSeqLen;
+
+        // t1: codon branch — i is scalar, so use plain if/else
+        simd_t t1;
         if (i >= 3) {
-                    auto emitNum = (*decoded[idx])[i - 2];
-                    t1 += profile.log2_bg_probs[emitNum + 4] + dp[i - 3][idx];
+            t1 = simd_log2_1_bg_fs + bg_codon_emit_probs + dp[i - 3];
         } else if (i == 2) {
-                    auto emitNum = (*decoded[idx])[i - 2];
-                    t1 += profile.log2_bg_probs[emitNum + 4];
+            t1 = simd_log2_1_bg_fs + bg_codon_emit_probs;
         } else {
-                    t1 += log2(0.25) * (i + 1);
+            t1 = simd_log2_1_bg_fs + simd_log2_025 * (Float)(i + 1);
         }
 
-                t2 = log2(BACKGROUND_FRAMESHIFT_RATE * 0.25) + (i > 0 ? dp[i - 1][idx] : 0);
+        // t2: frameshift branch
+        simd_t t2 = simd_log2_bg_fs_025 + (i > 0 ? dp[i - 1] : simd_t(0));
 
-                dp_tmp[idx] = log2_sum_exp(t1, t2);
-            } else {
-                dp_tmp[idx] = -INFINITY;
-            }
-        }
-
-        dp[i] =
-            Kokkos::Experimental::simd_unchecked_load<simd_t>(
-                dp_tmp
-            );
+        // log2_sum_exp and mask out-of-bounds lanes
+        simd_t result = log2_sum_exp(t1, t2);
+        dp[i] = Kokkos::Experimental::condition(msk_valid, result, simd_neg_inf);
     }
 
     alignas(64) Float dist1_tmp[simdWidth] = {0}, not_align_probs[simdWidth] = {0};
@@ -1008,6 +1050,14 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             simd_t Z1_ring[4] = {0, 0, 0, 0};
             simd_t Z2_ring[4] = {0, 0, 0, 0};
 
+            // Raw row pointers — avoid repeated i*cols in inner loop
+            simd_t *__restrict__ w1_row_i = scratch.W1.row_ptr(i);
+            const simd_t *__restrict__ w1_row_ip1 = scratch.W1.row_ptr(i + 1);
+            const simd_t C_eps0 = params_cur.epsilon_prime[0];
+            const simd_t C_eps1 = params_cur.epsilon_prime[1];
+            const simd_t C_eps2 = params_cur.epsilon_prime[2];
+            const simd_t C_scale = scale;
+
             for (int j = maxSequenceLength - 1; j >= 0; j--) {
                 int r_0 = j & 3;
                 int r_1 = (j + 1) & 3;
@@ -1020,20 +1070,20 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                 simd_t bg_codon_emit_probs = bg_codon_probs_base[j + 1];
 
                 simd_t w_val =
-                    scratch.W1(i + 1, j + 3) * codon_emit_probs * C_enter +
+                    w1_row_ip1[j + 3] * codon_emit_probs * C_enter +
                     Y0_next[j + 0] * C_delta0 +
                     Y1_next[j + 2] * C_delta1 +
                     Y2_next[j + 1] * C_delta2 +
                     Z0_ring[r_3] * bg_codon_emit_probs * C_alpha0 +
                     Z1_ring[r_1] * C_alpha1 +
-                    Z2_ring[r_2] * C_alpha2 + one[j] * scale;
+                    Z2_ring[r_2] * C_alpha2 + one[j] * C_scale;
 
-                scratch.W1(i, j) = w_val;
+                w1_row_i[j] = w_val;
                 right_side[j] += w_val;
 
-                Y0_curr[j] = w_val + params_cur.epsilon_prime[0] * Y0_next[j];
-                Y1_curr[j] = w_val + params_cur.epsilon_prime[1] * Y0_next[j];
-                Y2_curr[j] = w_val + params_cur.epsilon_prime[2] * Y0_next[j];
+                Y0_curr[j] = w_val + C_eps0 * Y0_next[j];
+                Y1_curr[j] = w_val + C_eps1 * Y0_next[j];
+                Y2_curr[j] = w_val + C_eps2 * Y0_next[j];
 
                 simd_t z0_future = Z0_ring[r_3];
                 Z0_ring[r_0] = w_val + bg_codon_emit_probs * z0_future * C_beta0;
@@ -1101,6 +1151,9 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         simd_t C_delta1 = params_cur.delta_prime[1] * distribute2;
         simd_t C_delta2 = params_cur.delta_prime[2] * distribute1;
         simd_t C_scale = scale;
+        const simd_t C_eps0 = params_cur.epsilon_prime[0];
+        const simd_t C_eps1 = params_cur.epsilon_prime[1];
+        const simd_t C_eps2 = params_cur.epsilon_prime[2];
 
         simd_t Z0_ring[4] = {0, 0, 0, 0};
         simd_t Z1_ring[4] = {0, 0, 0, 0};
@@ -1108,19 +1161,35 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
         simd_t one_val_scaled = (Float)(scale);
 
+        // Raw row pointers — avoid repeated i*cols in inner loop
+        simd_t *__restrict__ w0_row_i = scratch.W0.row_ptr(i);
+        simd_t *__restrict__ w0_row_ip1 = (i + 1 <= profile.length) ? scratch.W0.row_ptr(i + 1) : nullptr;
+        const simd_t *__restrict__ w1_row_ip1 = (i + 1 <= profile.length) ? scratch.W1.row_ptr(i + 1) : nullptr;
+        const simd_t *__restrict__ w1_row_i = scratch.W1.row_ptr(i);
+        simd_t *__restrict__ x_row_i = scratch.X.row_ptr(i);
+        simd_t *__restrict__ xpfx_row_i = scratch.X_pfx.row_ptr(i);
+        const simd_t *__restrict__ xpfx_row_im1 = (i - 1 >= 0) ? scratch.X_pfx.row_ptr(i - 1) : nullptr;
+
+        // Shift register for w[1..3] — avoids 3 matrix reads per iteration
+        simd_t w_shift[3] = {0, 0, 0}; // w_shift[0]=w0(i,j-1), [1]=w0(i,j-2), [2]=w0(i,j-3)
+        simd_t pfx_prev = simd_t(0.0); // X_pfx(i, j-1) rolling value
+
+        const simd_t simd_invScale(invScale);
+
         for (int j = 0; j < maxSequenceLength; j++) {
-            simd_t w[4] = {};
-            for (int w_i = 1; w_i <= 3; w_i++) {
-                if (j - w_i == -1) {
-                    w[w_i] = one_val_scaled;
-                } else if (j - w_i >= 0) {
-                    w[w_i] = scratch.W0(i, j - w_i);
-                }
+            // w[1] = W0(i, j-1), w[2] = W0(i, j-2), w[3] = W0(i, j-3)
+            simd_t w1, w2, w3;
+            if (j == 0) {
+                w1 = one_val_scaled; w2 = simd_t(0); w3 = simd_t(0);
+            } else if (j == 1) {
+                w1 = w_shift[0]; w2 = one_val_scaled; w3 = simd_t(0);
+            } else if (j == 2) {
+                w1 = w_shift[0]; w2 = w_shift[1]; w3 = one_val_scaled;
+            } else {
+                w1 = w_shift[0]; w2 = w_shift[1]; w3 = w_shift[2];
             }
 
             int r_0 = j & 3;
-            int r_1 = (j - 1) & 3;
-            int r_2 = (j - 2) & 3;
             int r_3 = (j - 3) & 3;
 
             const char* indices = (const char*)&transposed_base[(j - 2) * simdWidth];
@@ -1129,58 +1198,67 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             simd_t codon_emit_probs(codon_raw);
             simd_t bg_codon_emit_probs = bg_codon_probs_base[j - 2];
 
-            simd_t X_ij = C_enter * codon_emit_probs * w[3];
+            simd_t X_ij = C_enter * codon_emit_probs * w3;
             simd_t X_ij_EV = 0;
-            if (i + 1 <= profile.length)
-                X_ij_EV = X_ij * scratch.W1(i + 1, j) * invScale;
+            if (w1_row_ip1)
+                X_ij_EV = X_ij * w1_row_ip1[j] * simd_invScale;
 
-            scratch.X(i, j) = X_ij_EV;
+            x_row_i[j] = X_ij_EV;
 
             //
             simd_t opt_succ = 0;
-            if (i - 1 >= 0 && j - 3 >= 0) {
-                opt_succ = scratch.X_pfx(i - 1, j - 3);
+            if (xpfx_row_im1 && j - 3 >= 0) {
+                opt_succ = xpfx_row_im1[j - 3];
             }
 
             simd_t pfx_mx = 0;
-            if (i - 1 >= 0)
-                pfx_mx = scratch.X_pfx(i - 1, j);
+            if (xpfx_row_im1)
+                pfx_mx = xpfx_row_im1[j];
             if (j - 1 >= 0)
-                pfx_mx = Kokkos::max(pfx_mx, scratch.X_pfx(i, j - 1));
+                pfx_mx = Kokkos::max(pfx_mx, pfx_prev);
 
             pfx_mx = Kokkos::max(pfx_mx, X_ij_EV + opt_succ);
             pfx_mx = Kokkos::max(pfx_mx, right_side[j]);
-            scratch.X_pfx(i, j) = pfx_mx;
+            xpfx_row_i[j] = pfx_mx;
+            pfx_prev = pfx_mx;
             //
 
             Z0_ring[r_0] =
                 bg_codon_emit_probs * distribute3 *
-                (C_alpha0 * w[3] + C_beta0 * Z0_ring[r_3] +
+                (C_alpha0 * w3 + C_beta0 * Z0_ring[r_3] +
                  C_beta1 * Z1_ring[r_3] + C_beta2 * Z2_ring[r_3]);
-            Z1_ring[r_0] = C_alpha1 * w[1];
-            Z2_ring[r_0] = C_alpha2 * w[2];
+            Z1_ring[r_0] = C_alpha1 * w1;
+            Z2_ring[r_0] = C_alpha2 * w2;
 
-            simd_t w0 = scratch.W0(i, j);
+            simd_t w0 = w0_row_i[j];
             w0 += Z0_ring[r_0] + Z1_ring[r_0] + Z2_ring[r_0] + one[j] * C_scale;
-            scratch.W0(i, j) = w0;
+            w0_row_i[j] = w0;
             left_side[j] += w0;
 
+            // Update shift register
+            w_shift[2] = w_shift[1];
+            w_shift[1] = w_shift[0];
+            w_shift[0] = w0;
+
             Y0_curr[j] =
-                C_delta0 * w0 + params_cur.epsilon_prime[0] * Y0_next[j] +
-                params_cur.epsilon_prime[1] * Y1_next[j] + params_cur.epsilon_prime[2] * Y2_next[j];
-            Y1_curr[j] = C_delta1 * w[2];
-            Y2_curr[j] = C_delta2 * w[1];
+                C_delta0 * w0 + C_eps0 * Y0_next[j] +
+                C_eps1 * Y1_next[j] + C_eps2 * Y2_next[j];
+            Y1_curr[j] = C_delta1 * w2;
+            Y2_curr[j] = C_delta2 * w1;
 
-            if (i + 1 <= profile.length)
-                scratch.W0(i + 1, j) += X_ij + Y0_curr[j] + Y1_curr[j] + Y2_curr[j];
+            if (w0_row_ip1)
+                w0_row_ip1[j] += X_ij + Y0_curr[j] + Y1_curr[j] + Y2_curr[j];
 
-            simd_t wBegAnchored = scratch.W1(i, j);
+            // SIMD anchor tracking — compute wMid in SIMD, extract per-lane only for updates
+            simd_t wBegAnchored = w1_row_i[j];
+            simd_t wMidAnchored = w0 * wBegAnchored * simd_invScale;
             for (int idx = 0; idx < activeCount; idx++) {
                 int realSequenceLength = (int)rsl_tmp[idx];
                 if (j < realSequenceLength) {
-                    Float wMidAnchored = w0[idx] * wBegAnchored[idx] * invScale;
-                    AlignedSimilarity s = {wMidAnchored, i, j, w0[idx]};
-                    opt_profile_position[idx][j] = std::max(opt_profile_position[idx][j], s);
+                    Float wMid_scalar = wMidAnchored[idx];
+                    if (wMid_scalar > opt_profile_position[idx][j].probRatio) {
+                        opt_profile_position[idx][j] = {wMid_scalar, i, j, w0[idx]};
+                    }
                 }
             }
         }
@@ -1212,18 +1290,24 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     }
 
     for (int i = profile.length; i >= 0; i--) {
+        simd_t *__restrict__ xsfx_row_i = scratch.X_sfx.row_ptr(i);
+        const simd_t *__restrict__ xsfx_row_ip1 = (i + 1 <= profile.length) ? scratch.X_sfx.row_ptr(i + 1) : nullptr;
+        const simd_t *__restrict__ x_row_i = scratch.X.row_ptr(i);
+
+        simd_t opt_right_rolling = simd_t(0.0); // X_sfx(i, j+1) from previous iteration
+
         for (int j = maxSequenceLength - 1; j >= 0; j--) {
             // Guarded reads for X_sfx
-            simd_t opt_succ = (i + 1 <= profile.length && j + 3 < maxSequenceLength)
-                              ? scratch.X_sfx(i + 1, j + 3) : simd_t(0.0);
+            simd_t opt_succ = (xsfx_row_ip1 && j + 3 < maxSequenceLength)
+                              ? xsfx_row_ip1[j + 3] : simd_t(0.0);
 
-            simd_t opt_down = (i + 1 <= profile.length) ? scratch.X_sfx(i + 1, j) : simd_t(0.0);
-            simd_t opt_right = (j + 1 < maxSequenceLength) ? scratch.X_sfx(i, j + 1) : simd_t(0.0);
+            simd_t opt_down = xsfx_row_ip1 ? xsfx_row_ip1[j] : simd_t(0.0);
 
-            auto opt = Kokkos::max(opt_down, opt_right);
+            auto opt = Kokkos::max(opt_down, opt_right_rolling);
             opt = Kokkos::max(opt, left_side[j]);
-            opt = Kokkos::max(opt, scratch.X(i, j) + opt_succ);
-            scratch.X_sfx(i, j) = opt;
+            opt = Kokkos::max(opt, x_row_i[j] + opt_succ);
+            xsfx_row_i[j] = opt;
+            opt_right_rolling = opt;
         }
     }
 
