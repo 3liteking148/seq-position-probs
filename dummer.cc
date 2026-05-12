@@ -47,6 +47,9 @@
 #define EVALUE
 #define ALIGN
 
+// uncomment to enable I_1, I_2 edge to I_0
+//#define ENABLE_FS_INSERT_EXTENSION
+
 // uncomment to enable D_1, D_2 states
 //#define ENABLE_FS_DELETE_STATES
 
@@ -1049,9 +1052,10 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             const simd_t C_alpha1 = params_cur.alpha_prime[1] * distribute1;
             const simd_t C_alpha2 = params_cur.alpha_prime[2] * distribute2;
             const simd_t C_beta0 = params_cur.beta_prime[0] * distribute3;
+#ifdef ENABLE_FS_INSERT_EXTENSION
             const simd_t C_beta1 = params_cur.beta_prime[1] * distribute3;
             const simd_t C_beta2 = params_cur.beta_prime[2] * distribute3;
-
+#endif
             simd_t Z0_ring[4] = {0, 0, 0, 0};
             simd_t Z1_ring[4] = {0, 0, 0, 0};
             simd_t Z2_ring[4] = {0, 0, 0, 0};
@@ -1086,10 +1090,13 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                     Y1_next[j + 2] * C_delta1 +
                     Y2_next[j + 1] * C_delta2 +
 #endif
-                    Z0_ring[r_3] * bg_codon_emit_probs * C_alpha0 +
+                    Z0_ring[r_3] * bg_codon_emit_probs * C_alpha0
+#ifdef ENABLE_FS_INSERT_EXTENSION
+                    +
                     Z1_ring[r_1] * C_alpha1 +
-                    Z2_ring[r_2] * C_alpha2 + one[j] * C_scale;
-
+                    Z2_ring[r_2] * C_alpha2
+#endif
+                 + one[j] * C_scale;
                 w1_row_i[j] = w_val;
 #ifdef ALIGN
                 right_side[j] += w_val;
@@ -1102,8 +1109,10 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 #endif
                 simd_t z0_future = Z0_ring[r_3] * bg_codon_emit_probs;
                 Z0_ring[r_0] = Kokkos::fma(C_beta0, z0_future, w_val);
+#ifdef ENABLE_FS_INSERT_EXTENSION
                 Z1_ring[r_0] = Kokkos::fma(C_beta1, z0_future, w_val);
                 Z2_ring[r_0] = Kokkos::fma(C_beta2, z0_future, w_val);
+#endif
             }
 
             std::swap(Y0_curr, Y0_next);
@@ -1165,8 +1174,10 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         const simd_t C_alpha1 = params_cur.alpha_prime[1] * distribute1;
         const simd_t C_alpha2 = params_cur.alpha_prime[2] * distribute2;
         const simd_t C_beta0 = params_cur.beta_prime[0];
+#ifdef ENABLE_FS_INSERT_EXTENSION
         const simd_t C_beta1 = params_cur.beta_prime[1];
         const simd_t C_beta2 = params_cur.beta_prime[2];
+#endif
 #ifdef ENABLE_FS_DELETE_STATES
         const simd_t C_delta0 = params_cur.delta_prime[0];
         const simd_t C_delta1 = params_cur.delta_prime[1] * distribute2;
@@ -1252,10 +1263,16 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             //
 #endif
 
+#ifdef ENABLE_FS_INSERT_EXTENSION
             Z0_ring[r_0] =
                 bg_codon_emit_probs * distribute3 *
                 (C_alpha0 * w3 + C_beta0 * Z0_ring[r_3] +
-                 C_beta1 * Z1_ring[r_3] + C_beta2 * Z2_ring[r_3]);
+                    C_beta1 * Z1_ring[r_3] + C_beta2 * Z2_ring[r_3]);
+#else
+            Z0_ring[r_0] =
+                bg_codon_emit_probs * distribute3 *
+                (C_alpha0 * w3 + C_beta0 * Z0_ring[r_3]);
+#endif
             Z1_ring[r_0] = C_alpha1 * w1;
             Z2_ring[r_0] = C_alpha2 * w2;
 
@@ -1864,7 +1881,7 @@ int finalizeProfile(Profile &p, char *consensusSequence, int backgroundProbsType
         double beta = probs[1];
 
         double alphaFS1 = FRAMESHIFT1_MULTIPLIER;
-        double alphaFS2 = FRAMESHIFT2_MULTIPLIER;
+        double alphaFS2 = 0;
         p.values_v2.rbegin()->alpha_prime[0] = alpha * (1 - beta);
         p.values_v2.rbegin()->alpha_prime[1] = alphaFS1 * (1 - beta);
         p.values_v2.rbegin()->alpha_prime[2] = alphaFS2 * (1 - beta);
