@@ -44,8 +44,8 @@
 #define OPT_b 100
 #define OPT_x 100 // 0 to enable greedy mode
 
-//#define EVALUE
-//#define ALIGN
+#define EVALUE
+#define ALIGN
 
 // using through BATH heuristic pipeline
 #define PIPELINE_MODE
@@ -127,12 +127,6 @@ struct Params { // TODO: maybe SIMD order
     Float beta[3];
     Float delta[3];
     Float epsilon[3];
-
-    Float log2_alpha_prime[3];
-    Float log2_beta_prime[3];
-    Float log2_delta_prime[3];
-    Float log2_epsilon_prime[3];
-    Float log2_enter_match_probability;
 };
 
 struct Profile {   // position-specific (insert, delete, letter) probabilities
@@ -144,7 +138,6 @@ struct Profile {   // position-specific (insert, delete, letter) probabilities
     size_t nameIdx;
     size_t consensusSequenceIdx;
     double gumbelKendAnchored, gumbelKbegAnchored, gumbelKmidAnchored, lambda;
-    void *debug;
 };
 
 struct Sequence {
@@ -387,7 +380,7 @@ int strandPosition(size_t strandNum, int seqLength, int position) {
 }
 
 
-void printSimilarity(const char *names, Profile p, Sequence s, const FinalSimilarity &sim,
+void printSimilarity(const char *names, Profile &p, Sequence s, const FinalSimilarity &sim,
                      double evalue) {
     if (std::isnan(evalue)) {
         return;
@@ -882,7 +875,7 @@ std::vector<uint8_t> decodeSequence(const char *sequence, int sequenceLength, co
     return decoded;
 }
 
-void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &similarities, Profile profile,
+void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &similarities, const Profile &profile,
                       const std::array<std::vector<uint8_t>*, simdWidth> &decoded, std::array<Float, simdWidth> minProbRatio,
                       DPScratch &scratch, int activeCount) {
     assert(0 < activeCount && activeCount <= simdWidth);
@@ -909,7 +902,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
     auto &dp = scratch.dp;
     auto &dp_r = scratch.dp_r;
-    dp.resize(maxSequenceLength + 1); dp_r.resize(maxSequenceLength + 1);
+    dp.resize(maxSequenceLength + 4); dp_r.resize(maxSequenceLength + 4);
 
     dp_r[maxSequenceLength] = 0;
     for (int i = maxSequenceLength - 1; i >= 0; i--) {
@@ -1019,9 +1012,11 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     auto &one_sfx = scratch.one_sfx; one_sfx = one;
     auto &left_side = scratch.left_side; left_side.assign(one.size(), 0.0);
     auto &right_side = scratch.right_side; right_side.assign(one.size(), 0.0);
+#ifdef ALIGN
     scratch.X.resize(profile.length + 2, maxSequenceLength);
     scratch.X_pfx.resize(profile.length + 2, maxSequenceLength + 4);
     scratch.X_sfx.resize(profile.length + 2, maxSequenceLength + 4);
+#endif
         const Float *bg_probs_ptr = profile.bg_probs.data() + 4;
         scratch.bg_codon_probs.assign(maxSequenceLength + 8, simd_t(0.0));
         simd_t* bg_codon_probs_base = scratch.bg_codon_probs.data() + 4;
@@ -1035,16 +1030,16 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             const Float *params_emission_probabilities = profile.values + (i)*profile.width + 4;
 
             // Pre-calculate constants for this i
-            simd_t C_enter = params_cur.enter_match_probability * distribute3;
-            simd_t C_delta0 = params_cur.delta_prime[0];
-            simd_t C_delta1 = params_cur.delta_prime[1] * distribute2;
-            simd_t C_delta2 = params_cur.delta_prime[2] * distribute1;
-            simd_t C_alpha0 = params_cur.alpha_prime[0] * distribute3;
-            simd_t C_alpha1 = params_cur.alpha_prime[1] * distribute1;
-            simd_t C_alpha2 = params_cur.alpha_prime[2] * distribute2;
-            simd_t C_beta0 = params_cur.beta_prime[0] * distribute3;
-            simd_t C_beta1 = params_cur.beta_prime[1] * distribute3;
-            simd_t C_beta2 = params_cur.beta_prime[2] * distribute3;
+            const simd_t C_enter = params_cur.enter_match_probability * distribute3;
+            const simd_t C_delta0 = params_cur.delta_prime[0];
+            const simd_t C_delta1 = params_cur.delta_prime[1] * distribute2;
+            const simd_t C_delta2 = params_cur.delta_prime[2] * distribute1;
+            const simd_t C_alpha0 = params_cur.alpha_prime[0] * distribute3;
+            const simd_t C_alpha1 = params_cur.alpha_prime[1] * distribute1;
+            const simd_t C_alpha2 = params_cur.alpha_prime[2] * distribute2;
+            const simd_t C_beta0 = params_cur.beta_prime[0] * distribute3;
+            const simd_t C_beta1 = params_cur.beta_prime[1] * distribute3;
+            const simd_t C_beta2 = params_cur.beta_prime[2] * distribute3;
 
             simd_t Z0_ring[4] = {0, 0, 0, 0};
             simd_t Z1_ring[4] = {0, 0, 0, 0};
@@ -1079,16 +1074,17 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                     Z2_ring[r_2] * C_alpha2 + one[j] * C_scale;
 
                 w1_row_i[j] = w_val;
+#ifdef ALIGN
                 right_side[j] += w_val;
+#endif
 
-                Y0_curr[j] = w_val + C_eps0 * Y0_next[j];
-                Y1_curr[j] = w_val + C_eps1 * Y0_next[j];
-                Y2_curr[j] = w_val + C_eps2 * Y0_next[j];
-
-                simd_t z0_future = Z0_ring[r_3];
-                Z0_ring[r_0] = w_val + bg_codon_emit_probs * z0_future * C_beta0;
-                Z1_ring[r_0] = w_val + bg_codon_emit_probs * z0_future * C_beta1;
-                Z2_ring[r_0] = w_val + bg_codon_emit_probs * z0_future * C_beta2;
+                Y0_curr[j] = Kokkos::fma(C_eps0, Y0_next[j], w_val);
+                Y1_curr[j] = Kokkos::fma(C_eps1, Y0_next[j], w_val);
+                Y2_curr[j] = Kokkos::fma(C_eps2, Y0_next[j], w_val);
+                simd_t z0_future = Z0_ring[r_3] * bg_codon_emit_probs;
+                Z0_ring[r_0] = Kokkos::fma(C_beta0, z0_future, w_val);
+                Z1_ring[r_0] = Kokkos::fma(C_beta1, z0_future, w_val);
+                Z2_ring[r_0] = Kokkos::fma(C_beta2, z0_future, w_val);
             }
 
             std::swap(Y0_curr, Y0_next);
@@ -1112,6 +1108,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         one[j] = Kokkos::exp2(exponent);
     }
 
+#ifdef ALIGN
     // seems to be a clean way of getting expected value of null-sided junctions
     // TODO: verify logic
     for (int j = maxSequenceLength - 1; j >= 0; j--) {
@@ -1134,23 +1131,24 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     for (int j = 1; j < maxSequenceLength; j++) {
         right_side[j] += right_side[j - 1];
     }
+#endif
 
     for (int i = 0; i <= profile.length; i++) {
         const Params &params_cur = profile.values_v2[i];
         const Float *params_emission_probabilities = profile.values + (i)*profile.width + 4;
 
         // Pre-calculate constants
-        simd_t C_enter = params_cur.enter_match_probability * distribute3;
-        simd_t C_alpha0 = params_cur.alpha_prime[0];
-        simd_t C_alpha1 = params_cur.alpha_prime[1] * distribute1;
-        simd_t C_alpha2 = params_cur.alpha_prime[2] * distribute2;
-        simd_t C_beta0 = params_cur.beta_prime[0];
-        simd_t C_beta1 = params_cur.beta_prime[1];
-        simd_t C_beta2 = params_cur.beta_prime[2];
-        simd_t C_delta0 = params_cur.delta_prime[0];
-        simd_t C_delta1 = params_cur.delta_prime[1] * distribute2;
-        simd_t C_delta2 = params_cur.delta_prime[2] * distribute1;
-        simd_t C_scale = scale;
+        const simd_t C_enter = params_cur.enter_match_probability * distribute3;
+        const simd_t C_alpha0 = params_cur.alpha_prime[0];
+        const simd_t C_alpha1 = params_cur.alpha_prime[1] * distribute1;
+        const simd_t C_alpha2 = params_cur.alpha_prime[2] * distribute2;
+        const simd_t C_beta0 = params_cur.beta_prime[0];
+        const simd_t C_beta1 = params_cur.beta_prime[1];
+        const simd_t C_beta2 = params_cur.beta_prime[2];
+        const simd_t C_delta0 = params_cur.delta_prime[0];
+        const simd_t C_delta1 = params_cur.delta_prime[1] * distribute2;
+        const simd_t C_delta2 = params_cur.delta_prime[2] * distribute1;
+        const simd_t C_scale = scale;
         const simd_t C_eps0 = params_cur.epsilon_prime[0];
         const simd_t C_eps1 = params_cur.epsilon_prime[1];
         const simd_t C_eps2 = params_cur.epsilon_prime[2];
@@ -1166,9 +1164,11 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         simd_t *__restrict__ w0_row_ip1 = (i + 1 <= profile.length) ? scratch.W0.row_ptr(i + 1) : nullptr;
         const simd_t *__restrict__ w1_row_ip1 = (i + 1 <= profile.length) ? scratch.W1.row_ptr(i + 1) : nullptr;
         const simd_t *__restrict__ w1_row_i = scratch.W1.row_ptr(i);
+#ifdef ALIGN
         simd_t *__restrict__ x_row_i = scratch.X.row_ptr(i);
         simd_t *__restrict__ xpfx_row_i = scratch.X_pfx.row_ptr(i);
         const simd_t *__restrict__ xpfx_row_im1 = (i - 1 >= 0) ? scratch.X_pfx.row_ptr(i - 1) : nullptr;
+#endif
 
         // Shift register for w[1..3] — avoids 3 matrix reads per iteration
         simd_t w_shift[3] = {0, 0, 0}; // w_shift[0]=w0(i,j-1), [1]=w0(i,j-2), [2]=w0(i,j-3)
@@ -1194,7 +1194,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
             const char* indices = (const char*)&transposed_base[(j - 2) * simdWidth];
             SimdFloat codon_raw = simdLookup(params_emission_probabilities, indices);
-            
+
             simd_t codon_emit_probs(codon_raw);
             simd_t bg_codon_emit_probs = bg_codon_probs_base[j - 2];
 
@@ -1203,6 +1203,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             if (w1_row_ip1)
                 X_ij_EV = X_ij * w1_row_ip1[j] * simd_invScale;
 
+#ifdef ALIGN
             x_row_i[j] = X_ij_EV;
 
             //
@@ -1222,6 +1223,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             xpfx_row_i[j] = pfx_mx;
             pfx_prev = pfx_mx;
             //
+#endif
 
             Z0_ring[r_0] =
                 bg_codon_emit_probs * distribute3 *
@@ -1233,7 +1235,9 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             simd_t w0 = w0_row_i[j];
             w0 += Z0_ring[r_0] + Z1_ring[r_0] + Z2_ring[r_0] + one[j] * C_scale;
             w0_row_i[j] = w0;
+#ifdef ALIGN
             left_side[j] += w0;
+#endif
 
             // Update shift register
             w_shift[2] = w_shift[1];
@@ -1268,6 +1272,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         std::swap(Y2_curr, Y2_next);
     }
 
+#ifdef ALIGN
     for (int j = 0; j < maxSequenceLength; j++) {
         const char* indices = (const char*)&transposed_base[(j + 1) * simdWidth];
         SimdFloat bg_raw = simdLookup(bg_probs_ptr, indices);
@@ -1310,6 +1315,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             opt_right_rolling = opt;
         }
     }
+#endif
 
 
     for (int i = 0; i < activeCount; i++) {
@@ -1328,7 +1334,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                                    aligned_similarity.wEndAnchored, scratch);
                     auto &x = similarities[i].back();
                     finishMidAnchored(i, x, scratch);
-
+                    break;
                     // dumb heuristic (4x length accounting for FS)
                     // todo: silence nuclear fallout
                     int startIdx = std::max(aligned_similarity.anchor2 - 12 * profile.length, 0);
@@ -1807,11 +1813,7 @@ int finalizeProfile(Profile &p, char *consensusSequence, int backgroundProbsType
     }
     dist['*'] = STOP_CODON_PROB;
 
-    auto ret = new NucDist(infer_nucleotide_distribution_equal_synonyms(dist));
-    p.debug = ret;
-    // std::cout << ret->overall.at('A') << ' ' << ret->overall.at('C') << ' ' <<
-    // ret->overall.at('G') << ' ' << ret->overall.at('T') << '\n';
-
+    p.values_v2.reserve(p.length + 5);
     for (int i = 0;; ++i) {
         p.values_v2.push_back({0});
 
@@ -1837,11 +1839,6 @@ int finalizeProfile(Profile &p, char *consensusSequence, int backgroundProbsType
         p.values_v2.rbegin()->beta[0] = beta;
         p.values_v2.rbegin()->beta[1] = 0;
         p.values_v2.rbegin()->beta[2] = 0;
-
-        for (int i = 0; i <= 2; i++) {
-            p.values_v2.rbegin()->log2_alpha_prime[i] = log2(p.values_v2.rbegin()->alpha_prime[i]);
-            p.values_v2.rbegin()->log2_beta_prime[i] = log2(p.values_v2.rbegin()->beta_prime[i]);
-        }
 
         double delta = probs[2];
         double epsilon = probs[3];
@@ -1871,14 +1868,6 @@ int finalizeProfile(Profile &p, char *consensusSequence, int backgroundProbsType
 
         p.values_v2.rbegin()->enter_match_probability =
             (1 - alpha - alphaFS1 - alphaFS2 - delta - deltaFS1 - deltaFS2);
-
-        for (int i = 0; i <= 2; i++) {
-            p.values_v2.rbegin()->log2_delta_prime[i] = log2(p.values_v2.rbegin()->delta_prime[i]);
-            p.values_v2.rbegin()->log2_epsilon_prime[i] =
-                log2(p.values_v2.rbegin()->epsilon_prime[i]);
-        }
-        p.values_v2.rbegin()->log2_enter_match_probability =
-            log2(p.values_v2.rbegin()->enter_match_probability);
 
         double c = (1 - alpha - delta);
         if (epsilon >= 1)
@@ -2355,21 +2344,27 @@ Options for background letter probabilities:\n\
                     std::string(&charVec[maskedSeqIdx], contig.length), contig, strandNum);
 
                 for (size_t j = 0; j < numOfProfiles; ++j) {
-                    Profile p = profiles[j];
-                    Float minProbRatio =
-                        (evalueOpt > 0)
-                            ? (std::pow(p.gumbelKmidAnchored * totSequenceLength / evalueOpt,
-                                        1.0 / p.lambda))
-                            : -1;
-                    if (verbosity > 1)
-                        std::cerr << "Profile: " << &charVec[p.nameIdx] << "\n";
+                    const Profile &p = profiles[j];
 #ifdef PIPELINE_MODE
-                    if (!strcmp(&charVec[p.nameIdx], sequence.target_profile.c_str()))
+                    if (!strcmp(&charVec[p.nameIdx], sequence.target_profile.c_str())) {
 #endif
+                        Float minProbRatio =
+                            (evalueOpt > 0)
+                                ? (std::pow(p.gumbelKmidAnchored * totSequenceLength / evalueOpt,
+                                            1.0 / p.lambda))
+                                : -1;
+                        if (verbosity > 1)
+                            std::cerr << "Profile: " << &charVec[p.nameIdx] << "\n";
+
                         allRequests[j].push_back({sd, minProbRatio});
+#ifdef PIPELINE_MODE
+                    }
+#endif
                 }
             }
+#ifndef PIPELINE_MODE
             reverseComplement(seq, seq + contig.length);
+#endif
         }
         charVec.resize(seqIdx);
     }
