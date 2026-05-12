@@ -44,9 +44,8 @@
 #define OPT_b 100
 #define OPT_x 100 // 0 to enable greedy mode
 
-//#define EVALUE
+#define EVALUE
 #define ALIGN
-int dump = 0, all = 0;
 
 // uncomment to enable D_1, D_2 states
 //#define ENABLE_FS_DELETE_STATES
@@ -554,7 +553,7 @@ struct DPScratch {
     // SIMD anchor tracking — avoids scalar per-lane extraction in forward DP
     std::vector<simd_t> best_wMid;  // best wMidAnchored per j (SIMD)
     std::vector<simd_t> best_wEnd;  // corresponding wEndAnchored per j
-    std::vector<int> best_i_per_j;  // best profile position i per j (shared across lanes)
+    std::vector<simd_t> best_i;     // best profile position i per j (SIMD)
 };
 
 
@@ -1120,10 +1119,9 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     std::fill(Y2_next.begin(), Y2_next.begin() + bufSize, simd_t(0.0));
 #endif
 
-    auto &opt_profile_position = scratch.opt_profile_position;
-    for (int idx = 0; idx < activeCount; idx++) {
-        opt_profile_position[idx].assign(rsl_tmp[idx], AlignedSimilarity(-INFINITY));
-    }
+    scratch.best_wMid.assign(maxSequenceLength + 4, simd_t(-INFINITY));
+    scratch.best_wEnd.assign(maxSequenceLength + 4, simd_t(0.0));
+    scratch.best_i.assign(maxSequenceLength + 4, simd_t(-1.0));
     for (int j = 0; j < maxSequenceLength; j++) {
         simd_t exponent = -nap_div_rsl * (Float)(j + 1) + dp[j];
         // Prevent the exponent from going into the subnormal range
@@ -1287,18 +1285,14 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                 w0_row_ip1[j] += X_ij + Y0_curr[j];
 #endif
 
-            // SIMD anchor tracking — compute wMid in SIMD, extract per-lane only for updates
+            // SIMD anchor tracking — compute wMid in SIMD, update best values in parallel
             simd_t wBegAnchored = w1_row_i[j];
             simd_t wMidAnchored = w0 * wBegAnchored * simd_invScale;
-            for (int idx = 0; idx < activeCount; idx++) {
-                int realSequenceLength = (int)rsl_tmp[idx];
-                if (j < realSequenceLength) {
-                    Float wMid_scalar = wMidAnchored[idx];
-                    if (wMid_scalar > opt_profile_position[idx][j].probRatio) {
-                        opt_profile_position[idx][j] = {wMid_scalar, i, j, w0[idx]};
-                    }
-                }
-            }
+
+            Kokkos::Experimental::simd_mask<Float> mask = (wMidAnchored > scratch.best_wMid[j]) && ((Float)j < realSeqLen);
+            scratch.best_wMid[j] = Kokkos::Experimental::condition(mask, wMidAnchored, scratch.best_wMid[j]);
+            scratch.best_wEnd[j] = Kokkos::Experimental::condition(mask, w0, scratch.best_wEnd[j]);
+            scratch.best_i[j] = Kokkos::Experimental::condition(mask, simd_t((Float)i), scratch.best_i[j]);
         }
 
         std::swap(Y0_curr, Y0_next);
@@ -1354,40 +1348,53 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 #endif
 
 
-    for (int i = 0; i < activeCount; i++) {
-        if (minProbRatio[i] >= 0) {
-            std::ranges::sort(opt_profile_position[i], std::greater<>());
-            int realSequenceLength = rsl_tmp[i];
+    for (int idx = 0; idx < activeCount; idx++) {
+        int realSequenceLength = rsl_tmp[idx];
+        scratch.opt_profile_position[idx].assign(realSequenceLength, AlignedSimilarity(-INFINITY));
+        for (int j = 0; j < realSequenceLength; j++) {
+            Float best_prob = scratch.best_wMid[j][idx];
+            if (best_prob > -INFINITY) {
+                scratch.opt_profile_position[idx][j] = {
+                    best_prob,
+                    (int)scratch.best_i[j][idx],
+                    j,
+                    (Float)scratch.best_wEnd[j][idx]
+                };
+            }
+        }
+
+        if (minProbRatio[idx] >= 0) {
+            std::ranges::sort(scratch.opt_profile_position[idx], std::greater<>());
             auto &aligned = scratch.aligned;
-            aligned[i].assign(realSequenceLength, false);
-            for (auto &aligned_similarity : opt_profile_position[i]) {
-                if (aligned_similarity.probRatio >= minProbRatio[i] &&
-                    !aligned[i][aligned_similarity.anchor2]) {
-                    addMidAnchored(i, profile.length, realSequenceLength, similarities[i], aligned_similarity.anchor1,
+            aligned[idx].assign(realSequenceLength, false);
+            for (auto &aligned_similarity : scratch.opt_profile_position[idx]) {
+                if (aligned_similarity.probRatio >= minProbRatio[idx] &&
+                    !aligned[idx][aligned_similarity.anchor2]) {
+                    addMidAnchored(idx, profile.length, realSequenceLength, similarities[idx], aligned_similarity.anchor1,
                                    aligned_similarity.anchor2,
                                    aligned_similarity.probRatio * scale /
                                        aligned_similarity.wEndAnchored,
                                    aligned_similarity.wEndAnchored, scratch);
-                    auto &x = similarities[i].back();
-                    finishMidAnchored(i, x, scratch);
+                    auto &x = similarities[idx].back();
+                    finishMidAnchored(idx, x, scratch);
                     // dumb heuristic (4x length accounting for FS)
                     // todo: silence nuclear fallout
                     int startIdx = std::max(aligned_similarity.anchor2 - 12 * profile.length, 0);
                     int endIdx =
                         std::min(aligned_similarity.anchor2 + 12 * profile.length, realSequenceLength);
                     // std::cout << startIdx << " " << endIdx << std::endl;
-                    std::fill(aligned[i].begin() + startIdx, aligned[i].begin() + endIdx, true);
+                    std::fill(aligned[idx].begin() + startIdx, aligned[idx].begin() + endIdx, true);
                     }
             }
         } else {
-            auto sel = *std::max_element(opt_profile_position[i].begin(), opt_profile_position[i].end());
+            auto sel = *std::max_element(scratch.opt_profile_position[idx].begin(), scratch.opt_profile_position[idx].end());
             AlignedSimilarity b = sel;
             // std::cout << log(sel.probRatio) << std::endl;
             b.probRatio = 0;
-            similarities[i].push_back(b);
+            similarities[idx].push_back(b);
             b.probRatio = 0;
-            similarities[i].push_back(b);
-            similarities[i].push_back(sel);
+            similarities[idx].push_back(b);
+            similarities[idx].push_back(sel);
         }
     }
 
@@ -1415,9 +1422,7 @@ void findFinalSimilarities(std::vector<FinalSimilarity> &similarities, std::arra
     for (int idx = 0; idx < activeCount; idx++) {
         const char *sequence = req[idx].seqData->sequence.c_str();
         const char *maskedSequence = req[idx].seqData->maskedSequence.c_str();
-        bool flag = false;
         for (const auto &x : sims[idx]) {
-            flag = true;
             int anchor2 = contigToSequencePos(req[idx].seqData->contig, req[idx].seqData->strandNum, x.anchor2);
             FinalSimilarity s = {x.probRatio, profileNum, req[idx].seqData->strandNum, x.anchor1,
                                  anchor2,     x.anchor1,  anchor2};
@@ -1430,9 +1435,6 @@ void findFinalSimilarities(std::vector<FinalSimilarity> &similarities, std::arra
             }
             similarities.push_back(s);
         }
-
-        dump += flag;
-        all ++;
     }
 
 }
@@ -2421,6 +2423,5 @@ Options for background letter probabilities:\n\
         printSimilarity(charVec.data(), p, s, similarities[i], evalue);
     }
 
-    std::cout << dump << "/" << all << std::endl;
     return 0;
 }
