@@ -850,10 +850,13 @@ Float log2_sum_exp(Float a, Float b) {
     return m + log2(exp2(a - m) + exp2(b - m));
 }
 
-simd_t log2_sum_exp(simd_t a, simd_t b) {
+inline simd_t log2_sum_exp(simd_t a, simd_t b) {
     simd_t m = Kokkos::max(a, b);
-    return m + Kokkos::log2(Kokkos::exp2(a - m) + Kokkos::exp2(b - m));
+    simd_t x = Kokkos::abs(a - b);
+
+    return m + Kokkos::log2(simd_t(1.0) + Kokkos::exp2(-x));
 }
+
 
 // vibe-coded section end
 
@@ -1881,7 +1884,7 @@ int finalizeProfile(Profile &p, char *consensusSequence, int backgroundProbsType
         double beta = probs[1];
 
         double alphaFS1 = FRAMESHIFT1_MULTIPLIER;
-        double alphaFS2 = 0;
+        double alphaFS2 = FRAMESHIFT2_MULTIPLIER;
         p.values_v2.rbegin()->alpha_prime[0] = alpha * (1 - beta);
         p.values_v2.rbegin()->alpha_prime[1] = alphaFS1 * (1 - beta);
         p.values_v2.rbegin()->alpha_prime[2] = alphaFS2 * (1 - beta);
