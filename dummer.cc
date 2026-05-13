@@ -72,14 +72,13 @@ const int simdLen = simdFltLen;
 using simd_t = Kokkos::Experimental::simd<Float>;
 constexpr auto simdWidth = simd_t::size();
 
-// for now they have to be the same else PSP1 disappears from transmark7
-// unless you allow FS insertions/deletions to extend
+// for now they have to be the same?
 const Float STOP_CODON_PROB = 0.001;
 const Float BG_STOP_CODON_PROB = 0.001;
 
 // reverse engineered from transmark
-const Float FRAMESHIFT1_MULTIPLIER = 0.01; // 0.005 each for delete and insert
-const Float FRAMESHIFT2_MULTIPLIER = (0.01 / 2);
+const Float FRAMESHIFT1_MULTIPLIER = 0.005; // 0.005 each for delete and insert
+const Float FRAMESHIFT2_MULTIPLIER = (0.005 / 2);
 
 #define BACKGROUND_FRAMESHIFT_RATE (0.01)
 
