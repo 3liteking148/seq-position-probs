@@ -51,7 +51,8 @@
 //#define ENABLE_FS_INSERT_EXTENSION
 
 // uncomment to enable D_1, D_2 states
-//#define ENABLE_FS_DELETE_STATES
+// D1, D2 cannot transition to another delete state for now (only to junction state)
+#define ENABLE_FS_DELETE_STATES
 
 // using through BATH heuristic pipeline
 #define PIPELINE_MODE
@@ -127,11 +128,10 @@ struct Params { // TODO: maybe SIMD order
     Float beta_prime[3];
 #ifdef ENABLE_FS_DELETE_STATES
     Float delta_prime[3];
-    Float epsilon_prime[3];
 #else
     Float delta_prime;
-    Float epsilon_prime;
 #endif
+    Float epsilon_prime;
     Float enter_match_probability;
 };
 
@@ -543,9 +543,6 @@ struct DPScratch {
     // Reusable temporary buffers for findSimilarities
     std::vector<simd_t> dp, dp_r;
     std::vector<simd_t> Y0_next, Y0_curr;
-#ifdef ENABLE_FS_DELETE_STATES
-    std::vector<simd_t> Y1_curr, Y2_curr, Y1_next, Y2_next;
-#endif
     std::vector<simd_t> one, one_sfx;
     std::vector<simd_t> left_side, right_side;
     std::array<std::vector<AlignedSimilarity>, simdWidth> opt_profile_position;
@@ -1008,12 +1005,6 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     auto &Y0_next = scratch.Y0_next; Y0_next.assign(bufSize, 0.0);
     auto &Y0_curr = scratch.Y0_curr; Y0_curr.assign(bufSize, 0.0);
 
-#ifdef ENABLE_FS_DELETE_STATES
-    auto &Y1_next = scratch.Y1_next; Y1_next.assign(bufSize, 0.0);
-    auto &Y2_next = scratch.Y2_next; Y2_next.assign(bufSize, 0.0);
-    auto &Y1_curr = scratch.Y1_curr; Y1_curr.assign(bufSize, 0.0);
-    auto &Y2_curr = scratch.Y2_curr; Y2_curr.assign(bufSize, 0.0);
-#endif
     auto &one = scratch.one; one.assign(bufSize, 0.0);
 
     for (int j = 0; j < maxSequenceLength; j++) {
@@ -1060,19 +1051,15 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             const simd_t C_beta2 = params_cur.beta_prime[2] * distribute3;
 #endif
             simd_t Z0_ring[4] = {0, 0, 0, 0};
+#ifdef ENABLE_FS_INSERT_EXTENSION
             simd_t Z1_ring[4] = {0, 0, 0, 0};
             simd_t Z2_ring[4] = {0, 0, 0, 0};
+#endif
 
             // Raw row pointers — avoid repeated i*cols in inner loop
             simd_t *__restrict__ w1_row_i = scratch.W1.row_ptr(i);
             const simd_t *__restrict__ w1_row_ip1 = scratch.W1.row_ptr(i + 1);
-#ifdef ENABLE_FS_DELETE_STATES
-            const simd_t C_eps0 = params_cur.epsilon_prime[0];
-            const simd_t C_eps1 = params_cur.epsilon_prime[1];
-            const simd_t C_eps2 = params_cur.epsilon_prime[2];
-#else
             const simd_t C_eps0 = params_cur.epsilon_prime;
-#endif
             const simd_t C_scale = scale;
 
             for (int j = maxSequenceLength - 1; j >= 0; j--) {
@@ -1090,8 +1077,8 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                     w1_row_ip1[j + 3] * codon_emit_probs * C_enter +
                     Y0_next[j + 0] * C_delta0 +
 #ifdef ENABLE_FS_DELETE_STATES
-                    Y1_next[j + 2] * C_delta1 +
-                    Y2_next[j + 1] * C_delta2 +
+                    w1_row_ip1[j + 2] * C_delta1 +
+                    w1_row_ip1[j + 1] * C_delta2 +
 #endif
                     Z0_ring[r_3] * bg_codon_emit_probs * C_alpha0
 #ifdef ENABLE_FS_INSERT_EXTENSION
@@ -1106,10 +1093,6 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 #endif
 
                 Y0_curr[j] = Kokkos::fma(C_eps0, Y0_next[j], w_val);
-#ifdef ENABLE_FS_DELETE_STATES
-                Y1_curr[j] = Kokkos::fma(C_eps1, Y0_next[j], w_val);
-                Y2_curr[j] = Kokkos::fma(C_eps2, Y0_next[j], w_val);
-#endif
                 simd_t z0_future = Z0_ring[r_3] * bg_codon_emit_probs;
                 Z0_ring[r_0] = Kokkos::fma(C_beta0, z0_future, w_val);
 #ifdef ENABLE_FS_INSERT_EXTENSION
@@ -1119,17 +1102,9 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             }
 
             std::swap(Y0_curr, Y0_next);
-#ifdef ENABLE_FS_DELETE_STATES
-            std::swap(Y1_curr, Y1_next);
-            std::swap(Y2_curr, Y2_next);
-#endif
         }
 
     std::fill(Y0_next.begin(), Y0_next.begin() + bufSize, simd_t(0.0));
-#ifdef ENABLE_FS_DELETE_STATES
-    std::fill(Y1_next.begin(), Y1_next.begin() + bufSize, simd_t(0.0));
-    std::fill(Y2_next.begin(), Y2_next.begin() + bufSize, simd_t(0.0));
-#endif
 
     scratch.best_wMid.assign(maxSequenceLength + 4, simd_t(-INFINITY));
     scratch.best_wEnd.assign(maxSequenceLength + 4, simd_t(0.0));
@@ -1185,13 +1160,10 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         const simd_t C_delta0 = params_cur.delta_prime[0];
         const simd_t C_delta1 = params_cur.delta_prime[1] * distribute2;
         const simd_t C_delta2 = params_cur.delta_prime[2] * distribute1;
-        const simd_t C_eps0 = params_cur.epsilon_prime[0];
-        const simd_t C_eps1 = params_cur.epsilon_prime[1];
-        const simd_t C_eps2 = params_cur.epsilon_prime[2];
 #else
         const simd_t C_delta0 = params_cur.delta_prime;
-        const simd_t C_eps0 = params_cur.epsilon_prime;
 #endif
+        const simd_t C_eps0 = params_cur.epsilon_prime;
         const simd_t C_scale = scale;
 
         simd_t Z0_ring[4] = {0, 0, 0, 0};
@@ -1293,16 +1265,13 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
 
 #ifdef ENABLE_FS_DELETE_STATES
-            Y0_curr[j] = C_delta0 * w0 + C_eps0 * Y0_next[j] + C_eps1 * Y1_next[j] + C_eps2 * Y2_next[j];
-            Y1_curr[j] = C_delta1 * w2;
-            Y2_curr[j] = C_delta2 * w1;
-
-            if (w0_row_ip1)
-                w0_row_ip1[j] += X_ij + Y0_curr[j] + Y1_curr[j] + Y2_curr[j];
-#else
             Y0_curr[j] = C_delta0 * w0 + C_eps0 * Y0_next[j];
             if (w0_row_ip1)
-                w0_row_ip1[j] += X_ij + Y0_curr[j];
+                w0_row_ip1[j] += X_ij + Y0_curr[j] + C_delta1 * w2 + C_delta2 * w1;
+#else
+            auto Y0_curr_j = C_delta0 * w0 + C_eps0 * Y0_next[j];
+            if (w0_row_ip1)
+                w0_row_ip1[j] += X_ij + Y0_curr_j;
 #endif
 
             // SIMD anchor tracking — compute wMid in SIMD, update best values in parallel
@@ -1316,10 +1285,6 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         }
 
         std::swap(Y0_curr, Y0_next);
-#ifdef ENABLE_FS_DELETE_STATES
-        std::swap(Y1_curr, Y1_next);
-        std::swap(Y2_curr, Y2_next);
-#endif
     }
 
 #ifdef ALIGN
@@ -1910,11 +1875,7 @@ int finalizeProfile(Profile &p, char *consensusSequence, int backgroundProbsType
         p.values_v2.rbegin()->delta_prime[1] = deltaFS1 * (1 - epsilon1);
         p.values_v2.rbegin()->delta_prime[2] = deltaFS2 * (1 - epsilon1);
 
-        p.values_v2.rbegin()->epsilon_prime[0] = epsilon * (1 - epsilon1) / (1 - epsilon);
-        for (int j = 1; j <= 2; j++) {
-            p.values_v2.rbegin()->epsilon_prime[j] = 0 * (1 - epsilon1) / (1 - epsilon);
-        }
-
+        p.values_v2.rbegin()->epsilon_prime = epsilon * (1 - epsilon1) / (1 - epsilon);
         p.values_v2.rbegin()->enter_match_probability = (1 - alpha - alphaFS1 - alphaFS2 - delta - deltaFS1 - deltaFS2);
 #else
         p.values_v2.rbegin()->delta_prime = delta * (1 - epsilon1);
