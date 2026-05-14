@@ -39,8 +39,8 @@
 #define OPT_e 10
 #define OPT_s 2
 #define OPT_m 3
-#define OPT_t 30
-#define OPT_l 1000
+#define OPT_t 1000
+#define OPT_l 5000
 #define OPT_b 100
 #define OPT_x 100 // 0 to enable greedy mode
 
