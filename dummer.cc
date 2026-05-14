@@ -1548,8 +1548,24 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
     std::mt19937_64 randGen;
     int alphabetSize = profile.width - nonLetterWidth;
 #ifdef ESTIMATOR_USE_RANDOM_CODONS
-    std::discrete_distribution<> dist(letterFreqs,
-                                      letterFreqs + alphabetSize); // TODO: no stop codons
+
+    std::vector<double> aaFreqs;
+    Float sum = 0;
+    if (alphabetSize > 4) {
+        aaFreqs.resize(alphabetSize + 1);
+        for (int k = 0; k < alphabetSize; ++k) {
+            int n = aa2codons.at(getAlphabet(alphabetSize)[k]).size();
+            aaFreqs[k] = letterFreqs[k] * n;
+            sum += aaFreqs[k];
+        }
+        aaFreqs[alphabetSize] = BG_STOP_CODON_PROB;
+        sum += aaFreqs[alphabetSize];
+    } else {
+        aaFreqs.assign(letterFreqs, letterFreqs + alphabetSize);
+    }
+
+    std::cout << "# sum is " << sum << std::endl;
+    std::discrete_distribution<> dist(aaFreqs.begin(), aaFreqs.end());
 #else
     std::discrete_distribution<> dist(letterFreqs, letterFreqs + alphabetSize);
 #endif
@@ -1587,8 +1603,9 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
                 continue;
             }
             int x = dist(randGen);
-            auto &codons = aa2codons[alphabet[x]];
-            std::discrete_distribution<> dist2(0, (int)codons.size());
+            char aa = (x < alphabetSize) ? alphabet[x] : '*';
+            auto &codons = aa2codons[aa];
+            std::uniform_int_distribution<int> dist2(0, (int)codons.size() - 1);
             auto &xx = codons[dist2(randGen)];
             for (int k = 0; k < 3; k++) {
                 if (j + k <= sequenceLength) {
@@ -1890,11 +1907,13 @@ int finalizeProfile(Profile &p, char *consensusSequence, int backgroundProbsType
         probs[3] = epsilon;
         for (int k = 4; k < 4 + alphabetSize; ++k) {
             assert(alphabet[k - 4] != '*');
-            if (tantanProbs[i] >= 0.5)
-                probs[k] = (1 - BG_STOP_CODON_PROB) * end[k] / aa2codons.at(alphabet[k - 4]).size();
-            double p = probs[k];
-            probs[k] = ((1 - STOP_CODON_PROB) /* minus stop codon */ * p /
-                        aa2codons.at(alphabet[k - 4]).size());
+            if (tantanProbs[i] >= 0.5) {
+                probs[k] = end[k];
+            } else {
+                double p = probs[k];
+                int codonCount = (alphabetSize > 4) ? aa2codons.at(alphabet[k - 4]).size() : 1;
+                probs[k] = ((1 - STOP_CODON_PROB) /* minus stop codon */ * p / codonCount);
+            }
         }
         if (alphabetSize == 20) {
             probs[4 + 20] = probs[4 + 1]; // selenocysteine = cysteine
