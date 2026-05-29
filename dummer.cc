@@ -19,6 +19,9 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <thread>
+#include <atomic>
+#include <mutex>
 
 #include <assert.h>
 #include <ctype.h>
@@ -1427,23 +1430,71 @@ void findFinalSimilarities(std::vector<FinalSimilarity> &similarities, std::arra
 void findFinalSimilaritiesBatched(std::vector<FinalSimilarity> &similarities,
                                   std::vector<std::vector<SequenceRequest>> &allRequests,
                                   const std::vector<Profile> &profiles, const char *charVec,
-                                  DPScratch &scratch) {
+                                  DPScratch &/*scratch*/, int numThreads) {
     for (size_t i = 0; i < profiles.size(); ++i) {
-        auto &requests = allRequests[i];
-        std::sort(requests.begin(), requests.end(), std::greater<>());
+        std::sort(allRequests[i].begin(), allRequests[i].end(), std::greater<>());
+    }
 
-        int k = 0;
-        std::array<SequenceRequest, simdWidth> curBatch;
-        for (const auto &req : requests) {
-            curBatch[k++] = req;
-            if (k == simdWidth) {
-                findFinalSimilarities(similarities, curBatch, profiles[i], i, charVec, scratch, simdWidth);
-                k = 0;
+    struct BatchJob {
+        size_t profileIdx;
+        size_t startRequestIdx;
+        int activeCount;
+    };
+
+    std::vector<BatchJob> jobs;
+    for (size_t i = 0; i < profiles.size(); ++i) {
+        const auto &requests = allRequests[i];
+        size_t n = requests.size();
+        for (size_t start = 0; start < n; start += simdWidth) {
+            int count = std::min(static_cast<size_t>(simdWidth), n - start);
+            jobs.push_back({i, start, count});
+        }
+    }
+
+    if (jobs.empty()) return;
+
+    std::atomic<size_t> nextJobIdx(0);
+    std::vector<std::vector<FinalSimilarity>> jobSimilarities(jobs.size());
+
+    auto worker = [&]() {
+        // Each thread gets its own reusable DPScratch
+        DPScratch threadScratch;
+
+        while (true) {
+            size_t jobIdx = nextJobIdx.fetch_add(1, std::memory_order_relaxed);
+            if (jobIdx >= jobs.size()) {
+                break;
             }
+
+            const auto &job = jobs[jobIdx];
+            std::array<SequenceRequest, simdWidth> curBatch;
+            const auto &requests = allRequests[job.profileIdx];
+            for (int k = 0; k < job.activeCount; ++k) {
+                curBatch[k] = requests[job.startRequestIdx + k];
+            }
+
+            findFinalSimilarities(jobSimilarities[jobIdx], curBatch,
+                                  profiles[job.profileIdx], job.profileIdx,
+                                  charVec, threadScratch, job.activeCount);
         }
-        if (k > 0) {
-            findFinalSimilarities(similarities, curBatch, profiles[i], i, charVec, scratch, k);
-        }
+    };
+
+    std::vector<std::thread> threads;
+    threads.reserve(numThreads);
+    for (unsigned int i = 0; i < numThreads; ++i) {
+        threads.emplace_back(worker);
+    }
+    for (auto &t : threads) {
+        t.join();
+    }
+
+    size_t totalSimilarities = 0;
+    for (const auto &jobSims : jobSimilarities) {
+        totalSimilarities += jobSims.size();
+    }
+    similarities.reserve(totalSimilarities);
+    for (const auto &jobSims : jobSimilarities) {
+        similarities.insert(similarities.end(), jobSims.begin(), jobSims.end());
     }
 }
 
@@ -1544,9 +1595,10 @@ void estimateGumbel(double &mmLambda, double &mmK, double &mmKsimple, double &ml
     methodOfLmomentsGumbel(lmLambda, lmK, scores, n, seqLength);
 }
 
+static std::mutex g_cout_mutex;
+
 void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int sequenceLength,
-               int border, int numOfSequences, int printVerbosity, DPScratch &scratch) {
-    std::mt19937_64 randGen;
+               int border, int numOfSequences, int printVerbosity, DPScratch &/*scratch*/, int numThreads) {
     int alphabetSize = profile.width - nonLetterWidth;
 #ifdef ESTIMATOR_USE_RANDOM_CODONS
 
@@ -1584,60 +1636,114 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
     auto alphabet = getAlphabet(20);
     char charToNumber[256];
     setCharToNumber(charToNumber, alphabet);
-    for (int i = 0; i < numOfSequences; ++i) {
-        // should be "< sequenceLength", but kept for pseudo-random reproducibility
-#ifdef ESTIMATOR_USE_RANDOM_CODONS
-        static std::bernoulli_distribution frameshiftDist(BACKGROUND_FRAMESHIFT_RATE);
-        static const char bases[] = {'A', 'C', 'G', 'T'};
-        static std::uniform_int_distribution<int> distDNA(0, 3);
-        static std::uniform_int_distribution<int> distOffset(0, 2);
 
-        int offset = distOffset(randGen);
-        for (int j = 0; j < offset; j++) {
-            sequence[j] = charToNumber[bases[distDNA(randGen)]];
+    int numBatches = (numOfSequences + simdWidth - 1) / simdWidth;
+    if (numBatches < static_cast<int>(numThreads)) {
+        numThreads = numBatches;
+    }
+
+    std::atomic<int> nextBatchIdx(0);
+
+    auto worker = [&](int /*threadId*/) {
+        // Reusable scratch memory per thread
+        DPScratch threadScratch;
+
+        // Local sequence buffers per SIMD lane to avoid data races
+        std::array<std::vector<char>, simdWidth> localSeqs;
+        for (int lane = 0; lane < simdWidth; ++lane) {
+            localSeqs[lane].resize(sequenceLength + border + 16);
         }
-        for (int j = offset; j <= sequenceLength; j += 3) {
-            bool shouldFS = frameshiftDist(randGen);
-            if (shouldFS) {
-                sequence[j] = charToNumber[bases[distDNA(randGen)]];
-                j -= 2;
-                continue;
+
+        while (true) {
+            int batchIdx = nextBatchIdx.fetch_add(1, std::memory_order_relaxed);
+            if (batchIdx >= numBatches) {
+                break;
             }
-            int x = dist(randGen);
-            char aa = (x < alphabetSize) ? alphabet[x] : '*';
-            auto &codons = aa2codons[aa];
-            std::uniform_int_distribution<int> dist2(0, (int)codons.size() - 1);
-            auto &xx = codons[dist2(randGen)];
-            for (int k = 0; k < 3; k++) {
-                if (j + k <= sequenceLength) {
-                    sequence[j + k] = charToNumber[xx[k]];
+
+            int start = batchIdx * simdWidth;
+            int activeCount = std::min(static_cast<int>(simdWidth), numOfSequences - start);
+
+            std::array<std::vector<uint8_t>, simdWidth> decoded;
+            std::array<std::vector<uint8_t>*, simdWidth> decodedPtrs = {};
+            std::array<Float, simdWidth> minProbRatio;
+            minProbRatio.fill(-2.0f);
+
+            for (int lane = 0; lane < activeCount; ++lane) {
+                int trialIdx = start + lane;
+                // Core-independent deterministic seeding based on trial index
+                std::mt19937_64 trialRandGen(5489 + trialIdx);
+                char *seqBuf = localSeqs[lane].data();
+
+#ifdef ESTIMATOR_USE_RANDOM_CODONS
+                std::bernoulli_distribution frameshiftDist(BACKGROUND_FRAMESHIFT_RATE);
+                const char bases[] = {'A', 'C', 'G', 'T'};
+                std::uniform_int_distribution<int> distDNA(0, 3);
+                std::uniform_int_distribution<int> distOffset(0, 2);
+
+                int offset = distOffset(trialRandGen);
+                for (int j = 0; j < offset; j++) {
+                    seqBuf[j] = charToNumber[bases[distDNA(trialRandGen)]];
+                }
+                for (int j = offset; j <= sequenceLength; j += 3) {
+                    bool shouldFS = frameshiftDist(trialRandGen);
+                    if (shouldFS) {
+                        seqBuf[j] = charToNumber[bases[distDNA(trialRandGen)]];
+                        j -= 2;
+                        continue;
+                    }
+                    int x = dist(trialRandGen);
+                    char aa = (x < alphabetSize) ? alphabet[x] : '*';
+                    const auto &codons = aa2codons.at(aa);
+                    std::uniform_int_distribution<int> dist2(0, (int)codons.size() - 1);
+                    const auto &xx = codons[dist2(trialRandGen)];
+                    for (int k = 0; k < 3; k++) {
+                        if (j + k <= sequenceLength) {
+                            seqBuf[j + k] = charToNumber[xx[k]];
+                        }
+                    }
+                }
+#else
+                for (int j = 0; j <= sequenceLength; ++j)
+                    seqBuf[j] = dist(trialRandGen);
+#endif
+
+                for (int j = 0; j < border; ++j)
+                    seqBuf[sequenceLength + j] = seqBuf[j];
+
+                decoded[lane] = decodeSequence(seqBuf, sequenceLength + border, alphabet, charToNumber);
+                decodedPtrs[lane] = &decoded[lane];
+            }
+
+            std::array<std::vector<AlignedSimilarity>, simdWidth> simsSIMD;
+            findSimilarities(simsSIMD, profile, decodedPtrs, minProbRatio, threadScratch, activeCount);
+
+            for (int lane = 0; lane < activeCount; ++lane) {
+                int trialIdx = start + lane;
+                const auto &sims = simsSIMD[lane];
+                endScores[trialIdx] = log(sims[0].probRatio);
+                begScores[trialIdx] = log(sims[1].probRatio);
+                midScores[trialIdx] = log(sims[2].probRatio);
+
+                if (printVerbosity > 1) {
+                    std::lock_guard<std::mutex> lock(g_cout_mutex);
+                    std::cout << (trialIdx + 1) << "\t" << sims[0].anchor1 << "\t" << sims[0].anchor2 << "\t"
+                              << log2(sims[0].probRatio) + shift << "\t" << sims[1].anchor1 << "\t"
+                              << sims[1].anchor2 << "\t" << log2(sims[1].probRatio) + shift << "\t"
+                              << sims[2].anchor1 << "\t" << sims[2].anchor2 << "\t"
+                              << log2(sims[2].probRatio) + shift << std::endl;
                 }
             }
         }
-#else
-        for (int j = 0; j <= sequenceLength; ++j)
-            sequence[j] = dist(randGen);
-#endif
+    };
 
-        for (int j = 0; j < border; ++j)
-            sequence[sequenceLength + j] = sequence[j];
-        std::array<std::vector<AlignedSimilarity>, simdWidth> simsSIMD;
-        std::array<std::vector<uint8_t>*, simdWidth> decoded;
-        auto d = decodeSequence(sequence, sequenceLength + border, alphabet, charToNumber);
-        decoded[0] = &d;
-        findSimilarities(simsSIMD, profile, decoded, {-2}, scratch, 1);
+    std::vector<std::thread> threads;
+    threads.reserve(numThreads);
+    for (unsigned int i = 0; i < numThreads; ++i) {
+        threads.emplace_back(worker, i);
+    }
 
-        auto &sims = simsSIMD[0];
-        endScores[i] = log(sims[0].probRatio);
-        begScores[i] = log(sims[1].probRatio);
-        midScores[i] = log(sims[2].probRatio);
-        if (printVerbosity > 1) {
-            std::cout << (i + 1) << "\t" << sims[0].anchor1 << "\t" << sims[0].anchor2 << "\t"
-                      << log2(sims[0].probRatio) + shift << "\t" << sims[1].anchor1 << "\t"
-                      << sims[1].anchor2 << "\t" << log2(sims[1].probRatio) + shift << "\t"
-                      << sims[2].anchor1 << "\t" << sims[2].anchor2 << "\t"
-                      << log2(sims[2].probRatio) + shift << std::endl;
-        }
+    for (auto &t : threads) {
+        t.join();
     }
 
     double MMendL, MMendK, MMendKsimple, MLendL, MLendK, MLendKsimple;
@@ -2093,6 +2199,10 @@ int main(int argc, char *argv[]) {
     int randomSeqLen = OPT_l;
     int border = OPT_b;
     int backgroundProbsType = 'G';
+    int numThreadsOpt = std::thread::hardware_concurrency();
+    if (numThreadsOpt == 0) {
+        numThreadsOpt = 1;
+    }
 
     const char help[] = "\
 usage: dummer profiles.hmm [sequences.fa]\n\
@@ -2104,6 +2214,7 @@ Options:\n\
   -h, --help        show this help message and exit\n\
   -V, --version     show version and exit\n\
   -v, --verbose     show progress messages\n\
+  -T N, --threads N number of threads to use (default: CPU cores)\n\
   -e E, --evalue E  find similarities with E-value <= this (default: " STR(OPT_e) ")\n\
   -s S, --strand S  DNA strand: 0=reverse, 1=forward, 2=both (default: " STR(OPT_s) ")\n\
   -m M, --mask M    mask simple regions of:\n\
@@ -2124,11 +2235,12 @@ Options for background letter probabilities:\n\
   --bmedian         median of position-specific probabilities\n\
 ";
 
-    const char sOpts[] = "hVve:s:m:d:D:t:l:b:";
+    const char sOpts[] = "hVve:s:m:d:D:t:l:b:T:";
 
     static struct option lOpts[] = {{"help", no_argument, 0, 'h'},
                                     {"version", no_argument, 0, 'V'},
                                     {"verbose", no_argument, 0, 'v'},
+                                    {"threads", required_argument, 0, 'T'},
                                     {"evalue", required_argument, 0, 'e'},
                                     {"strand", required_argument, 0, 's'},
                                     {"mask", required_argument, 0, 'm'},
@@ -2155,6 +2267,11 @@ Options for background letter probabilities:\n\
             return 0;
         case 'v':
             ++verbosity;
+            break;
+        case 'T':
+            numThreadsOpt = intFromText(optarg);
+            if (numThreadsOpt < 1)
+                return badOpt();
             break;
         case 'e':
             evalueOpt = strtod(optarg, 0);
@@ -2301,7 +2418,7 @@ Options for background letter probabilities:\n\
 
 #ifdef EVALUE
 #ifdef ESTIMATOR_USE_RANDOM_CODONS
-        estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen, border, randomSeqNum, printVerbosity, scratch);
+        estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen, border, randomSeqNum, printVerbosity, scratch, numThreadsOpt);
 #else
         NucDist dist = *reinterpret_cast<NucDist *>(p.debug);
         Float bgProbsDNA[256] = {0};
@@ -2310,7 +2427,7 @@ Options for background letter probabilities:\n\
         bgProbsDNA[charToNumber['G']] = dist.overall['G'];
         bgProbsDNA[charToNumber['T']] = dist.overall['T'];
         estimateK(p, bgProbsDNA, &charVec[seqIdx], randomSeqLen, border, randomSeqNum,
-                  printVerbosity, scratch);
+                  printVerbosity, scratch, numThreadsOpt);
 #endif
 #endif
     }
@@ -2403,7 +2520,7 @@ Options for background letter probabilities:\n\
         charVec.resize(seqIdx);
     }
 
-    findFinalSimilaritiesBatched(similarities, allRequests, profiles, charVec.data(), scratch);
+    findFinalSimilaritiesBatched(similarities, allRequests, profiles, charVec.data(), scratch, numThreadsOpt);
 
     std::cout << "# Total sequence length: " << totSequenceLength << "\n";
 
