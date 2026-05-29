@@ -25,6 +25,7 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <filesystem>
 #include <float.h>
 #include <limits.h>
 #include <math.h>
@@ -38,6 +39,13 @@
 #include <queue>
 
 #include <Kokkos_SIMD.hpp>
+
+#include <cereal/archives/binary.hpp>
+#include <cereal/types/unordered_map.hpp>
+#include <cereal/types/string.hpp>
+
+#define XXH_INLINE_ALL
+#include <xxhash.h>
 
 #define OPT_e 10
 #define OPT_s 2
@@ -147,6 +155,7 @@ struct Profile {   // position-specific (insert, delete, letter) probabilities
     size_t nameIdx;
     size_t consensusSequenceIdx;
     double gumbelKendAnchored, gumbelKbegAnchored, gumbelKmidAnchored, lambda;
+    std::string name;
 };
 
 struct Sequence {
@@ -1597,154 +1606,382 @@ void estimateGumbel(double &mmLambda, double &mmK, double &mmKsimple, double &ml
 
 static std::mutex g_cout_mutex;
 
+class Hash128 {
+public:
+    Hash128() {
+        XXH3_128bits_reset(state);
+    }
+    ~Hash128() {
+        XXH3_freeState(state);
+    }
+
+    void add(const void* data, size_t size) {
+        XXH3_128bits_update(state, data, size);
+    }
+
+    void add(const std::string& str) {
+        add(str.data(), str.size());
+    }
+
+    template <typename T>
+    requires std::integral<T> || std::floating_point<T>
+    void add(const T& val) {
+        add(&val, sizeof(T));
+    }
+
+    XXH128_hash_t hash() {
+        return XXH3_128bits_digest(state);
+    }
+
+    std::string to_string() {
+        auto res = hash();
+
+        std::stringstream ss;
+        // Format high and low 64-bit parts as 16-character padded hex strings
+        ss << std::hex << std::setfill('0')
+           << std::setw(16) << res.high64
+           << std::setw(16) << res.low64;
+        return ss.str();
+    }
+
+private:
+    XXH3_state_t* const state = XXH3_createState();
+};
+
+std::string getBinaryHash() {
+    std::ifstream file("/proc/self/exe", std::ios::binary);
+    assert(file);
+
+    Hash128 h;
+    char buffer[65536];
+    while (file.read(buffer, sizeof(buffer))) {
+        h.add(buffer, file.gcount());
+    }
+    h.add(buffer, file.gcount());
+
+    auto hash = h.to_string();
+    return hash;
+}
+
+struct CacheEntry {
+    double MMendL, MMbegL, MMmidL;
+    double MMendK, MMbegK, MMmidK;
+    double MMendKsimple, MMbegKsimple, MMmidKsimple;
+    double MLendL, MLbegL, MLmidL;
+    double MLendK, MLbegK, MLmidK;
+    double MLendKsimple, MLbegKsimple, MLmidKsimple;
+    double LMendL, LMbegL, LMmidL;
+    double LMendK, LMbegK, LMmidK;
+
+    template<class Archive>
+    void serialize(Archive& archive) {
+        archive(
+            MMendL, MMbegL, MMmidL,
+            MMendK, MMbegK, MMmidK,
+            MMendKsimple, MMbegKsimple, MMmidKsimple,
+            MLendL, MLbegL, MLmidL,
+            MLendK, MLbegK, MLmidK,
+            MLendKsimple, MLbegKsimple, MLmidKsimple,
+            LMendL, LMbegL, LMmidL,
+            LMendK, LMbegK, LMmidK
+        );
+    }
+};
+
+// vibe-coded cache
+class ProfileCache {
+public:
+    ~ProfileCache() {
+        save();
+    }
+
+    std::string computeCacheKey(const Profile &profile, const Float *letterFreqs,
+                                    int sequenceLength, int border, int numOfSequences) {
+        Hash128 h;
+        h.add(binaryHash);
+        h.add(profile.name);
+        h.add(profile.width);
+        h.add(profile.length);
+        h.add(profile.values, profile.width * (profile.length + 1) * sizeof(Float));
+        h.add(letterFreqs, (profile.width - nonLetterWidth) * sizeof(Float));
+        h.add(sequenceLength);
+        h.add(border);
+        h.add(numOfSequences);
+        h.add(INSERT1);
+        h.add(INSERT2);
+        h.add(DELETE1);
+        h.add(DELETE2);
+        h.add(BACKGROUND_FRAMESHIFT_RATE);
+        h.add(STOP_CODON_PROB);
+        h.add(BG_STOP_CODON_PROB);
+
+        return h.to_string();
+    }
+private:
+    std::unordered_map<std::string, CacheEntry> entries;
+    //std::unordered_set<std::string> read_entries;
+    std::filesystem::path cacheFilePath;
+    std::string binaryHash = getBinaryHash();
+    std::mutex cacheMutex;
+    bool loaded = false;
+
+    static std::filesystem::path getCacheFilePath() {
+        std::filesystem::path cacheDir;
+
+        if (const char* xdgCache = std::getenv("XDG_CACHE_HOME"); xdgCache && *xdgCache) {
+            cacheDir = std::filesystem::path(xdgCache);
+        } else if (const char* home = std::getenv("HOME")) {
+            cacheDir = std::filesystem::path(home) / ".cache";
+        } else {
+            cacheDir = std::filesystem::current_path();
+        }
+
+        std::filesystem::path appCacheDir = cacheDir / "dummer";
+        if (!std::filesystem::exists(appCacheDir)) {
+            std::error_code ec;
+            std::filesystem::create_directories(appCacheDir, ec);
+            if (ec) {
+                std::cerr << "# Warning: Could not create cache directory: " << ec.message() << "\n";
+                appCacheDir = std::filesystem::current_path();
+            }
+        }
+
+        return appCacheDir / "cache.bin";
+    }
+
+    void load() {
+        if (loaded) return;
+
+        cacheFilePath = getCacheFilePath();
+        std::cout << "# Cache file: " << cacheFilePath << std::endl;
+
+        for (int tries = 0; tries < 5; tries++) {
+            if (std::filesystem::exists(cacheFilePath)) {
+                try {
+                    std::ifstream in(cacheFilePath, std::ios::binary);
+                    if (in.is_open() && in.peek() != std::ifstream::traits_type::eof()) {
+                        cereal::BinaryInputArchive archive(in);
+                        archive(entries);
+                        break;
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "# Cache Load Error: " << e.what() << ".\n";
+                    std::error_code delete_ec;
+                    std::filesystem::remove(cacheFilePath, delete_ec);
+                    entries.clear();
+                }
+            }
+        }
+
+        loaded = true;
+    }
+
+public:
+    bool lookup(const Profile &profile, const Float *letterFreqs, int sequenceLength,
+                int border, int numOfSequences, CacheEntry &outEntry) {
+        std::scoped_lock lock(cacheMutex);
+        load();
+
+        std::string key = computeCacheKey(profile, letterFreqs, sequenceLength, border, numOfSequences);
+        if (auto it = entries.find(key); it != entries.end()) {
+            outEntry = it->second;
+            return true;
+        }
+        return false;
+    }
+
+    void store(const Profile &profile, const Float *letterFreqs, int sequenceLength,
+              int border, int numOfSequences, const CacheEntry &entry) {
+        std::scoped_lock lock(cacheMutex);
+        load();
+
+        std::string key = computeCacheKey(profile, letterFreqs, sequenceLength, border, numOfSequences);
+        entries[key] = entry;
+    }
+
+    void save() {
+        std::scoped_lock lock(cacheMutex);
+        load();
+
+        // std::erase_if(entries, [&](const auto& pair) {
+        //     return read_entries.find(pair.first) == read_entries.end();
+        // });
+
+        try {
+            std::ofstream out(cacheFilePath, std::ios::binary | std::ios::trunc);
+            if (out) {
+                cereal::BinaryOutputArchive archive(out);
+                archive(entries);
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "# Cache Save Error: " << e.what() << std::endl;
+        }
+    }
+} cache;
+
 void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int sequenceLength,
                int border, int numOfSequences, int printVerbosity, DPScratch &/*scratch*/, int numThreads) {
-    int alphabetSize = profile.width - nonLetterWidth;
+    Float estimateK_lambdas = 0;
+    Float estimateK_n = 0;
+
+    CacheEntry entry;
+    if (cache.lookup(profile, letterFreqs, sequenceLength, border, numOfSequences, entry)) {
+        if (printVerbosity > 1) {
+            std::cout << "# Warning: using cached results\n";
+        }
+        
+        profile.gumbelKendAnchored = entry.MMendK;
+        profile.gumbelKbegAnchored = entry.MMbegK;
+        profile.gumbelKmidAnchored = entry.MMmidK;
+        profile.lambda = entry.MMmidL;
+    } else {
+        int alphabetSize = profile.width - nonLetterWidth;
 #ifdef ESTIMATOR_USE_RANDOM_CODONS
 
-    std::vector<double> aaFreqs;
-    Float sum = 0;
-    if (alphabetSize > 4) {
-        aaFreqs.resize(alphabetSize + 1);
-        for (int k = 0; k < alphabetSize; ++k) {
-            int n = aa2codons.at(getAlphabet(alphabetSize)[k]).size();
-            aaFreqs[k] = letterFreqs[k] * n;
-            sum += aaFreqs[k];
+        std::vector<double> aaFreqs;
+        Float sum = 0;
+        if (alphabetSize > 4) {
+            aaFreqs.resize(alphabetSize + 1);
+            for (int k = 0; k < alphabetSize; ++k) {
+                int n = aa2codons.at(getAlphabet(alphabetSize)[k]).size();
+                aaFreqs[k] = letterFreqs[k] * n;
+                sum += aaFreqs[k];
+            }
+            aaFreqs[alphabetSize] = BG_STOP_CODON_PROB;
+            sum += aaFreqs[alphabetSize];
+        } else {
+            aaFreqs.assign(letterFreqs, letterFreqs + alphabetSize);
         }
-        aaFreqs[alphabetSize] = BG_STOP_CODON_PROB;
-        sum += aaFreqs[alphabetSize];
-    } else {
-        aaFreqs.assign(letterFreqs, letterFreqs + alphabetSize);
-    }
 
-    std::cout << "# sum is " << sum << std::endl;
-    std::discrete_distribution<> dist(aaFreqs.begin(), aaFreqs.end());
+        std::cout << "# sum is " << sum << std::endl;
+        std::discrete_distribution<> dist(aaFreqs.begin(), aaFreqs.end());
 #else
-    std::discrete_distribution<> dist(letterFreqs, letterFreqs + alphabetSize);
+        std::discrete_distribution<> dist(letterFreqs, letterFreqs + alphabetSize);
 #endif
-    std::vector<double> scores(numOfSequences * 3);
-    double *endScores = scores.data();
-    double *begScores = endScores + numOfSequences;
-    double *midScores = begScores + numOfSequences;
+        std::vector<double> scores(numOfSequences * 3);
+        double *endScores = scores.data();
+        double *begScores = endScores + numOfSequences;
+        double *midScores = begScores + numOfSequences;
 
-    if (printVerbosity > 1) {
-        std::cout << "#trial\tend-anchored\t\tstart-anchored\t\tmid-anchored\n\
+        if (printVerbosity > 1) {
+            std::cout << "#trial\tend-anchored\t\tstart-anchored\t\tmid-anchored\n\
 #\tprofPos\tseqPos\tscore\tprofPos\tseqPos\tscore\tprofPos\tseqPos\tscore"
-                  << std::endl;
-    }
-
-    auto alphabet = getAlphabet(20);
-    char charToNumber[256];
-    setCharToNumber(charToNumber, alphabet);
-
-    int numBatches = (numOfSequences + simdWidth - 1) / simdWidth;
-    if (numBatches < static_cast<int>(numThreads)) {
-        numThreads = numBatches;
-    }
-
-    std::atomic<int> nextBatchIdx(0);
-
-    auto worker = [&](int /*threadId*/) {
-        // Reusable scratch memory per thread
-        DPScratch threadScratch;
-
-        // Local sequence buffers per SIMD lane to avoid data races
-        std::array<std::vector<char>, simdWidth> localSeqs;
-        for (int lane = 0; lane < simdWidth; ++lane) {
-            localSeqs[lane].resize(sequenceLength + border + 16);
+                      << std::endl;
         }
 
-        while (true) {
-            int batchIdx = nextBatchIdx.fetch_add(1, std::memory_order_relaxed);
-            if (batchIdx >= numBatches) {
-                break;
+        auto alphabet = getAlphabet(20);
+        char charToNumber[256];
+        setCharToNumber(charToNumber, alphabet);
+
+        int numBatches = (numOfSequences + simdWidth - 1) / simdWidth;
+        if (numBatches < static_cast<int>(numThreads)) {
+            numThreads = numBatches;
+        }
+
+        std::atomic<int> nextBatchIdx(0);
+
+        auto worker = [&](int /*threadId*/) {
+            // Reusable scratch memory per thread
+            DPScratch threadScratch;
+
+            // Local sequence buffers per SIMD lane to avoid data races
+            std::array<std::vector<char>, simdWidth> localSeqs;
+            for (int lane = 0; lane < simdWidth; ++lane) {
+                localSeqs[lane].resize(sequenceLength + border + 16);
             }
 
-            int start = batchIdx * simdWidth;
-            int activeCount = std::min(static_cast<int>(simdWidth), numOfSequences - start);
+            while (true) {
+                int batchIdx = nextBatchIdx.fetch_add(1, std::memory_order_relaxed);
+                if (batchIdx >= numBatches) {
+                    break;
+                }
 
-            std::array<std::vector<uint8_t>, simdWidth> decoded;
-            std::array<std::vector<uint8_t>*, simdWidth> decodedPtrs = {};
-            std::array<Float, simdWidth> minProbRatio;
-            minProbRatio.fill(-2.0f);
+                int start = batchIdx * simdWidth;
+                int activeCount = std::min(static_cast<int>(simdWidth), numOfSequences - start);
 
-            for (int lane = 0; lane < activeCount; ++lane) {
-                int trialIdx = start + lane;
-                // Core-independent deterministic seeding based on trial index
-                std::mt19937_64 trialRandGen(5489 + trialIdx);
-                char *seqBuf = localSeqs[lane].data();
+                std::array<std::vector<uint8_t>, simdWidth> decoded;
+                std::array<std::vector<uint8_t>*, simdWidth> decodedPtrs = {};
+                std::array<Float, simdWidth> minProbRatio;
+                minProbRatio.fill(-2.0f);
+
+                for (int lane = 0; lane < activeCount; ++lane) {
+                    int trialIdx = start + lane;
+                    // Core-independent deterministic seeding based on trial index
+                    std::mt19937_64 trialRandGen(5489 + trialIdx);
+                    char *seqBuf = localSeqs[lane].data();
 
 #ifdef ESTIMATOR_USE_RANDOM_CODONS
-                std::bernoulli_distribution frameshiftDist(BACKGROUND_FRAMESHIFT_RATE);
-                const char bases[] = {'A', 'C', 'G', 'T'};
-                std::uniform_int_distribution<int> distDNA(0, 3);
-                std::uniform_int_distribution<int> distOffset(0, 2);
+                    std::bernoulli_distribution frameshiftDist(BACKGROUND_FRAMESHIFT_RATE);
+                    const char bases[] = {'A', 'C', 'G', 'T'};
+                    std::uniform_int_distribution<int> distDNA(0, 3);
+                    std::uniform_int_distribution<int> distOffset(0, 2);
 
-                int offset = distOffset(trialRandGen);
-                for (int j = 0; j < offset; j++) {
-                    seqBuf[j] = charToNumber[bases[distDNA(trialRandGen)]];
-                }
-                for (int j = offset; j <= sequenceLength; j += 3) {
-                    bool shouldFS = frameshiftDist(trialRandGen);
-                    if (shouldFS) {
+                    int offset = distOffset(trialRandGen);
+                    for (int j = 0; j < offset; j++) {
                         seqBuf[j] = charToNumber[bases[distDNA(trialRandGen)]];
-                        j -= 2;
-                        continue;
                     }
-                    int x = dist(trialRandGen);
-                    char aa = (x < alphabetSize) ? alphabet[x] : '*';
-                    const auto &codons = aa2codons.at(aa);
-                    std::uniform_int_distribution<int> dist2(0, (int)codons.size() - 1);
-                    const auto &xx = codons[dist2(trialRandGen)];
-                    for (int k = 0; k < 3; k++) {
-                        if (j + k <= sequenceLength) {
-                            seqBuf[j + k] = charToNumber[xx[k]];
+                    for (int j = offset; j <= sequenceLength; j += 3) {
+                        bool shouldFS = frameshiftDist(trialRandGen);
+                        if (shouldFS) {
+                            seqBuf[j] = charToNumber[bases[distDNA(trialRandGen)]];
+                            j -= 2;
+                            continue;
+                        }
+                        int x = dist(trialRandGen);
+                        char aa = (x < alphabetSize) ? alphabet[x] : '*';
+                        const auto &codons = aa2codons.at(aa);
+                        std::uniform_int_distribution<int> dist2(0, (int)codons.size() - 1);
+                        const auto &xx = codons[dist2(trialRandGen)];
+                        for (int k = 0; k < 3; k++) {
+                            if (j + k <= sequenceLength) {
+                                seqBuf[j + k] = charToNumber[xx[k]];
+                            }
                         }
                     }
-                }
 #else
-                for (int j = 0; j <= sequenceLength; ++j)
-                    seqBuf[j] = dist(trialRandGen);
+                    for (int j = 0; j <= sequenceLength; ++j)
+                        seqBuf[j] = dist(trialRandGen);
 #endif
 
-                for (int j = 0; j < border; ++j)
-                    seqBuf[sequenceLength + j] = seqBuf[j];
+                    for (int j = 0; j < border; ++j)
+                        seqBuf[sequenceLength + j] = seqBuf[j];
 
-                decoded[lane] = decodeSequence(seqBuf, sequenceLength + border, alphabet, charToNumber);
-                decodedPtrs[lane] = &decoded[lane];
-            }
+                    decoded[lane] = decodeSequence(seqBuf, sequenceLength + border, alphabet, charToNumber);
+                    decodedPtrs[lane] = &decoded[lane];
+                }
 
-            std::array<std::vector<AlignedSimilarity>, simdWidth> simsSIMD;
-            findSimilarities(simsSIMD, profile, decodedPtrs, minProbRatio, threadScratch, activeCount);
+                std::array<std::vector<AlignedSimilarity>, simdWidth> simsSIMD;
+                findSimilarities(simsSIMD, profile, decodedPtrs, minProbRatio, threadScratch, activeCount);
 
-            for (int lane = 0; lane < activeCount; ++lane) {
-                int trialIdx = start + lane;
-                const auto &sims = simsSIMD[lane];
-                endScores[trialIdx] = log(sims[0].probRatio);
-                begScores[trialIdx] = log(sims[1].probRatio);
-                midScores[trialIdx] = log(sims[2].probRatio);
+                for (int lane = 0; lane < activeCount; ++lane) {
+                    int trialIdx = start + lane;
+                    const auto &sims = simsSIMD[lane];
+                    endScores[trialIdx] = log(sims[0].probRatio);
+                    begScores[trialIdx] = log(sims[1].probRatio);
+                    midScores[trialIdx] = log(sims[2].probRatio);
 
-                if (printVerbosity > 1) {
-                    std::lock_guard<std::mutex> lock(g_cout_mutex);
-                    std::cout << (trialIdx + 1) << "\t" << sims[0].anchor1 << "\t" << sims[0].anchor2 << "\t"
-                              << log2(sims[0].probRatio) + shift << "\t" << sims[1].anchor1 << "\t"
-                              << sims[1].anchor2 << "\t" << log2(sims[1].probRatio) + shift << "\t"
-                              << sims[2].anchor1 << "\t" << sims[2].anchor2 << "\t"
-                              << log2(sims[2].probRatio) + shift << std::endl;
+                    if (printVerbosity > 1) {
+                        std::lock_guard<std::mutex> lock(g_cout_mutex);
+                        std::cout << (trialIdx + 1) << "\t" << sims[0].anchor1 << "\t" << sims[0].anchor2 << "\t"
+                                  << log2(sims[0].probRatio) + shift << "\t" << sims[1].anchor1 << "\t"
+                                  << sims[1].anchor2 << "\t" << log2(sims[1].probRatio) + shift << "\t"
+                                  << sims[2].anchor1 << "\t" << sims[2].anchor2 << "\t"
+                                  << log2(sims[2].probRatio) + shift << std::endl;
+                    }
                 }
             }
+        };
+
+        std::vector<std::thread> threads;
+        threads.reserve(numThreads);
+        for (unsigned int i = 0; i < numThreads; ++i) {
+            threads.emplace_back(worker, i);
         }
-    };
 
-    std::vector<std::thread> threads;
-    threads.reserve(numThreads);
-    for (unsigned int i = 0; i < numThreads; ++i) {
-        threads.emplace_back(worker, i);
-    }
+        for (auto &t : threads) {
+            t.join();
+        }
 
-    for (auto &t : threads) {
-        t.join();
-    }
 
     double MMendL, MMendK, MMendKsimple, MLendL, MLendK, MLendKsimple;
     double LMendL, LMendK;
@@ -1761,47 +1998,59 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
     estimateGumbel(MMmidL, MMmidK, MMmidKsimple, MLmidL, MLmidK, MLmidKsimple, LMmidL, LMmidK,
                    midScores, numOfSequences, sequenceLength);
 
+        profile.gumbelKendAnchored = MMendK;
+        profile.gumbelKbegAnchored = MMbegK;
+        profile.gumbelKmidAnchored = MMmidK;
+        profile.lambda = MMmidL;
+
+        entry = {
+            MMendL, MMbegL, MMmidL,
+            MMendK, MMbegK, MMmidK,
+            MMendKsimple, MMbegKsimple, MMmidKsimple,
+            MLendL, MLbegL, MLmidL,
+            MLendK, MLbegK, MLmidK,
+            MLendKsimple, MLbegKsimple, MLmidKsimple,
+            LMendL, LMbegL, LMmidL,
+            LMendK, LMbegK, LMmidK
+        };
+        cache.store(profile, letterFreqs, sequenceLength, border, numOfSequences, entry);
+    }
+
     double s = scale;
 
     if (printVerbosity > 1) {
         std::cout << "#\tend-\tstart-\tmid-anchored\n";
 
-        std::cout << "#lamMM\t" << MMendL << "\t" << MMbegL << "\t" << MMmidL << "\n"
+        std::cout << "#lamMM\t" << entry.MMendL << "\t" << entry.MMbegL << "\t" << entry.MMmidL << "\n"
 
-                  << "#kMM\t" << MMendK / pow(s, MMendL) << "\t" << MMbegK / pow(s, MMbegL) << "\t"
-                  << MMmidK / pow(s, MMmidL) << "\n"
+                  << "#kMM\t" << entry.MMendK / pow(s, entry.MMendL) << "\t" << entry.MMbegK / pow(s, entry.MMbegL) << "\t"
+                  << entry.MMmidK / pow(s, entry.MMmidL) << "\n"
 
-                  << "#kMM1\t" << MMendKsimple / scale << "\t" << MMbegKsimple / scale << "\t"
-                  << MMmidKsimple / scale << "\n";
+                  << "#kMM1\t" << entry.MMendKsimple / scale << "\t" << entry.MMbegKsimple / scale << "\t"
+                  << entry.MMmidKsimple / scale << "\n";
 
-        std::cout << "#lamML\t" << MLendL << "\t" << MLbegL << "\t" << MLmidL << "\n"
+        std::cout << "#lamML\t" << entry.MLendL << "\t" << entry.MLbegL << "\t" << entry.MLmidL << "\n"
 
-                  << "#kML\t" << MLendK / pow(s, MLendL) << "\t" << MLbegK / pow(s, MLbegL) << "\t"
-                  << MLmidK / pow(s, MLmidL) << "\n"
+                  << "#kML\t" << entry.MLendK / pow(s, entry.MLendL) << "\t" << entry.MLbegK / pow(s, entry.MLbegL) << "\t"
+                  << entry.MLmidK / pow(s, entry.MLmidL) << "\n"
 
-                  << "#kML1\t" << MLendKsimple / scale << "\t" << MLbegKsimple / scale << "\t"
-                  << MLmidKsimple / scale << "\n";
+                  << "#kML1\t" << entry.MLendKsimple / scale << "\t" << entry.MLbegKsimple / scale << "\t"
+                  << entry.MLmidKsimple / scale << "\n";
 
-        std::cout << "#lamLM\t" << LMendL << "\t" << LMbegL << "\t" << LMmidL << "\n"
+        std::cout << "#lamLM\t" << entry.LMendL << "\t" << entry.LMbegL << "\t" << entry.LMmidL << "\n"
 
-                  << "#kLM\t" << LMendK / pow(s, LMendL) << "\t" << LMbegK / pow(s, LMbegL) << "\t"
-                  << LMmidK / pow(s, LMmidL) << "\n";
+                  << "#kLM\t" << entry.LMendK / pow(s, entry.LMendL) << "\t" << entry.LMbegK / pow(s, entry.LMbegL) << "\t"
+                  << entry.LMmidK / pow(s, entry.LMmidL) << "\n";
     } else if (printVerbosity > 0) {
-        std::cout << "# K: " << MMendKsimple / scale << " " << MMbegKsimple / scale << " "
-                  << MMmidKsimple / scale << "\n";
+        std::cout << "# K: " << entry.MMendKsimple / scale << " " << entry.MMbegKsimple / scale << " "
+                  << entry.MMmidKsimple / scale << "\n";
     } else {
-        std::cout << "# K: " << MMmidKsimple / scale << "\n";
+        std::cout << "# K: " << entry.MMmidKsimple / scale << "\n";
     }
 
-    static Float lambdas = 0, n = 0;
-    std::cout << "# Lambda: " << MMmidL << "\n";
-    n++, lambdas += MMmidL;
-    std::cout << "# Avg Lambda: " << (lambdas / n) << "\n";
-
-    profile.gumbelKendAnchored = MMendK;
-    profile.gumbelKbegAnchored = MMbegK;
-    profile.gumbelKmidAnchored = MMmidK;
-    profile.lambda = MMmidL;
+    std::cout << "# Lambda: " << entry.MMmidL << "\n";
+    estimateK_n++, estimateK_lambdas += entry.MMmidL;
+    std::cout << "# Avg Lambda: " << (estimateK_lambdas / estimateK_n) << "\n";
 }
 
 int intFromText(const char *text) {
@@ -2053,6 +2302,7 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles, std::vector<F
             if (word == "NAME") {
                 profile.nameIdx = charVec.size();
                 iss >> word;
+                profile.name = word;
                 const char *name = word.c_str();
                 charVec.insert(charVec.end(), name, name + word.size() + 1);
                 profile.consensusSequenceIdx = charVec.size();

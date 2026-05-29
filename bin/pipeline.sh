@@ -29,5 +29,5 @@ if [ $? -ne 0 ]; then
 fi
 
 # Run dummer using the original HMM file and the captured temporary FASTA file
-ASAN_OPTIONS=detect_container_overflow=1:strict_memcmp=1 $SCRIPT_DIR/dummer "$HMM_FILE" "$TEMP_FA"
+time ASAN_OPTIONS=detect_container_overflow=1:strict_memcmp=1 $SCRIPT_DIR/dummer "$HMM_FILE" "$TEMP_FA"
 cp $TEMP_FA /mnt/tmp/test.txt
