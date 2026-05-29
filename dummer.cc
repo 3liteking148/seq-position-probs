@@ -73,14 +73,15 @@ using simd_t = Kokkos::Experimental::simd<Float>;
 constexpr auto simdWidth = simd_t::size();
 
 // for now they have to be the same?
-const Float STOP_CODON_PROB = 0.001;
-const Float BG_STOP_CODON_PROB = 0.001;
+const Float STOP_CODON_PROB = 0.0005;
+const Float BG_STOP_CODON_PROB = 0.0005;
 
-// reverse engineered from transmark
-const Float FRAMESHIFT1_MULTIPLIER = 0.005; // 0.005 each for delete and insert
-const Float FRAMESHIFT2_MULTIPLIER = (0.005 / 2);
+const Float INSERT1 = 0.0171;
+const Float INSERT2 = 0.0018;
+const Float DELETE1 = 0.0328;
+const Float DELETE2 = 0.0083;
 
-#define BACKGROUND_FRAMESHIFT_RATE (0.01)
+const Float BACKGROUND_FRAMESHIFT_RATE = INSERT1 + INSERT2 / 2 + DELETE1 + DELETE2 / 2;
 
 int simdRoundUp(int x) { // lowest multiple of simdLen that is >= x
     return x - 1 - (x - 1) % simdLen + simdLen;
@@ -1864,8 +1865,8 @@ int finalizeProfile(Profile &p, char *consensusSequence, int backgroundProbsType
         double alpha = probs[0];
         double beta = probs[1];
 
-        double alphaFS1 = FRAMESHIFT1_MULTIPLIER;
-        double alphaFS2 = FRAMESHIFT2_MULTIPLIER;
+        double alphaFS1 = INSERT1;
+        double alphaFS2 = INSERT2;
         p.values_v2.rbegin()->alpha_prime[0] = alpha * (1 - beta);
         p.values_v2.rbegin()->alpha_prime[1] = alphaFS1 * (1 - beta);
         p.values_v2.rbegin()->alpha_prime[2] = alphaFS2 * (1 - beta);
@@ -1885,8 +1886,8 @@ int finalizeProfile(Profile &p, char *consensusSequence, int backgroundProbsType
         double epsilon1 = probs[p.width + 3];
 
 #ifdef ENABLE_FS_DELETE_STATES
-        double deltaFS1 = FRAMESHIFT1_MULTIPLIER; // simulate delete
-        double deltaFS2 = FRAMESHIFT2_MULTIPLIER;
+        double deltaFS1 = DELETE1; // simulate delete
+        double deltaFS2 = DELETE2;
         p.values_v2.rbegin()->delta_prime[0] = delta * (1 - epsilon1);
         p.values_v2.rbegin()->delta_prime[1] = deltaFS1 * (1 - epsilon1);
         p.values_v2.rbegin()->delta_prime[2] = deltaFS2 * (1 - epsilon1);
