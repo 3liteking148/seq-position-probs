@@ -551,10 +551,11 @@ public:
 };
 
 struct DPScratch {
-    FlatMatrix<simd_t> W0, W1, X;
-    FlatMatrix<simd_t> X_pfx, X_sfx;
+    FlatMatrix<simd_t> W1, X;
+    FlatMatrix<simd_t> X_pfx;
 
     // Reusable temporary buffers for findSimilarities
+    std::vector<simd_t> W0_curr, W0_next;
     std::vector<simd_t> dp, dp_r;
     std::vector<simd_t> Y0_next, Y0_curr;
     std::vector<simd_t> one, one_sfx;
@@ -587,9 +588,9 @@ void addForwardAlignment(int idx, size_t profileLength, size_t sequenceLength, s
     int i = iBeg, j = jBeg;
     while (i <= profileLength && j < sequenceLength) {
         auto choice = std::max({
-            DP_Cell_v2{.metric=scratch.X(i, j)[idx] + scratch.X_sfx(i + 1, j + 3)[idx], .i=i + 1, .j=j + 3, .emit=true},
-            DP_Cell_v2{.metric=scratch.X_sfx(i + 1, j)[idx], .i=i + 1, .j=j, .emit=false},
-            DP_Cell_v2{.metric=scratch.X_sfx(i, j + 1)[idx], .i=i, .j=j + 1, .emit=false},
+            DP_Cell_v2{.metric=scratch.X(i, j)[idx] + scratch.W1(i + 1, j + 3)[idx], .i=i + 1, .j=j + 3, .emit=true},
+            DP_Cell_v2{.metric=scratch.W1(i + 1, j)[idx], .i=i + 1, .j=j, .emit=false},
+            DP_Cell_v2{.metric=scratch.W1(i, j + 1)[idx], .i=i, .j=j + 1, .emit=false},
             DP_Cell_v2{.metric=scratch.left_side[j][idx], .i=INT_MAX, .j=INT_MAX, .emit=false},
         });
 
@@ -1034,7 +1035,8 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     simd_t invRealSeqLen = (Float)1.0 / realSeqLen;
     simd_t nap_div_rsl = not_align_probs_simd * invRealSeqLen;
 
-    scratch.W0.assign(profile.length + 1, maxSequenceLength + 4);
+    scratch.W0_curr.assign(maxSequenceLength + 4, simd_t(0.0));
+    scratch.W0_next.assign(maxSequenceLength + 4, simd_t(0.0));
     scratch.W1.assign(profile.length + 2, maxSequenceLength + 4);
 
     const size_t bufSize = maxSequenceLength + 4;
@@ -1055,7 +1057,6 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 #ifdef ALIGN
     scratch.X.resize(profile.length + 2, maxSequenceLength);
     scratch.X_pfx.resize(profile.length + 2, maxSequenceLength + 4);
-    scratch.X_sfx.resize(profile.length + 2, maxSequenceLength + 4);
 #endif
         const Float *bg_probs_ptr = profile.bg_probs.data() + 4;
         scratch.bg_codon_probs.assign(maxSequenceLength + 8, simd_t(0.0));
@@ -1213,8 +1214,8 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         simd_t one_val_scaled = (Float)(scale);
 
         // Raw row pointers — avoid repeated i*cols in inner loop
-        simd_t *__restrict__ w0_row_i = scratch.W0.row_ptr(i);
-        simd_t *__restrict__ w0_row_ip1 = (i + 1 <= profile.length) ? scratch.W0.row_ptr(i + 1) : nullptr;
+        simd_t *__restrict__ w0_row_i = scratch.W0_curr.data();
+        simd_t *__restrict__ w0_row_ip1 = (i + 1 <= profile.length) ? scratch.W0_next.data() : nullptr;
         const simd_t *__restrict__ w1_row_ip1 = (i + 1 <= profile.length) ? scratch.W1.row_ptr(i + 1) : nullptr;
         const simd_t *__restrict__ w1_row_i = scratch.W1.row_ptr(i);
 #ifdef ALIGN
@@ -1325,6 +1326,8 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         }
 
         std::swap(Y0_curr, Y0_next);
+        std::swap(scratch.W0_curr, scratch.W0_next);
+        std::fill(scratch.W0_next.begin(), scratch.W0_next.end(), simd_t(0.0));
     }
 
 #ifdef ALIGN
@@ -1354,8 +1357,8 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     }
 
     for (int i = profile.length; i >= 0; i--) {
-        simd_t *__restrict__ xsfx_row_i = scratch.X_sfx.row_ptr(i);
-        const simd_t *__restrict__ xsfx_row_ip1 = (i + 1 <= profile.length) ? scratch.X_sfx.row_ptr(i + 1) : nullptr;
+        simd_t *__restrict__ xsfx_row_i = scratch.W1.row_ptr(i);
+        const simd_t *__restrict__ xsfx_row_ip1 = (i + 1 <= profile.length) ? scratch.W1.row_ptr(i + 1) : nullptr;
         const simd_t *__restrict__ x_row_i = scratch.X.row_ptr(i);
 
         simd_t opt_right_rolling = simd_t(0.0); // X_sfx(i, j+1) from previous iteration
