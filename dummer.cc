@@ -83,9 +83,8 @@ const int simdLen = simdFltLen;
 using simd_t = Kokkos::Experimental::simd<Float>;
 constexpr auto simdWidth = simd_t::size();
 
-// for now they have to be the same?
 const Float STOP_CODON_PROB = 0.0005;
-const Float BG_STOP_CODON_PROB = 0.0005;
+const Float BG_STOP_CODON_PROB = 0.046875; // 3/64
 
 const Float INSERT1 = 0.0171;
 const Float INSERT2 = 0.0018;
