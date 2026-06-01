@@ -1003,7 +1003,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         }
 
         // log2_sum_exp and mask out-of-bounds lanes
-        simd_t result = log2_sum_exp(t1, t2);
+        simd_t result = log2_sum_exp(t1, log2_sum_exp(t2, t3));
         dp[i] = Kokkos::Experimental::condition(msk_valid, result, simd_neg_inf);
     }
 
@@ -1163,12 +1163,16 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         simd_t bg_codon_emit_probs(bg_raw);
 
         if (j - 3 >= 0) {
-            right_side[j - 3] += (Float)(1 - BACKGROUND_FRAMESHIFT_RATE) * bg_codon_emit_probs *
+            right_side[j - 3] += (Float)(1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) * bg_codon_emit_probs *
                                  distribute3 * right_side[j];
         }
 
         if (j - 1 >= 0) {
             right_side[j - 1] += (Float)(BACKGROUND_FRAMESHIFT_RATE * 0.25) * distribute1 * right_side[j];
+        }
+
+        if (j - 2 >= 0) {
+            right_side[j - 2] += (Float)(BACKGROUND_FRAMESHIFT_RATE_2 * 0.0625) * distribute2 * right_side[j];
         }
 
         right_side[j] *= one[j]; // TODO: this one specifically (might be off by 1 idk)
@@ -1332,7 +1336,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         simd_t bg_codon_emit_probs(bg_raw);
 
         if (j + 3 < maxSequenceLength) {
-            left_side[j + 3] += (Float)(1 - BACKGROUND_FRAMESHIFT_RATE) * bg_codon_emit_probs * distribute3 * left_side[j];
+            left_side[j + 3] += (Float)(1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) * bg_codon_emit_probs * distribute3 * left_side[j];
         }
 
         if (j + 1 < maxSequenceLength) {
