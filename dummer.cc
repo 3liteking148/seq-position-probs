@@ -1747,6 +1747,7 @@ public:
         h.add(BACKGROUND_FRAMESHIFT_RATE_2);
         h.add(STOP_CODON_PROB);
         h.add(BG_STOP_CODON_PROB);
+        h.add(TANTAN_MASK_THRESHOLD);
 
         return h.to_string();
     }
@@ -2131,7 +2132,7 @@ double myMean(const Float *values, int length, int step, int meanType, Float *va
     double mean = 0;
     int n = 0;
     for (int i = 0; i < length; ++i) {
-        if (tantanProbs[i] >= 0.5)
+        if (tantanProbs[i] >= TANTAN_MASK_THRESHOLD)
             continue;
         double v = values[i * step];
         // Geometric mean is bad for zero (or very low) probabilities
@@ -2306,7 +2307,7 @@ int finalizeProfile(Profile &p, char *consensusSequence, int backgroundProbsType
         probs[3] = epsilon;
         for (int k = 4; k < 4 + alphabetSize; ++k) {
             assert(alphabet[k - 4] != '*');
-            if (tantanProbs[i] >= 0.5) {
+            if (tantanProbs[i] >= TANTAN_MASK_THRESHOLD) {
                 probs[k] = end[k];
             } else {
                 double p = probs[k];
@@ -2321,7 +2322,7 @@ int finalizeProfile(Profile &p, char *consensusSequence, int backgroundProbsType
         probs[4 + alphabetSize + 2] = 1.0 / 64.0; // for masked sequence letters
         probs[4 + alphabetSize + 3] = STOP_CODON_PROB / 3.0;
         probs[4 + alphabetSize + 4] = 0.0; // zero_idx padding
-        if (tantanProbs[i] >= 0.5)
+        if (tantanProbs[i] >= TANTAN_MASK_THRESHOLD)
             consensusSequence[i] |= 32;
     }
 
