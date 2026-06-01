@@ -92,7 +92,10 @@ const Float INSERT2 = 0.0018;
 const Float DELETE1 = 0.0328;
 const Float DELETE2 = 0.0083;
 
-const Float BACKGROUND_FRAMESHIFT_RATE = INSERT1 + INSERT2 / 2 + DELETE1 + DELETE2 / 2;
+const Float BACKGROUND_FRAMESHIFT_RATE = INSERT1 + DELETE2;
+const Float BACKGROUND_FRAMESHIFT_RATE_2 = INSERT2 + DELETE1;
+
+#define TANTAN_MASK_THRESHOLD 0.5
 
 int simdRoundUp(int x) { // lowest multiple of simdLen that is >= x
     return x - 1 - (x - 1) % simdLen + simdLen;
@@ -861,7 +864,14 @@ Float log2_sum_exp(Float a, Float b) {
 
 inline simd_t log2_sum_exp(simd_t a, simd_t b) {
     simd_t m = Kokkos::max(a, b);
-    simd_t x = Kokkos::abs(a - b);
+    // When both a and b are -inf, a - b = NaN. Clamp to avoid NaN propagation:
+    // min(abs(NaN), huge) would still be NaN, so use the fact that
+    // m is -inf in that case and -inf + anything finite = -inf.
+    simd_t diff = a - b;
+    // Replace NaN lanes (from -inf - -inf) with 0: exp2(-0) = 1, harmless.
+    // NaN comparison: NaN == NaN is false, so (diff == diff) is false for NaN lanes.
+    Kokkos::Experimental::simd_mask<Float> valid = (diff == diff); // false for NaN
+    simd_t x = Kokkos::Experimental::condition(valid, Kokkos::abs(diff), simd_t(0));
 
     return m + Kokkos::log2(simd_t(1.0) + Kokkos::exp2(-x));
 }
@@ -932,26 +942,31 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         simd_t bg_codon_emit_probs(bg_raw);
 
         Kokkos::Experimental::simd_mask<Float> msk = i + 2 < realSeqLen;
-        Kokkos::Experimental::simd_mask<Float> msk2 = i < realSeqLen;
-        simd_t full_codon = (Float)log2(1 - BACKGROUND_FRAMESHIFT_RATE) + bg_codon_emit_probs + dp_r[i + 3];
-        simd_t partial_codon = (Float)log2(1 - BACKGROUND_FRAMESHIFT_RATE) + (Float)log2(0.25) * (realSeqLen - (Float)i);
+        Kokkos::Experimental::simd_mask<Float> msk_fs2 = i + 1 < realSeqLen;
+        Kokkos::Experimental::simd_mask<Float> msk_fs1 = i < realSeqLen;
+        simd_t full_codon = (Float)log2(1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) + bg_codon_emit_probs + dp_r[i + 3];
+        simd_t partial_codon = (Float)log2(1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) + (Float)log2(0.25) * (realSeqLen - (Float)i);
         simd_t t1 = Kokkos::Experimental::condition(msk, full_codon, partial_codon);
 
-        simd_t fs = (Float)log2(BACKGROUND_FRAMESHIFT_RATE * 0.25) + dp_r[i + 1];
+        simd_t fs1 = (Float)log2(BACKGROUND_FRAMESHIFT_RATE * 0.25) + dp_r[i + 1];
+        simd_t fs2 = (Float)log2(BACKGROUND_FRAMESHIFT_RATE_2 * 0.0625) + dp_r[i + 2];
         simd_t neg_inf_vec((Float)-INFINITY);
-        simd_t t2 = Kokkos::Experimental::condition(msk2, fs, neg_inf_vec);
+        simd_t t_fs1 = Kokkos::Experimental::condition(msk_fs1, fs1, neg_inf_vec);
+        simd_t t_fs2 = Kokkos::Experimental::condition(msk_fs2, fs2, neg_inf_vec);
 
-        dp_r[i] = log2_sum_exp(t1, t2);
+        dp_r[i] = log2_sum_exp(t1, log2_sum_exp(t_fs1, t_fs2));
     }
 
 
     dp[maxSequenceLength] = 0;
     const Float *log2_bg_probs_ptr = profile.log2_bg_probs.data() + 4;
-    const Float log2_1_bg_fs = log2(1 - BACKGROUND_FRAMESHIFT_RATE);
+    const Float log2_1_bg_fs = log2(1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2);
     const Float log2_bg_fs_025 = log2(BACKGROUND_FRAMESHIFT_RATE * 0.25);
+    const Float log2_bg_fs2_00625 = log2(BACKGROUND_FRAMESHIFT_RATE_2 * 0.0625);
     const Float log2_025 = log2(0.25);
     const simd_t simd_log2_1_bg_fs(log2_1_bg_fs);
     const simd_t simd_log2_bg_fs_025(log2_bg_fs_025);
+    const simd_t simd_log2_bg_fs2_00625(log2_bg_fs2_00625);
     const simd_t simd_log2_025(log2_025);
     const simd_t simd_neg_inf(-INFINITY);
 
@@ -974,8 +989,18 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             t1 = simd_log2_1_bg_fs + simd_log2_025 * (Float)(i + 1);
         }
 
-        // t2: frameshift branch
+        // t2: 1-bp frameshift branch
         simd_t t2 = simd_log2_bg_fs_025 + (i > 0 ? dp[i - 1] : simd_t(0));
+
+        // t3: 2-bp frameshift branch
+        simd_t t3;
+        if (i >= 2) {
+            t3 = simd_log2_bg_fs2_00625 + dp[i - 2];
+        } else if (i == 1) {
+            t3 = simd_log2_bg_fs2_00625 + simd_t(0);
+        } else {
+            t3 = simd_neg_inf;
+        }
 
         // log2_sum_exp and mask out-of-bounds lanes
         simd_t result = log2_sum_exp(t1, t2);
@@ -1312,6 +1337,10 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
         if (j + 1 < maxSequenceLength) {
             left_side[j + 1] += (Float)(BACKGROUND_FRAMESHIFT_RATE * 0.25) * distribute1 * left_side[j];
+        }
+
+        if (j + 2 < maxSequenceLength) {
+            left_side[j + 2] += (Float)(BACKGROUND_FRAMESHIFT_RATE_2 * 0.0625) * distribute2 * left_side[j];
         }
 
         left_side[j] *= one_sfx[j];
@@ -1712,6 +1741,7 @@ public:
         h.add(DELETE1);
         h.add(DELETE2);
         h.add(BACKGROUND_FRAMESHIFT_RATE);
+        h.add(BACKGROUND_FRAMESHIFT_RATE_2);
         h.add(STOP_CODON_PROB);
         h.add(BG_STOP_CODON_PROB);
 
@@ -1911,7 +1941,6 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
                     char *seqBuf = localSeqs[lane].data();
 
 #ifdef ESTIMATOR_USE_RANDOM_CODONS
-                    std::bernoulli_distribution frameshiftDist(BACKGROUND_FRAMESHIFT_RATE);
                     const char bases[] = {'A', 'C', 'G', 'T'};
                     std::uniform_int_distribution<int> distDNA(0, 3);
                     std::uniform_int_distribution<int> distOffset(0, 2);
@@ -1921,10 +1950,21 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
                         seqBuf[j] = charToNumber[bases[distDNA(trialRandGen)]];
                     }
                     for (int j = offset; j <= sequenceLength; j += 3) {
-                        bool shouldFS = frameshiftDist(trialRandGen);
-                        if (shouldFS) {
-                            seqBuf[j] = charToNumber[bases[distDNA(trialRandGen)]];
+                        double r = std::generate_canonical<double, 10>(trialRandGen);
+                        if (r < BACKGROUND_FRAMESHIFT_RATE) {
+                            if (j <= sequenceLength) {
+                                seqBuf[j] = charToNumber[bases[distDNA(trialRandGen)]];
+                            }
                             j -= 2;
+                            continue;
+                        } else if (r < BACKGROUND_FRAMESHIFT_RATE + BACKGROUND_FRAMESHIFT_RATE_2) {
+                            if (j <= sequenceLength) {
+                                seqBuf[j] = charToNumber[bases[distDNA(trialRandGen)]];
+                            }
+                            if (j + 1 <= sequenceLength) {
+                                seqBuf[j + 1] = charToNumber[bases[distDNA(trialRandGen)]];
+                            }
+                            j -= 1;
                             continue;
                         }
                         int x = dist(trialRandGen);
