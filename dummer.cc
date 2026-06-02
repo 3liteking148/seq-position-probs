@@ -22,6 +22,8 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <condition_variable>
+#include <functional>
 
 #include <assert.h>
 #include <ctype.h>
@@ -99,6 +101,53 @@ const Float BACKGROUND_FRAMESHIFT_RATE_2 = INSERT2 + DELETE1;
 int simdRoundUp(int x) { // lowest multiple of simdLen that is >= x
     return x - 1 - (x - 1) % simdLen + simdLen;
 }
+
+class ThreadPool {
+public:
+    ThreadPool(size_t numThreads) {
+        for (size_t i = 0; i < numThreads; ++i) {
+            workers.emplace_back([this, i] {
+                while (true) {
+                    std::function<void(int)> task;
+                    {
+                        std::unique_lock<std::mutex> lock(this->queue_mutex);
+                        this->condition.wait(lock, [this] { return this->stop || !this->tasks.empty(); });
+                        if (this->stop && this->tasks.empty())
+                            return;
+                        task = std::move(this->tasks.front());
+                        this->tasks.pop();
+                    }
+                    task(i);
+                }
+            });
+        }
+    }
+
+    void enqueue(std::function<void(int)> task) {
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex);
+            tasks.push(std::move(task));
+        }
+        condition.notify_one();
+    }
+
+    ~ThreadPool() {
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex);
+            stop = true;
+        }
+        condition.notify_all();
+        for (std::thread &worker : workers)
+            worker.join();
+    }
+
+private:
+    std::vector<std::thread> workers;
+    std::queue<std::function<void(int)>> tasks;
+    std::mutex queue_mutex;
+    std::condition_variable condition;
+    bool stop = false;
+};
 
 Float simdHorizontalMax(SimdFloat x) { // assuming it doesn't need to be fast
     Float y[simdLen];
@@ -1474,7 +1523,7 @@ void findFinalSimilarities(std::vector<FinalSimilarity> &similarities, std::arra
 void findFinalSimilaritiesBatched(std::vector<FinalSimilarity> &similarities,
                                   std::vector<std::vector<SequenceRequest>> &allRequests,
                                   const std::vector<Profile> &profiles, const char *charVec,
-                                  DPScratch &/*scratch*/, int numThreads) {
+                                  ThreadPool &threadPool, std::vector<DPScratch> &threadScratches) {
     for (size_t i = 0; i < profiles.size(); ++i) {
         std::sort(allRequests[i].begin(), allRequests[i].end(), std::greater<>());
     }
@@ -1497,19 +1546,14 @@ void findFinalSimilaritiesBatched(std::vector<FinalSimilarity> &similarities,
 
     if (jobs.empty()) return;
 
-    std::atomic<size_t> nextJobIdx(0);
     std::vector<std::vector<FinalSimilarity>> jobSimilarities(jobs.size());
+    std::atomic<size_t> completedJobs(0);
+    std::mutex mtx;
+    std::condition_variable cv;
 
-    auto worker = [&]() {
-        // Each thread gets its own reusable DPScratch
-        DPScratch threadScratch;
-
-        while (true) {
-            size_t jobIdx = nextJobIdx.fetch_add(1, std::memory_order_relaxed);
-            if (jobIdx >= jobs.size()) {
-                break;
-            }
-
+    for (size_t jobIdx = 0; jobIdx < jobs.size(); ++jobIdx) {
+        threadPool.enqueue([&, jobIdx](int threadId) {
+            DPScratch &threadScratch = threadScratches[threadId];
             const auto &job = jobs[jobIdx];
             std::array<SequenceRequest, simdWidth> curBatch;
             const auto &requests = allRequests[job.profileIdx];
@@ -1520,16 +1564,17 @@ void findFinalSimilaritiesBatched(std::vector<FinalSimilarity> &similarities,
             findFinalSimilarities(jobSimilarities[jobIdx], curBatch,
                                   profiles[job.profileIdx], job.profileIdx,
                                   charVec, threadScratch, job.activeCount);
-        }
-    };
 
-    std::vector<std::thread> threads;
-    threads.reserve(numThreads);
-    for (unsigned int i = 0; i < numThreads; ++i) {
-        threads.emplace_back(worker);
+            if (++completedJobs == jobs.size()) {
+                std::lock_guard<std::mutex> lock(mtx);
+                cv.notify_one();
+            }
+        });
     }
-    for (auto &t : threads) {
-        t.join();
+
+    if (!jobs.empty()) {
+        std::unique_lock<std::mutex> lock(mtx);
+        cv.wait(lock, [&]{ return completedJobs == jobs.size(); });
     }
 
     size_t totalSimilarities = 0;
@@ -1857,7 +1902,7 @@ public:
 } cache;
 
 void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int sequenceLength,
-               int border, int numOfSequences, int printVerbosity, DPScratch &/*scratch*/, int numThreads) {
+               int border, int numOfSequences, int printVerbosity, ThreadPool &threadPool, std::vector<DPScratch> &threadScratches) {
     Float estimateK_lambdas = 0;
     Float estimateK_n = 0;
 
@@ -1911,27 +1956,21 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
         setCharToNumber(charToNumber, alphabet);
 
         int numBatches = (numOfSequences + simdWidth - 1) / simdWidth;
-        if (numBatches < static_cast<int>(numThreads)) {
-            numThreads = numBatches;
-        }
-
-        std::atomic<int> nextBatchIdx(0);
-
-        auto worker = [&](int /*threadId*/) {
-            // Reusable scratch memory per thread
-            DPScratch threadScratch;
-
-            // Local sequence buffers per SIMD lane to avoid data races
-            std::array<std::vector<char>, simdWidth> localSeqs;
+        std::vector<std::array<std::vector<char>, simdWidth>> threadLocalSeqs(threadScratches.size());
+        for (auto &localSeqs : threadLocalSeqs) {
             for (int lane = 0; lane < simdWidth; ++lane) {
                 localSeqs[lane].resize(sequenceLength + border + 16);
             }
+        }
 
-            while (true) {
-                int batchIdx = nextBatchIdx.fetch_add(1, std::memory_order_relaxed);
-                if (batchIdx >= numBatches) {
-                    break;
-                }
+        std::atomic<int> completedBatches(0);
+        std::mutex mtx;
+        std::condition_variable cv;
+
+        for (int batchIdx = 0; batchIdx < numBatches; ++batchIdx) {
+            threadPool.enqueue([&, batchIdx](int threadId) {
+                DPScratch &threadScratch = threadScratches[threadId];
+                auto &localSeqs = threadLocalSeqs[threadId];
 
                 int start = batchIdx * simdWidth;
                 int activeCount = std::min(static_cast<int>(simdWidth), numOfSequences - start);
@@ -2016,17 +2055,17 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
                                   << log2(sims[2].probRatio) + shift << std::endl;
                     }
                 }
-            }
-        };
 
-        std::vector<std::thread> threads;
-        threads.reserve(numThreads);
-        for (unsigned int i = 0; i < numThreads; ++i) {
-            threads.emplace_back(worker, i);
+                if (++completedBatches == numBatches) {
+                    std::lock_guard<std::mutex> lock(mtx);
+                    cv.notify_one();
+                }
+            });
         }
 
-        for (auto &t : threads) {
-            t.join();
+        if (numBatches > 0) {
+            std::unique_lock<std::mutex> lock(mtx);
+            cv.wait(lock, [&]{ return completedBatches == numBatches; });
         }
 
 
@@ -2691,7 +2730,8 @@ Options for background letter probabilities:\n\
 
     int printVerbosity = (argc - optind < 2) * 2 + (evalueOpt <= 0);
 
-    DPScratch scratch;
+    ThreadPool threadPool(numThreadsOpt);
+    std::vector<DPScratch> threadScratches(numThreadsOpt);
 
     for (auto &p : profiles) {
         std::cout << "\n";
@@ -2715,7 +2755,7 @@ Options for background letter probabilities:\n\
 
 #ifdef EVALUE
 #ifdef ESTIMATOR_USE_RANDOM_CODONS
-        estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen, border, randomSeqNum, printVerbosity, scratch, numThreadsOpt);
+        estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen, border, randomSeqNum, printVerbosity, threadPool, threadScratches);
 #else
         NucDist dist = *reinterpret_cast<NucDist *>(p.debug);
         Float bgProbsDNA[256] = {0};
@@ -2724,7 +2764,7 @@ Options for background letter probabilities:\n\
         bgProbsDNA[charToNumber['G']] = dist.overall['G'];
         bgProbsDNA[charToNumber['T']] = dist.overall['T'];
         estimateK(p, bgProbsDNA, &charVec[seqIdx], randomSeqLen, border, randomSeqNum,
-                  printVerbosity, scratch, numThreadsOpt);
+                  printVerbosity, threadPool, threadScratches);
 #endif
 #endif
     }
@@ -2817,7 +2857,7 @@ Options for background letter probabilities:\n\
         charVec.resize(seqIdx);
     }
 
-    findFinalSimilaritiesBatched(similarities, allRequests, profiles, charVec.data(), scratch, numThreadsOpt);
+    findFinalSimilaritiesBatched(similarities, allRequests, profiles, charVec.data(), threadPool, threadScratches);
 
     std::cout << "# Total sequence length: " << totSequenceLength << "\n";
 
