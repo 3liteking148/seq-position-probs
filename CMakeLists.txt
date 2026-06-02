@@ -41,9 +41,3 @@ target_include_directories(dummerl PRIVATE "${CMAKE_SOURCE_DIR}/include")
 target_link_libraries(dummerl Kokkos::kokkos)
 
 add_executable(dummer-build dummer-build.cc dummer-util.hh version.hh priors/gap-priors.hh priors/wheeler4.hh priors/blocks9.hh)
-
-set_target_properties(dummer dummerl dummer-build simd_hello PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/bin"
-)
-add_executable(test_vectorization test_vectorization.cc)
-target_link_libraries(test_vectorization Kokkos::kokkos)
