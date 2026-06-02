@@ -3,6 +3,7 @@ import sys
 import os
 import subprocess
 import tempfile
+import argparse
 import pybedtools
 
 COMPLEMENT_TABLE = str.maketrans("ATCGatcgNn", "TAGCtagcNn")
@@ -68,19 +69,28 @@ def six_frame_translate(input_fasta, output_fasta):
             process_seq(header, seq)
 
 def main():
-    usage = (
-        "Usage: python3 run_pipeline.py <hmm_file> <msa_file> <fa_file> <cpus>\n"
-        "Example: python3 run_pipeline.py profile.hmm msa.msa genome.fa 8"
+    parser = argparse.ArgumentParser(
+        description="Pipeline2: HMM-guided genomic search via MMseqs2 + dummer",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Examples:\n"
+               "  python3 pipeline2.py profile.hmm msa.msa genome.fa 8\n"
+               "  python3 pipeline2.py profile.hmm msa.msa genome.fa 8 --target-db-pad /path/to/targetDB_pad --query-db /path/to/queryDB\n"
     )
+    parser.add_argument("hmm_file", help="HMM profile file")
+    parser.add_argument("msa_file", help="MSA file (.msa for Stockholm, otherwise used as-is for query DB). Ignored when --query-db is provided.")
+    parser.add_argument("fa_file", help="Genome FASTA file")
+    parser.add_argument("cpus", help="Number of CPUs")
+    parser.add_argument("--target-db-pad", dest="target_db_pad", default=None,
+                        help="Path to an existing padded target DB (skips createdb + makepaddedseqdb)")
+    parser.add_argument("--query-db", dest="query_db", default=None,
+                        help="Path to an existing query profile DB (skips convertmsa + msa2profile)")
 
-    if len(sys.argv) != 5:
-        print(usage)
-        sys.exit(1)
+    args = parser.parse_args()
 
-    hmm_file = sys.argv[1]
-    msa_file = sys.argv[2]
-    fa_file = sys.argv[3]
-    cpus = sys.argv[4]
+    hmm_file = args.hmm_file
+    msa_file = args.msa_file
+    fa_file = args.fa_file
+    cpus = args.cpus
 
     script_dir = os.path.dirname(os.path.realpath(__file__))
     dummer_exec = os.path.join(script_dir, "dummer")
@@ -88,7 +98,6 @@ def main():
     # ---------------------------------------------------------
     # 1. Parse sequences and HMMs
     # ---------------------------------------------------------
-    print("Parsing sequences and HMMs")
     hmm_lens = {}
     with open(hmm_file, 'r') as f:
         curr_acc, curr_name = None, None
@@ -114,56 +123,66 @@ def main():
             elif curr_id:
                 dna_lens[curr_id] += len("".join(line.split()))
 
-    with tempfile.TemporaryDirectory(prefix="mmseqs_tmp_", delete=False) as tmpdir:
-        print(f"Temporary directory is: {tmpdir}")
-
-        print("Generating 6-frame protein translation...")
-        prot_fa_path = os.path.join(tmpdir, "translated_6frame.pfa")
-        six_frame_translate(fa_file, prot_fa_path)
+    with tempfile.TemporaryDirectory(prefix="mmseqs_tmp_", delete=True) as tmpdir:
+        print(f"# Temporary directory is: {tmpdir}")
 
         # ---------------------------------------------------------
         # 3. MMseqs Protein-Protein Search
         # ---------------------------------------------------------
-        print("Setting up MMseqs protein databases...")
         db_dir = os.path.join(tmpdir, "db")
         os.makedirs(db_dir)
 
-        target_db = os.path.join(db_dir, "targetDB")
-        target_db_pad = os.path.join(db_dir, "targetDB_pad")
-        query_db = os.path.join(db_dir, "queryDB")
         ali_file = os.path.join(db_dir, f"result.ali")
         tmp_file = os.path.join(db_dir, f"tmp")
 
-        subprocess.run(["mmseqs", "createdb", prot_fa_path, target_db], check=True, stdout=subprocess.DEVNULL)
-        subprocess.run(["mmseqs", "makepaddedseqdb", target_db, target_db_pad], check=True, stdout=subprocess.DEVNULL)
+        if args.target_db_pad:
+            target_db_pad = args.target_db_pad
+            print(f"# Using existing target_db_pad: {target_db_pad}")
+        else:
+            prot_fa_path = os.path.join(tmpdir, "translated_6frame.pfa")
+            six_frame_translate(fa_file, prot_fa_path)
 
-        if True: # if original msa file
+            target_db = os.path.join(db_dir, "targetDB")
+            target_db_pad = os.path.join(db_dir, "targetDB_pad")
+            subprocess.run(["mmseqs", "createdb", prot_fa_path, target_db], check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(["mmseqs", "makepaddedseqdb", target_db, target_db_pad], check=True, stdout=subprocess.DEVNULL)
+
+        if args.query_db:
+            query_db = args.query_db
+            print(f"# Using existing query_db: {query_db}")
+        else:
+            query_db = os.path.join(db_dir, "queryDB")
             msa_db = os.path.join(db_dir, "msa_db")
             subprocess.run(["mmseqs", "convertmsa", msa_file, msa_db, "--identifier-field", "0"], check=True, stdout=subprocess.DEVNULL)
             subprocess.run(["mmseqs", "msa2profile", msa_db, query_db], check=True, stdout=subprocess.DEVNULL)
-        else:
-            # TODO
-            pass
 
-        print(f"Running MMseqs-GPU")
         mmseqs_cmd = [
             "mmseqs", "search", query_db, target_db_pad, ali_file, tmpdir,
-            "--max-seqs", "100000", 
-            "-e", "1000",
             "--gpu", "1",
-            "--spaced-kmer-mode", "1",
-            "--prefilter-mode", "1",
-            "--alignment-mode", "1", # Pure GPU scoring mode (TODO: check if placebo or real)
-            "--k-score", "60" # from nail but lower
+            "--threads", cpus,
+            #"-e", "10000",
+            "-e", "1000",
+            "--prefilter-mode", "3",
+            "--min-ungapped-score", "0",
+            #"--num-iterations", "3",
+            "--alignment-mode", "1",
         ]
-        subprocess.run(mmseqs_cmd, check=True, stdout=subprocess.DEVNULL)
+
+        # mmseqs_cmd = [
+        #     "mmseqs", "search", query_db, target_db_pad, ali_file, tmpdir,
+        #     "--threads", cpus,
+        #     #"-e", "10000",
+        #     "-e", "10000",
+        #     "-s", "10.5",
+        #     "--alignment-mode", "1",
+        # ]
+
+        subprocess.run(mmseqs_cmd, check=True)
         subprocess.run(["mmseqs", "convertalis", query_db, target_db_pad, ali_file, tmp_file], check=True, stdout=subprocess.DEVNULL)
 
         # ---------------------------------------------------------
         # 4. Map Amino Acid Hits -> Genomic DNA Windows
         # ---------------------------------------------------------
-        print("Merging overlapping alignment windows...")
-
         # todo: double check ts
         def parse_mmseqs_to_intervals(filepath):
             for line in open(filepath):
@@ -180,7 +199,7 @@ def main():
                 t_end = int(fields[9])
                 hmm_len = hmm_lens.get(query_acc, 0)
                 p_pos = max(1, t_end - (hmm_len // 2))
-
+                e_value = fields[10]
                 bitscore = fields[11]
                 
                 *target_parts, strand_frame = target_full.rsplit('_', 1)
@@ -190,7 +209,7 @@ def main():
                 L = dna_lens.get(target_base, 0)
                 if L == 0: 
                     continue
-                pad = 3 * hmm_lens.get(query_acc, 0)
+                pad = 2 * hmm_lens.get(query_acc, 0)
 
                 base_pos = (frame - 1) + 3 * (p_pos - 1)
 
@@ -217,7 +236,6 @@ def main():
         # ---------------------------------------------------------
         # 5. Extract Final Genomic FASTA (Bedtools)
         # ---------------------------------------------------------
-        print("Extracting final padded genomic sequences...")
         merged_bed_path = os.path.join(tmpdir, "merged.bed")
         merged_bed.saveas(merged_bed_path)
         
@@ -245,13 +263,11 @@ def main():
         # ---------------------------------------------------------
         # 6. Run Dummer
         # ---------------------------------------------------------
-        print("Executing dummer analysis...")
         custom_env = os.environ.copy()
         #custom_env["ASAN_OPTIONS"] = "detect_container_overflow=1:strict_memcmp=1"
         
         try:
-            subprocess.run(["time", dummer_exec, hmm_file, merged_fa_path], env=custom_env, check=True)
-            print("Pipeline completed successfully.")
+            subprocess.run([dummer_exec, hmm_file, merged_fa_path, '-T 4'], env=custom_env, check=True)
         except subprocess.CalledProcessError as e:
             print(f"Error: dummer encountered an issue (Exit status: {e.returncode})")
             sys.exit(1)
