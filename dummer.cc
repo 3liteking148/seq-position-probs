@@ -55,7 +55,7 @@
 #define OPT_t 1000
 #define OPT_l 5000
 #define OPT_b 100
-#define OPT_x 100 // 0 to enable greedy mode
+#define OPT_x 0 // 0 to enable full DP mode
 
 #define EVALUE
 #define ALIGN
@@ -528,81 +528,126 @@ std::pair<T, U> operator+(const std::pair<T, U> &a, const std::pair<T, U> &b) {
 
 using DP_Cell = Float;
 
-template <typename T, bool Rolling = false> class FlatMatrix {
+const size_t PADDING_SIZE = simdWidth + 32 /* block size */ + 3;
+const size_t PADDING_SIZE = simdWidth + 32 /* block size */ + 3;
+
+template <typename T>
+class DiagonalMatrix {
 public:
     std::vector<T> data;
-    size_t cols;
-    size_t logical_rows;
+    std::vector<std::size_t> diag_offsets;
+    std::size_t rows;
+    std::size_t cols;
+    std::size_t pad;
 
 public:
-    FlatMatrix() : cols(0), logical_rows(0) {}
+    explicit DiagonalMatrix() : rows(0), cols(0), pad(PADDING_SIZE) {}
 
-    void resize(size_t r, size_t c, T init = T()) {
-        logical_rows = r;
-        cols = c;
-        if constexpr (Rolling) {
-            data.resize(2 * c);
+    void resize(std::size_t r, std::size_t c) {
+        // Pad the rows to absorb block overshoot.
+        // Pad the cols by 2x to safely absorb negative 'j' indices AND forward block overshoot.
+        rows = r + pad;
+        cols = c + (2 * pad);
+
+        if (r == 0 || c == 0) {
+            data.clear();
+            diag_offsets.clear();
+            return;
+        }
+
+        std::size_t width = cols;
+        std::size_t num_diags = rows + width - 1;
+        diag_offsets.resize(num_diags + 1, 0);
+
+        std::size_t offset = 0;
+        for (std::size_t d = 0; d < num_diags; ++d) {
+            diag_offsets[d] = offset;
+
+            std::ptrdiff_t d_signed = static_cast<std::ptrdiff_t>(d);
+            std::ptrdiff_t W_signed = static_cast<std::ptrdiff_t>(width);
+            std::ptrdiff_t r_signed = static_cast<std::ptrdiff_t>(rows);
+
+            std::ptrdiff_t min_i = std::max<std::ptrdiff_t>(0, d_signed - W_signed + 1);
+            std::ptrdiff_t max_i = std::min<std::ptrdiff_t>(r_signed - 1, d_signed);
+
+            std::size_t diag_length = static_cast<std::size_t>(max_i - min_i + 1);
+            offset += diag_length;
+        }
+
+        diag_offsets[num_diags] = offset;
+        data.assign(offset, T{});
+    }
+
+    inline T& operator()(std::ptrdiff_t i, std::ptrdiff_t j) {
+        return data[get_internal_index(i, j)];
+    }
+
+    inline const T& operator()(std::ptrdiff_t i, std::ptrdiff_t j) const {
+        return data[get_internal_index(i, j)];
+    }
+
+    inline T* data_ptr_diag_i(std::ptrdiff_t d, std::ptrdiff_t i) {
+        return &data[get_internal_index_diag_i(d, i)];
+    }
+
+    inline const T* data_ptr_diag_i(std::ptrdiff_t d, std::ptrdiff_t i) const {
+        return &data[get_internal_index_diag_i(d, i)];
+    }
+
+    inline void safe_copy_to(std::ptrdiff_t d, std::ptrdiff_t i_start, std::size_t requested_count, T* dest) const {
+        std::ptrdiff_t d_shifted = d + static_cast<std::ptrdiff_t>(pad);
+        std::ptrdiff_t max_i = std::min(static_cast<std::ptrdiff_t>(rows) - 1, d_shifted);
+        std::ptrdiff_t avail = max_i - i_start + 1;
+
+        if (avail <= 0) {
+            std::fill_n(dest, requested_count, T{0});
         } else {
-            data.resize(r * c);
+            std::size_t to_copy = std::min(requested_count, static_cast<std::size_t>(avail));
+            std::copy_n(data_ptr_diag_i(d, i_start), to_copy, dest);
+            if (to_copy < requested_count) {
+                std::fill_n(dest + to_copy, requested_count - to_copy, T{0});
+            }
         }
     }
 
-    void assign(size_t r, size_t c, T init = T()) {
-        logical_rows = r;
-        cols = c;
-        if constexpr (Rolling) {
-            data.assign(2 * c, init);
-        } else {
-            data.assign(r * c, init);
-        }
+private:
+    inline std::size_t get_internal_index(std::ptrdiff_t i, std::ptrdiff_t j) const {
+        std::ptrdiff_t j_shifted = j + static_cast<std::ptrdiff_t>(pad);
+        std::ptrdiff_t d_shifted = i + j_shifted;
+
+        assert(d_shifted >= 0 && static_cast<std::size_t>(d_shifted) < diag_offsets.size() - 1
+               && "Diagonal index out of padded matrix bounds");
+
+        std::ptrdiff_t min_i = std::max<std::ptrdiff_t>(0, d_shifted - static_cast<std::ptrdiff_t>(cols) + 1);
+
+        assert(i >= min_i && "i index underflowed the diagonal bounds (too small)");
+        assert(i < static_cast<std::ptrdiff_t>(rows) && "i index overflowed the padded diagonal bounds (too large)");
+
+        return diag_offsets[static_cast<std::size_t>(d_shifted)] + static_cast<std::size_t>(i - min_i);
     }
 
-    inline T &operator()(size_t i, size_t j) {
-        // assert(0 <= i && i < logical_rows);
-        // assert(0 <= j && j < cols);
-        if constexpr (Rolling) {
-            return data[(i & 1) * cols + j];
-        } else {
-            return data[i * cols + j];
-        }
-    }
+    inline std::size_t get_internal_index_diag_i(std::ptrdiff_t d, std::ptrdiff_t i) const {
+        std::ptrdiff_t d_shifted = d + static_cast<std::ptrdiff_t>(pad);
 
-    inline const T &operator()(size_t i, size_t j) const {
-        if constexpr (Rolling) {
-            return data[(i & 1) * cols + j];
-        } else {
-            return data[i * cols + j];
-        }
-    }
+        assert(d_shifted >= 0 && static_cast<std::size_t>(d_shifted) < diag_offsets.size() - 1
+               && "Diagonal index out of padded matrix bounds");
 
-    // Crucial for DP: clear the current row before calculating it
-    // so data from the "previous-previous" row doesn't pollute your maximums
-    inline void clear_row(size_t i, T init_val = T()) {
-        size_t actual_row = Rolling ? (i & 1) : i;
-        auto row_start = data.begin() + (actual_row * cols);
-        std::fill(row_start, row_start + cols, init_val);
-    }
+        std::ptrdiff_t min_i = std::max<std::ptrdiff_t>(0, d_shifted - static_cast<std::ptrdiff_t>(cols) + 1);
 
-    // Direct row pointer for hot loops — avoids repeated i*cols multiply
-    inline T *row_ptr(size_t i) {
-        if constexpr (Rolling) {
-            return data.data() + (i & 1) * cols;
-        } else {
-            return data.data() + i * cols;
-        }
-    }
-    inline const T *row_ptr(size_t i) const {
-        if constexpr (Rolling) {
-            return data.data() + (i & 1) * cols;
-        } else {
-            return data.data() + i * cols;
-        }
+        assert(i >= min_i && "i index underflowed the diagonal bounds (too small)");
+        assert(i < static_cast<std::ptrdiff_t>(rows) && "i index overflowed the padded diagonal bounds (too large)");
+
+        return diag_offsets[static_cast<std::size_t>(d_shifted)] + static_cast<std::size_t>(i - min_i);
     }
 };
 
+
 struct BlockDPScratch {
-    FlatMatrix<Float> W1, X, X_pfx;
-    FlatMatrix<Float> Y0, Z0_mat, Z1_mat, Z2_mat, W0;
+    DiagonalMatrix<Float> W1, X, X_pfx;
+    DiagonalMatrix<Float> Y0, Z0_mat, W0;
+#ifdef ENABLE_FS_INSERT_EXTENSION
+    DiagonalMatrix<Float> Z1_mat, Z2_mat;
+#endif
 
     std::vector<Float> dp;
     std::vector<Float> dp_r;
@@ -630,8 +675,10 @@ struct BlockDPScratch {
 
         Y0.resize(r, c);
         Z0_mat.resize(r, c);
+#ifdef ENABLE_FS_INSERT_EXTENSION
         Z1_mat.resize(r, c);
         Z2_mat.resize(r, c);
+#endif
         W0.resize(r, c);
 
         constexpr int NEG_PAD = 40; // B + 8
@@ -655,24 +702,6 @@ struct BlockDPScratch {
 };
 
 struct DPScratch {
-    FlatMatrix<simd_t> W1, X;
-    FlatMatrix<simd_t> X_pfx;
-
-    // Reusable temporary buffers for findSimilarities
-    std::vector<simd_t> W0_curr, W0_next;
-    std::vector<simd_t> dp, dp_r;
-    std::vector<simd_t> Y0_next, Y0_curr;
-    std::vector<simd_t> one, one_sfx;
-    std::vector<simd_t> left_side, right_side;
-    std::array<std::vector<AlignedSimilarity>, simdWidth> opt_profile_position;
-    std::array<std::vector<bool>, simdWidth> aligned;
-    std::vector<uint8_t> transposed_decoded;
-    std::vector<simd_t> bg_codon_probs;
-
-    // SIMD anchor tracking — avoids scalar per-lane extraction in forward DP
-    std::vector<simd_t> best_wMid;  // best wMidAnchored per j (SIMD)
-    std::vector<simd_t> best_wEnd;  // corresponding wEndAnchored per j
-    std::vector<simd_t> best_i;     // best profile position i per j (SIMD)
     BlockDPScratch blockScratch;
 };
 
@@ -1036,6 +1065,37 @@ inline void blend_store_simd(Float* ptr, simd_t vec, Kokkos::Experimental::simd_
     for (int k = 0; k < simdWidth; k++) ptr[k] = blended[k];
 }
 
+#ifndef NDEBUG
+#define OFFSET_ARRAY_ASSERT(cond) assert(cond)
+#else
+#define OFFSET_ARRAY_ASSERT(cond) ((void)0)
+#endif
+
+// A reusable wrapper for arrays allowing [-4...D_MAX-1] and [-1...I_MAX-1]
+template<int D_MAX, int I_MAX>
+struct OffsetArray {
+    alignas(64) Float data[D_MAX + 4][I_MAX + 1];
+
+    inline Float* operator[](int d) {
+        OFFSET_ARRAY_ASSERT(-4 <= d && d < D_MAX);
+        return &data[d + 4][1];
+    }
+    inline const Float* operator[](int d) const {
+        OFFSET_ARRAY_ASSERT(-4 <= d && d < D_MAX);
+        return &data[d + 4][1];
+    }
+
+    // SIMD operations
+    inline simd_t load_simd(int d, int i) const {
+        return Kokkos::Experimental::simd_unchecked_load<simd_t>(&(*this)[d][i]);
+    }
+
+    inline void store_simd(int d, int i, simd_t vec, Kokkos::Experimental::simd_mask<Float> mask) {
+        blend_store_simd(&(*this)[d][i], vec, mask);
+    }
+
+};
+
 void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const Profile &profile,
                              const std::vector<uint8_t> &decoded, Float minProbRatio,
                              BlockDPScratch &scratch) {
@@ -1043,6 +1103,7 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
     int alphabetSize = profile.width - nonLetterWidth;
 
     constexpr int NEG_PAD = 40;
+    const int B = 32;
     scratch.resize(profile.length, maxSequenceLength);
 
     // Memory Alignment Fix: Inject the `zero_idx` into the unwritten padding lanes
@@ -1060,6 +1121,7 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
     auto &dp_r = scratch.dp_r;
     dp.assign(maxSequenceLength + 4, 0);
     dp_r.assign(maxSequenceLength + 4, 0);
+
 
     dp_r[maxSequenceLength] = 0;
     for (int i = maxSequenceLength - 1; i >= 0; i--) {
@@ -1137,24 +1199,27 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
     std::fill(scratch.W1.data.begin(), scratch.W1.data.end(), 0.0);
     std::fill(scratch.Y0.data.begin(), scratch.Y0.data.end(), 0.0);
     std::fill(scratch.Z0_mat.data.begin(), scratch.Z0_mat.data.end(), 0.0);
+#ifdef ENABLE_FS_INSERT_EXTENSION
     std::fill(scratch.Z1_mat.data.begin(), scratch.Z1_mat.data.end(), 0.0);
     std::fill(scratch.Z2_mat.data.begin(), scratch.Z2_mat.data.end(), 0.0);
+#endif
 
-    const int B = 32;
     int num_blocks_i = (profile.length + B) / B;
     int num_blocks_j = (maxSequenceLength + B - 1) / B;
 
-    constexpr int MAX_D = 2 * B + 8;
-    constexpr int MAX_I = B + 2;
+    constexpr int MAX_D = 2 * B + 3;
+    constexpr int MAX_I = B + simdWidth;
 
     struct BlockLocalScratch {
-        alignas(64) Float W1[MAX_D][MAX_I];
-        alignas(64) Float Y0[MAX_D][MAX_I];
-        alignas(64) Float Z0[MAX_D][MAX_I];
-        alignas(64) Float Z1[MAX_D][MAX_I];
-        alignas(64) Float Z2[MAX_D][MAX_I];
-        alignas(64) Float W0[MAX_D][MAX_I];
-        alignas(64) Float X[MAX_D][MAX_I];
+        OffsetArray<MAX_D, MAX_I> W1;
+        OffsetArray<MAX_D, MAX_I> Y0;
+        OffsetArray<MAX_D, MAX_I> Z0;
+#ifdef ENABLE_FS_INSERT_EXTENSION
+        OffsetArray<MAX_D, MAX_I> Z1;
+        OffsetArray<MAX_D, MAX_I> Z2;
+#endif
+        OffsetArray<MAX_D, MAX_I> W0;
+        OffsetArray<MAX_D, MAX_I> X;
     };
 
     BlockLocalScratch local = {};
@@ -1164,27 +1229,24 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
         for (int block_j = num_blocks_j - 1; block_j >= 0; block_j--) {
             memset(&local, 0, sizeof(local));
 
-            for (int i_local = -1; i_local <= B; i_local++) {
-                for (int j_local = -3; j_local <= B + 2; j_local++) {
-                    int local_I = i_local + 1;
-                    int J = j_local + 3;
-                    int local_D = local_I + J;
-                    int i = block_i * B + i_local;
-                    int j = block_j * B + j_local;
-                    if (i >= 0 && i <= profile.length && j >= 0 && j < maxSequenceLength) {
-                        local.W1[local_D][local_I] = scratch.W1(i, j);
-                        local.Y0[local_D][local_I] = scratch.Y0(i, j);
-                        local.Z0[local_D][local_I] = scratch.Z0_mat(i, j);
-                        local.Z1[local_D][local_I] = scratch.Z1_mat(i, j);
-                        local.Z2[local_D][local_I] = scratch.Z2_mat(i, j);
-                    } else {
-                        local.W1[local_D][local_I] = 0;
-                        local.Y0[local_D][local_I] = 0;
-                        local.Z0[local_D][local_I] = 0;
-                        local.Z1[local_D][local_I] = 0;
-                        local.Z2[local_D][local_I] = 0;
-                    }
-                }
+            int max_local_D = 2 * B + 2;
+            for (int local_D = 0; local_D <= max_local_D; local_D++) {
+                // The backward pass dependencies read columns from local_I - 1 to local_I + 1,
+                // where the cell's local_I ranges from min_i to max_i of the dependent diagonal.
+                // The union of required columns is min_dep_i to max_dep_i:
+                int min_dep_i = std::max(0, local_D - B - 2);
+                int max_dep_i = std::min(local_D, B);
+                int count = max_dep_i - min_dep_i + 1;
+                int global_d = (block_i * B) + (block_j * B) + local_D;
+                int global_i_start = block_i * B + min_dep_i;
+
+                scratch.W1.safe_copy_to(global_d, global_i_start, count, &local.W1[local_D][min_dep_i]);
+                scratch.Y0.safe_copy_to(global_d, global_i_start, count, &local.Y0[local_D][min_dep_i]);
+                scratch.Z0_mat.safe_copy_to(global_d, global_i_start, count, &local.Z0[local_D][min_dep_i]);
+#ifdef ENABLE_FS_INSERT_EXTENSION
+                scratch.Z1_mat.safe_copy_to(global_d, global_i_start, count, &local.Z1[local_D][min_dep_i]);
+                scratch.Z2_mat.safe_copy_to(global_d, global_i_start, count, &local.Z2[local_D][min_dep_i]);
+#endif
             }
 
             for (int local_diagonal = 2 * B - 2; local_diagonal >= 0; local_diagonal--) {
@@ -1192,8 +1254,8 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
                 int max_i = std::min(local_diagonal, B - 1);
 
                 for (int i_local = min_i; i_local <= max_i; i_local += simdWidth) {
-                    int local_I = i_local + 1;
-                    int local_D = local_diagonal + 4;
+                    int local_I = i_local;
+                    int local_D = local_diagonal;
 
                     simd_t is_valid = gather_simd([&](int k) -> Float {
                         return (i_local + k > max_i) ? 0.0 : 1.0;
@@ -1226,7 +1288,6 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
 
                     simd_t bg_codon_emit_probs = gather_simd([&](int k) {
                         int j = block_j * B + (local_diagonal - (i_local + k));
-                        // Memory Offset Fix: No + 4 offset
                         return bg_codon_probs_ptr[j + 1];
                     });
 
@@ -1236,16 +1297,16 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
                     });
 
                     // LOAD MEMORY
-                    simd_t w1_i1_j3 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.W1[local_D + 4][local_I + 1]);
-                    simd_t y0_i1_j  = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.Y0[local_D + 1][local_I + 1]);
+                    simd_t w1_i1_j3 = local.W1.load_simd(local_D + 4, local_I + 1);
+                    simd_t y0_i1_j  = local.Y0.load_simd(local_D + 1, local_I + 1);
 #ifdef ENABLE_FS_DELETE_STATES
-                    simd_t w1_i1_j2 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.W1[local_D + 3][local_I + 1]);
-                    simd_t w1_i1_j1 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.W1[local_D + 2][local_I + 1]);
+                    simd_t w1_i1_j2 = local.W1.load_simd(local_D + 3, local_I + 1);
+                    simd_t w1_i1_j1 = local.W1.load_simd(local_D + 2, local_I + 1);
 #endif
-                    simd_t z0_i_j3  = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.Z0[local_D + 3][local_I]);
+                    simd_t z0_i_j3  = local.Z0.load_simd(local_D + 3, local_I);
 #ifdef ENABLE_FS_INSERT_EXTENSION
-                    simd_t z1_i_j1  = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.Z1[local_D + 1][local_I]);
-                    simd_t z2_i_j2  = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.Z2[local_D + 2][local_I]);
+                    simd_t z1_i_j1  = local.Z1.load_simd(local_D + 1, local_I);
+                    simd_t z2_i_j2  = local.Z2.load_simd(local_D + 2, local_I);
 #endif
 
                     // MATH
@@ -1281,31 +1342,31 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
                         right_side_ptr[j] += w_val[k];
                     }
 
-                    // True Ghost Zone Defense via conditional Blend-Stores
-                    blend_store_simd(&local.W1[local_D][local_I], w_val, valid_mask);
-                    blend_store_simd(&local.Y0[local_D][local_I], y0_val, valid_mask);
-                    blend_store_simd(&local.Z0[local_D][local_I], z0_val, valid_mask);
+                    local.W1.store_simd(local_D, local_I, w_val, valid_mask);
+                    local.Y0.store_simd(local_D, local_I, y0_val, valid_mask);
+                    local.Z0.store_simd(local_D, local_I, z0_val, valid_mask);
 #ifdef ENABLE_FS_INSERT_EXTENSION
-                    blend_store_simd(&local.Z1[local_D][local_I], z1_val, valid_mask);
-                    blend_store_simd(&local.Z2[local_D][local_I], z2_val, valid_mask);
+                    local.Z1.store_simd(local_D, local_I, z1_val, valid_mask);
+                    local.Z2.store_simd(local_D, local_I, z2_val, valid_mask);
 #endif
                 }
             }
 
-            for (int i_local = 0; i_local < B; i_local++) {
-                for (int j_local = 0; j_local < B; j_local++) {
-                    int i = block_i * B + i_local;
-                    int j = block_j * B + j_local;
-                    if (i <= profile.length && j < maxSequenceLength) {
-                        int local_I = i_local + 1;
-                        int J = j_local + 3;
-                        int local_D = local_I + J;
-                        scratch.W1(i, j) = local.W1[local_D][local_I];
-                        scratch.Y0(i, j) = local.Y0[local_D][local_I];
-                        scratch.Z0_mat(i, j) = local.Z0[local_D][local_I];
-                        scratch.Z1_mat(i, j) = local.Z1[local_D][local_I];
-                        scratch.Z2_mat(i, j) = local.Z2[local_D][local_I];
-                    }
+            for (int local_D = 0; local_D <= 2 * B - 2; local_D++) {
+                int min_i = std::max(0, local_D - B + 1);
+                int max_i = std::min(local_D, B - 1);
+                if (min_i <= max_i) {
+                    int count = max_i - min_i + 1;
+                    int global_d = (block_i * B) + (block_j * B) + local_D;
+                    int global_i_start = block_i * B + min_i;
+
+                    std::copy_n(&local.W1[local_D][min_i], count, scratch.W1.data_ptr_diag_i(global_d, global_i_start));
+                    std::copy_n(&local.Y0[local_D][min_i], count, scratch.Y0.data_ptr_diag_i(global_d, global_i_start));
+                    std::copy_n(&local.Z0[local_D][min_i], count, scratch.Z0_mat.data_ptr_diag_i(global_d, global_i_start));
+#ifdef ENABLE_FS_INSERT_EXTENSION
+                    std::copy_n(&local.Z1[local_D][min_i], count, scratch.Z1_mat.data_ptr_diag_i(global_d, global_i_start));
+                    std::copy_n(&local.Z2[local_D][min_i], count, scratch.Z2_mat.data_ptr_diag_i(global_d, global_i_start));
+#endif
                 }
             }
         }
@@ -1313,8 +1374,10 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
 
     std::fill(scratch.Y0.data.begin(), scratch.Y0.data.end(), 0.0);
     std::fill(scratch.Z0_mat.data.begin(), scratch.Z0_mat.data.end(), 0.0);
+#ifdef ENABLE_FS_INSERT_EXTENSION
     std::fill(scratch.Z1_mat.data.begin(), scratch.Z1_mat.data.end(), 0.0);
     std::fill(scratch.Z2_mat.data.begin(), scratch.Z2_mat.data.end(), 0.0);
+#endif
     std::fill(scratch.W0.data.begin(), scratch.W0.data.end(), 0.0);
     std::fill(scratch.X.data.begin(), scratch.X.data.end(), 0.0);
     std::fill(scratch.X_pfx.data.begin(), scratch.X_pfx.data.end(), 0.0);
@@ -1341,8 +1404,6 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
     }
 
     // FORWARD DP BLOCK (With X-Drop Pruning)
-    //constexpr Float XDROP_THRESHOLD = 1e-7;
-    constexpr Float XDROP_THRESHOLD = 0;
     Float global_max = 0.0;
     bool enable_xdrop = (minProbRatio >= 0);
     std::vector<bool> active_blocks(num_blocks_i * num_blocks_j, !enable_xdrop);
@@ -1368,28 +1429,39 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
             int i_end = std::min((int)profile.length + 1, (block_i + 1) * B);
             int j_end = std::min(maxSequenceLength, (block_j + 1) * B);
 
-            for (int i_local = -1; i_local <= B; i_local++) {
-                for (int j_local = -3; j_local <= B + 2; j_local++) {
-                    int local_I = i_local + 1;
-                    int J = j_local + 3;
-                    int local_D = local_I + J;
-                    int i = block_i * B + i_local;
-                    int j = block_j * B + j_local;
-                    if (i >= 0 && i <= profile.length && j >= 0 && j < maxSequenceLength) {
-                        local.W0[local_D][local_I] = scratch.W0(i, j);
-                        local.Y0[local_D][local_I] = scratch.Y0(i, j);
-                        local.Z0[local_D][local_I] = scratch.Z0_mat(i, j);
-                        local.Z1[local_D][local_I] = scratch.Z1_mat(i, j);
-                        local.Z2[local_D][local_I] = scratch.Z2_mat(i, j);
-                        local.W1[local_D][local_I] = scratch.W1(i, j);
-                    } else {
-                        local.W0[local_D][local_I] = 0;
-                        local.Y0[local_D][local_I] = 0;
-                        local.Z0[local_D][local_I] = 0;
-                        local.Z1[local_D][local_I] = 0;
-                        local.Z2[local_D][local_I] = 0;
-                        local.W1[local_D][local_I] = 0;
-                    }
+            int min_local_D = -4;
+            int max_local_D = 2 * B - 1;
+            for (int local_D = min_local_D; local_D <= max_local_D; local_D++) {
+                int global_d = (block_i * B) + (block_j * B) + local_D;
+                int global_i = block_i * B;
+
+                if (global_i == 0) {
+                    local.W0[local_D][-1] = 0;
+                    local.Y0[local_D][-1] = 0;
+                    local.Z0[local_D][-1] = 0;
+#ifdef ENABLE_FS_INSERT_EXTENSION
+                    local.Z1[local_D][-1] = 0;
+                    local.Z2[local_D][-1] = 0;
+#endif
+                    local.W1[local_D][-1] = 0;
+
+                    scratch.W0.safe_copy_to(global_d, 0, B + 1, &local.W0[local_D][0]);
+                    scratch.Y0.safe_copy_to(global_d, 0, B + 1, &local.Y0[local_D][0]);
+                    scratch.Z0_mat.safe_copy_to(global_d, 0, B + 1, &local.Z0[local_D][0]);
+#ifdef ENABLE_FS_INSERT_EXTENSION
+                    scratch.Z1_mat.safe_copy_to(global_d, 0, B + 1, &local.Z1[local_D][0]);
+                    scratch.Z2_mat.safe_copy_to(global_d, 0, B + 1, &local.Z2[local_D][0]);
+#endif
+                    scratch.W1.safe_copy_to(global_d, 0, B + 1, &local.W1[local_D][0]);
+                } else {
+                    scratch.W0.safe_copy_to(global_d, global_i - 1, B + 2, &local.W0[local_D][-1]);
+                    scratch.Y0.safe_copy_to(global_d, global_i - 1, B + 2, &local.Y0[local_D][-1]);
+                    scratch.Z0_mat.safe_copy_to(global_d, global_i - 1, B + 2, &local.Z0[local_D][-1]);
+#ifdef ENABLE_FS_INSERT_EXTENSION
+                    scratch.Z1_mat.safe_copy_to(global_d, global_i - 1, B + 2, &local.Z1[local_D][-1]);
+                    scratch.Z2_mat.safe_copy_to(global_d, global_i - 1, B + 2, &local.Z2[local_D][-1]);
+#endif
+                    scratch.W1.safe_copy_to(global_d, global_i - 1, B + 2, &local.W1[local_D][-1]);
                 }
             }
 
@@ -1402,8 +1474,8 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
                 int max_i = std::min(local_diagonal, B - 1);
 
                 for (int i_local = min_i; i_local <= max_i; i_local += simdWidth) {
-                    int local_I = i_local + 1;
-                    int local_D = local_diagonal + 4;
+                    int local_I = i_local;
+                    int local_D = local_diagonal;
 
                     simd_t is_valid = gather_simd([&](int k) -> Float {
                         return (i_local + k > max_i) ? 0.0 : 1.0;
@@ -1445,26 +1517,30 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
                     });
 
                     // LOAD MEMORY
-                    simd_t w1 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.W0[local_D - 1][local_I]);
-                    simd_t w2 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.W0[local_D - 2][local_I]);
-                    simd_t w3 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.W0[local_D - 3][local_I]);
+                    simd_t w1 = local.W0.load_simd(local_D - 1, local_I);
+                    simd_t w2 = local.W0.load_simd(local_D - 2, local_I);
+                    simd_t w3 = local.W0.load_simd(local_D - 3, local_I);
 
                     // Initial conditions for borders
-                    simd_t j_eq_0 = gather_simd([&](int k) -> Float { return (block_j * B + (local_diagonal - (i_local + k)) == 0) ? 1.0 : 0.0; });
-                    simd_t j_eq_1 = gather_simd([&](int k) -> Float { return (block_j * B + (local_diagonal - (i_local + k)) == 1) ? 1.0 : 0.0; });
-                    simd_t j_eq_2 = gather_simd([&](int k) -> Float { return (block_j * B + (local_diagonal - (i_local + k)) == 2) ? 1.0 : 0.0; });
+                    if (block_j == 0) {
+                        simd_t j_eq_0 = gather_simd([&](int k) -> Float { return (local_diagonal - (i_local + k) == 0) ? 1.0 : 0.0; });
+                        simd_t j_eq_1 = gather_simd([&](int k) -> Float { return (local_diagonal - (i_local + k) == 1) ? 1.0 : 0.0; });
+                        simd_t j_eq_2 = gather_simd([&](int k) -> Float { return (local_diagonal - (i_local + k) == 2) ? 1.0 : 0.0; });
 
-                    w1 = Kokkos::Experimental::condition(j_eq_0 > 0.5, simd_t(scale), w1);
-                    w2 = Kokkos::Experimental::condition(j_eq_1 > 0.5, simd_t(scale), w2);
-                    w3 = Kokkos::Experimental::condition(j_eq_2 > 0.5, simd_t(scale), w3);
+                        w1 = Kokkos::Experimental::condition(j_eq_0 > 0.5, simd_t(scale), w1);
+                        w2 = Kokkos::Experimental::condition(j_eq_1 > 0.5, simd_t(scale), w2);
+                        w3 = Kokkos::Experimental::condition(j_eq_2 > 0.5, simd_t(scale), w3);
+                    }
 
                     simd_t X_ij = C_enter * codon_emit_probs * w3;
-                    simd_t w1_bkwd = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.W1[local_D + 1][local_I + 1]);
+                    simd_t w1_bkwd = local.W1.load_simd(local_D + 1, local_I + 1);
                     simd_t X_ij_EV = X_ij * w1_bkwd * simd_t(invScale);
 
-                    simd_t z0_prev = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.Z0[local_D - 3][local_I]);
-                    simd_t z1_prev = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.Z1[local_D - 3][local_I]);
-                    simd_t z2_prev = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.Z2[local_D - 3][local_I]);
+                    simd_t z0_prev = local.Z0.load_simd(local_D - 3, local_I);
+#ifdef ENABLE_FS_INSERT_EXTENSION
+                    simd_t z1_prev = local.Z1.load_simd(local_D - 3, local_I);
+                    simd_t z2_prev = local.Z2.load_simd(local_D - 3, local_I);
+#endif
 
 #ifdef ENABLE_FS_INSERT_EXTENSION
                     simd_t z0_val = bg_codon_emit_probs * simd_t(distribute3) * (C_alpha0 * w3 + C_beta0 * z0_prev + C_beta1 * z1_prev + C_beta2 * z2_prev);
@@ -1474,10 +1550,10 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
                     simd_t z1_val = C_alpha1 * w1;
                     simd_t z2_val = C_alpha2 * w2;
 
-                    simd_t w0_prev = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.W0[local_D][local_I]);
+                    simd_t w0_prev = local.W0.load_simd(local_D, local_I);
                     simd_t w0_val = w0_prev + z0_val + z1_val + z2_val + one_arr * simd_t(scale);
 
-                    simd_t y0_prev = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.Y0[local_D - 1][local_I - 1]);
+                    simd_t y0_prev = local.Y0.load_simd(local_D - 1, local_I - 1);
 #ifdef ENABLE_FS_DELETE_STATES
                     simd_t y0_val = C_delta0 * w0_val + C_eps0 * y0_prev;
                     simd_t w0_next = X_ij + y0_val + C_delta1 * w2 + C_delta2 * w1;
@@ -1486,7 +1562,7 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
                     simd_t w0_next = X_ij + y0_val;
 #endif
 
-                    simd_t wBegAnchored = Kokkos::Experimental::simd_unchecked_load<simd_t>(&local.W1[local_D][local_I]);
+                    simd_t wBegAnchored = local.W1.load_simd(local_D, local_I);
                     simd_t wMidAnchored = w0_val * wBegAnchored * simd_t(invScale);
 
                     // Scatter to global
@@ -1509,7 +1585,7 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
 
                         left_side_ptr[j] += w0_val[k];
                         if (i + 1 <= profile.length) {
-                            local.W0[local_D + 1][i_p + 2] += w0_next[k];
+                            local.W0[local_D + 1][i_p + 1] += w0_next[k];
                         }
                         if (w_mid > scratch.best_wMid[j]) {
                             scratch.best_wMid[j] = w_mid;
@@ -1519,41 +1595,55 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
                     }
 
                     // True Ghost Zone Defense via conditional Blend-Stores
-                    blend_store_simd(&local.X[local_D][local_I], X_ij_EV, valid_mask);
-                    blend_store_simd(&local.Z0[local_D][local_I], z0_val, valid_mask);
-                    blend_store_simd(&local.Z1[local_D][local_I], z1_val, valid_mask);
-                    blend_store_simd(&local.Z2[local_D][local_I], z2_val, valid_mask);
-                    blend_store_simd(&local.W0[local_D][local_I], w0_val, valid_mask);
-                    blend_store_simd(&local.Y0[local_D][local_I], y0_val, valid_mask);
+                    local.X.store_simd(local_D, local_I, X_ij_EV, valid_mask);
+                    local.Z0.store_simd(local_D, local_I, z0_val, valid_mask);
+#ifdef ENABLE_FS_INSERT_EXTENSION
+                    local.Z1.store_simd(local_D, local_I, z1_val, valid_mask);
+                    local.Z2.store_simd(local_D, local_I, z2_val, valid_mask);
+#endif
+                    local.W0.store_simd(local_D, local_I, w0_val, valid_mask);
+                    local.Y0.store_simd(local_D, local_I, y0_val, valid_mask);
                 }
             }
 
             global_max = std::max(global_max, block_max);
             if (enable_xdrop) {
-                if (bottom_edge_max >= global_max * XDROP_THRESHOLD && block_i + 1 < num_blocks_i) {
+                if (bottom_edge_max >= global_max * OPT_x && block_i + 1 < num_blocks_i) {
                     active_blocks[(block_i + 1) * num_blocks_j + block_j] = true;
                 }
-                if (right_edge_max >= global_max * XDROP_THRESHOLD && block_j + 1 < num_blocks_j) {
+                if (right_edge_max >= global_max * OPT_x && block_j + 1 < num_blocks_j) {
                     active_blocks[block_i * num_blocks_j + block_j + 1] = true;
                 }
             }
 
-            for (int i_local = 0; i_local <= B; i_local++) {
-                for (int j_local = 0; j_local < B; j_local++) {
-                    int i = block_i * B + i_local;
-                    int j = block_j * B + j_local;
-                    if (i <= profile.length && j < maxSequenceLength) {
-                        int local_I = i_local + 1;
-                        int J = j_local + 3;
-                        int local_D = local_I + J;
-                        scratch.W0(i, j) = local.W0[local_D][local_I];
-                        if (i_local < B) {
-                            scratch.Y0(i, j) = local.Y0[local_D][local_I];
-                            scratch.Z0_mat(i, j) = local.Z0[local_D][local_I];
-                            scratch.Z1_mat(i, j) = local.Z1[local_D][local_I];
-                            scratch.Z2_mat(i, j) = local.Z2[local_D][local_I];
-                            scratch.X(i, j) = local.X[local_D][local_I];
-                        }
+            for (int local_D = 0; local_D <= 2 * B - 1; local_D++) {
+                int global_d = (block_i * B) + (block_j * B) + local_D;
+
+                // copy Y0, Z0, Z1, Z2, X (which have i_local up to B - 1)
+                {
+                    int min_i = std::max(0, local_D - B + 1);
+                    int max_i = std::min(local_D, B - 1);
+                    if (min_i <= max_i) {
+                        int count = max_i - min_i + 1;
+                        int global_i_start = block_i * B + min_i;
+                        std::copy_n(&local.Y0[local_D][min_i], count, scratch.Y0.data_ptr_diag_i(global_d, global_i_start));
+                        std::copy_n(&local.Z0[local_D][min_i], count, scratch.Z0_mat.data_ptr_diag_i(global_d, global_i_start));
+#ifdef ENABLE_FS_INSERT_EXTENSION
+                        std::copy_n(&local.Z1[local_D][min_i], count, scratch.Z1_mat.data_ptr_diag_i(global_d, global_i_start));
+                        std::copy_n(&local.Z2[local_D][min_i], count, scratch.Z2_mat.data_ptr_diag_i(global_d, global_i_start));
+#endif
+                        std::copy_n(&local.X[local_D][min_i], count, scratch.X.data_ptr_diag_i(global_d, global_i_start));
+                    }
+                }
+
+                // copy W0 (which has i_local up to B)
+                {
+                    int min_i = std::max(0, local_D - B + 1);
+                    int max_i = std::min(local_D, B);
+                    if (min_i <= max_i) {
+                        int count = max_i - min_i + 1;
+                        int global_i_start = block_i * B + min_i;
+                        std::copy_n(&local.W0[local_D][min_i], count, scratch.W0.data_ptr_diag_i(global_d, global_i_start));
                     }
                 }
             }
