@@ -55,7 +55,9 @@
 #define OPT_t 1000
 #define OPT_l 5000
 #define OPT_b 100
-#define OPT_x 0 // 0 to enable full DP mode
+//#define OPT_x (exp2(-20)) // 0 to enable full DP mode
+#define OPT_x 0
+#define B 16 // block size
 
 #define EVALUE
 #define ALIGN
@@ -528,8 +530,7 @@ std::pair<T, U> operator+(const std::pair<T, U> &a, const std::pair<T, U> &b) {
 
 using DP_Cell = Float;
 
-const size_t PADDING_SIZE = simdWidth + 32 /* block size */ + 3;
-const size_t PADDING_SIZE = simdWidth + 32 /* block size */ + 3;
+const size_t PADDING_SIZE = simdWidth + B + 3;
 
 template <typename T>
 class DiagonalMatrix {
@@ -1058,13 +1059,6 @@ inline simd_t gather_simd(F func) {
     return Kokkos::Experimental::simd_unchecked_load<simd_t>(arr);
 }
 
-// Memory-safe masked SIMD store to halt ghost zone zero-clobbering
-inline void blend_store_simd(Float* ptr, simd_t vec, Kokkos::Experimental::simd_mask<Float> mask) {
-    simd_t prev = Kokkos::Experimental::simd_unchecked_load<simd_t>(ptr);
-    simd_t blended = Kokkos::Experimental::condition(mask, vec, prev);
-    for (int k = 0; k < simdWidth; k++) ptr[k] = blended[k];
-}
-
 #ifndef NDEBUG
 #define OFFSET_ARRAY_ASSERT(cond) assert(cond)
 #else
@@ -1090,11 +1084,35 @@ struct OffsetArray {
         return Kokkos::Experimental::simd_unchecked_load<simd_t>(&(*this)[d][i]);
     }
 
-    inline void store_simd(int d, int i, simd_t vec, Kokkos::Experimental::simd_mask<Float> mask) {
-        blend_store_simd(&(*this)[d][i], vec, mask);
+    inline void store_simd(int d, int i, simd_t &vec) {
+        Kokkos::Experimental::simd_unchecked_store(vec, &(*this)[d][i], Kokkos::Experimental::simd_flag_default);
     }
-
 };
+
+#if defined(__AVX2__) && defined(DOUBLE)
+#include <immintrin.h>
+inline simd_t load_reverse_simd(const Float* ptr_lowest_address) {
+    __m256d vec = _mm256_loadu_pd(ptr_lowest_address);
+    // Reverse the 4 doubles: [A, B, C, D] -> [D, C, B, A]
+    vec = _mm256_permute4x64_pd(vec, _MM_SHUFFLE(0, 1, 2, 3));
+    return Kokkos::Experimental::simd_unchecked_load<simd_t>(reinterpret_cast<Float*>(&vec));
+}
+
+inline simd_t gather_profile_simd(const Float* profile_values, int profile_width,
+                                  int i_base, int j_start, const uint8_t* decoded_ptr) {
+    // _mm_set_epi32 populates in reverse order: (element 3, element 2, element 1, element 0)
+    // This entirely prevents the stack-spill store-forwarding stall.
+    __m128i v_idx = _mm_set_epi32(
+        (i_base + 3) * profile_width + 4 + decoded_ptr[j_start - 3],
+        (i_base + 2) * profile_width + 4 + decoded_ptr[j_start - 2],
+        (i_base + 1) * profile_width + 4 + decoded_ptr[j_start - 1],
+        (i_base + 0) * profile_width + 4 + decoded_ptr[j_start - 0]
+    );
+    // Scale is 8 because we are gathering 8-byte doubles
+    __m256d vec = _mm256_i32gather_pd(profile_values, v_idx, 8);
+    return Kokkos::Experimental::simd_unchecked_load<simd_t>(reinterpret_cast<Float*>(&vec));
+}
+#endif
 
 void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const Profile &profile,
                              const std::vector<uint8_t> &decoded, Float minProbRatio,
@@ -1103,7 +1121,6 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
     int alphabetSize = profile.width - nonLetterWidth;
 
     constexpr int NEG_PAD = 40;
-    const int B = 32;
     scratch.resize(profile.length, maxSequenceLength);
 
     // Memory Alignment Fix: Inject the `zero_idx` into the unwritten padding lanes
@@ -1179,6 +1196,64 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
 
     Float invRealSeqLen = 1.0 / maxSequenceLength;
     Float nap_div_rsl = not_align_probs * invRealSeqLen;
+
+    int padded_prof_len = profile.length + B + simdWidth;
+
+    std::vector<Float> soa_enter(padded_prof_len, 0.0);
+    std::vector<Float> soa_alpha1(padded_prof_len, 0.0);
+    std::vector<Float> soa_alpha2(padded_prof_len, 0.0);
+    std::vector<Float> soa_eps0(padded_prof_len, 0.0);
+
+    std::vector<Float> soa_bwd_alpha0(padded_prof_len, 0.0);
+    std::vector<Float> soa_fwd_alpha0(padded_prof_len, 0.0);
+    std::vector<Float> soa_bwd_beta0(padded_prof_len, 0.0);
+    std::vector<Float> soa_fwd_beta0(padded_prof_len, 0.0);
+
+#ifdef ENABLE_FS_DELETE_STATES
+    std::vector<Float> soa_delta0(padded_prof_len, 0.0);
+    std::vector<Float> soa_delta1(padded_prof_len, 0.0);
+    std::vector<Float> soa_delta2(padded_prof_len, 0.0);
+#else
+    std::vector<Float> soa_delta0(padded_prof_len, 0.0);
+#endif
+
+#ifdef ENABLE_FS_INSERT_EXTENSION
+    std::vector<Float> soa_bwd_beta1(padded_prof_len, 0.0);
+    std::vector<Float> soa_fwd_beta1(padded_prof_len, 0.0);
+    std::vector<Float> soa_bwd_beta2(padded_prof_len, 0.0);
+    std::vector<Float> soa_fwd_beta2(padded_prof_len, 0.0);
+#endif
+
+    for (int i = 0; i <= profile.length; i++) {
+        const auto& p = profile.values_v2[i];
+        soa_enter[i]  = p.enter_match_probability * distribute3;
+        soa_alpha1[i] = p.alpha_prime[1] * distribute1;
+        soa_alpha2[i] = p.alpha_prime[2] * distribute2;
+        soa_eps0[i]   = p.epsilon_prime;
+
+        // Backward/Forward DP require different distribute scaling here
+        soa_bwd_alpha0[i] = p.alpha_prime[0] * distribute3;
+        soa_fwd_alpha0[i] = p.alpha_prime[0];
+
+        soa_bwd_beta0[i] = p.beta_prime[0] * distribute3;
+        soa_fwd_beta0[i] = p.beta_prime[0];
+
+#ifdef ENABLE_FS_DELETE_STATES
+        soa_delta0[i] = p.delta_prime[0];
+        soa_delta1[i] = p.delta_prime[1] * distribute2;
+        soa_delta2[i] = p.delta_prime[2] * distribute1;
+#else
+        soa_delta0[i] = p.delta_prime;
+#endif
+
+#ifdef ENABLE_FS_INSERT_EXTENSION
+        soa_bwd_beta1[i] = p.beta_prime[1] * distribute3;
+        soa_fwd_beta1[i] = p.beta_prime[1];
+
+        soa_bwd_beta2[i] = p.beta_prime[2] * distribute3;
+        soa_fwd_beta2[i] = p.beta_prime[2];
+#endif
+    }
 
     for (int j = 0; j < maxSequenceLength; j++) {
         Float exponent = -nap_div_rsl * (maxSequenceLength - 1.0 - j) + dp_r[j + 1];
@@ -1256,45 +1331,40 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
                 for (int i_local = min_i; i_local <= max_i; i_local += simdWidth) {
                     int local_I = i_local;
                     int local_D = local_diagonal;
+                    int global_i_base = block_i * B + i_local;
 
-                    simd_t is_valid = gather_simd([&](int k) -> Float {
-                        return (i_local + k > max_i) ? 0.0 : 1.0;
-                    });
-                    Kokkos::Experimental::simd_mask<Float> valid_mask = (is_valid > 0.5);
-
-                    simd_t C_enter = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].enter_match_probability * distribute3; });
+                    simd_t C_enter  = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_enter[global_i_base]);
+                    simd_t C_alpha0 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_bwd_alpha0[global_i_base]);
+                    simd_t C_alpha1 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_alpha1[global_i_base]);
+                    simd_t C_alpha2 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_alpha2[global_i_base]);
+                    simd_t C_beta0  = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_bwd_beta0[global_i_base]);
+                    simd_t C_eps0   = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_eps0[global_i_base]);
 #ifdef ENABLE_FS_DELETE_STATES
-                    simd_t C_delta0 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].delta_prime[0]; });
-                    simd_t C_delta1 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].delta_prime[1] * distribute2; });
-                    simd_t C_delta2 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].delta_prime[2] * distribute1; });
+                    simd_t C_delta0 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_delta0[global_i_base]);
+                    simd_t C_delta1 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_delta1[global_i_base]);
+                    simd_t C_delta2 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_delta2[global_i_base]);
 #else
-                    simd_t C_delta0 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].delta_prime; });
+                    simd_t C_delta0 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_delta0[global_i_base]);
 #endif
-                    simd_t C_alpha0 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].alpha_prime[0] * distribute3; });
-                    simd_t C_alpha1 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].alpha_prime[1] * distribute1; });
-                    simd_t C_alpha2 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].alpha_prime[2] * distribute2; });
-                    simd_t C_beta0 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].beta_prime[0] * distribute3; });
+
 #ifdef ENABLE_FS_INSERT_EXTENSION
-                    simd_t C_beta1 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].beta_prime[1] * distribute3; });
-                    simd_t C_beta2 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].beta_prime[2] * distribute3; });
+                    simd_t C_beta1  = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_bwd_beta1[global_i_base]);
+                    simd_t C_beta2  = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_bwd_beta2[global_i_base]);
 #endif
-                    simd_t C_eps0 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].epsilon_prime; });
+                    // =======================================================================
 
-                    simd_t codon_emit_probs = gather_simd([&](int k) {
-                        int i = block_i * B + i_local + k;
-                        int j = block_j * B + (local_diagonal - (i_local + k));
-                        return profile.values[i * profile.width + 4 + decoded_ptr[j + 1]];
-                    });
+                    int i_base = block_i * B + i_local;
+                    int j_base = block_j * B + local_diagonal - i_local;
 
-                    simd_t bg_codon_emit_probs = gather_simd([&](int k) {
-                        int j = block_j * B + (local_diagonal - (i_local + k));
-                        return bg_codon_probs_ptr[j + 1];
-                    });
+                    simd_t codon_emit_probs = gather_profile_simd(
+                        profile.values, profile.width, i_base, j_base + 1, decoded_ptr
+                    );
 
-                    simd_t one_arr = gather_simd([&](int k) {
-                        int j = block_j * B + (local_diagonal - (i_local + k));
-                        return one_ptr[j];
-                    });
+                    // The lowest memory address for a negative stride starting at j_base+1 is j_base-2
+                    simd_t bg_codon_emit_probs = load_reverse_simd(&bg_codon_probs_ptr[j_base - 2]);
+
+                    // The lowest memory address for a negative stride starting at j_base is j_base-3
+                    simd_t one_arr = load_reverse_simd(&one_ptr[j_base - 3]);
 
                     // LOAD MEMORY
                     simd_t w1_i1_j3 = local.W1.load_simd(local_D + 4, local_I + 1);
@@ -1342,12 +1412,12 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
                         right_side_ptr[j] += w_val[k];
                     }
 
-                    local.W1.store_simd(local_D, local_I, w_val, valid_mask);
-                    local.Y0.store_simd(local_D, local_I, y0_val, valid_mask);
-                    local.Z0.store_simd(local_D, local_I, z0_val, valid_mask);
+                    local.W1.store_simd(local_D, local_I, w_val);
+                    local.Y0.store_simd(local_D, local_I, y0_val);
+                    local.Z0.store_simd(local_D, local_I, z0_val);
 #ifdef ENABLE_FS_INSERT_EXTENSION
-                    local.Z1.store_simd(local_D, local_I, z1_val, valid_mask);
-                    local.Z2.store_simd(local_D, local_I, z2_val, valid_mask);
+                    local.Z1.store_simd(local_D, local_I, z1_val);
+                    local.Z2.store_simd(local_D, local_I, z2_val);
 #endif
                 }
             }
@@ -1408,12 +1478,7 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
     bool enable_xdrop = (minProbRatio >= 0);
     std::vector<bool> active_blocks(num_blocks_i * num_blocks_j, !enable_xdrop);
     if (enable_xdrop) {
-        for (int block_i = 0; block_i < num_blocks_i; block_i++) {
-            active_blocks[block_i * num_blocks_j + 0] = true;
-        }
-        for (int block_j = 0; block_j < num_blocks_j; block_j++) {
-            active_blocks[0 * num_blocks_j + block_j] = true;
-        }
+        active_blocks[0] = true;
     }
 
     int total_active_blocks = 0, total_blocks = 0;
@@ -1476,45 +1541,43 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
                 for (int i_local = min_i; i_local <= max_i; i_local += simdWidth) {
                     int local_I = i_local;
                     int local_D = local_diagonal;
+                    int global_i_base = block_i * B + i_local;
 
-                    simd_t is_valid = gather_simd([&](int k) -> Float {
-                        return (i_local + k > max_i) ? 0.0 : 1.0;
-                    });
-                    Kokkos::Experimental::simd_mask<Float> valid_mask = (is_valid > 0.5);
-
-                    simd_t C_enter = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].enter_match_probability * distribute3; });
-                    simd_t C_alpha0 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].alpha_prime[0]; });
-                    simd_t C_alpha1 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].alpha_prime[1] * distribute1; });
-                    simd_t C_alpha2 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].alpha_prime[2] * distribute2; });
-                    simd_t C_beta0 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].beta_prime[0]; });
-#ifdef ENABLE_FS_INSERT_EXTENSION
-                    simd_t C_beta1 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].beta_prime[1]; });
-                    simd_t C_beta2 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].beta_prime[2]; });
-#endif
+                    // =======================================================================
+                    // Contiguous loads replacing microcoded VGATHERDPS
+                    // =======================================================================
+                    simd_t C_enter  = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_enter[global_i_base]);
+                    simd_t C_alpha0 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_fwd_alpha0[global_i_base]);
+                    simd_t C_alpha1 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_alpha1[global_i_base]);
+                    simd_t C_alpha2 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_alpha2[global_i_base]);
+                    simd_t C_beta0  = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_fwd_beta0[global_i_base]);
+                    simd_t C_eps0   = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_eps0[global_i_base]);
 #ifdef ENABLE_FS_DELETE_STATES
-                    simd_t C_delta0 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].delta_prime[0]; });
-                    simd_t C_delta1 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].delta_prime[1] * distribute2; });
-                    simd_t C_delta2 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].delta_prime[2] * distribute1; });
+                    simd_t C_delta0 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_delta0[global_i_base]);
+                    simd_t C_delta1 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_delta1[global_i_base]);
+                    simd_t C_delta2 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_delta2[global_i_base]);
 #else
-                    simd_t C_delta0 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].delta_prime; });
+                    simd_t C_delta0 = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_delta0[global_i_base]);
 #endif
-                    simd_t C_eps0 = gather_simd([&](int k) { int i = block_i * B + i_local + k; return profile.values_v2[i].epsilon_prime; });
 
-                    simd_t codon_emit_probs = gather_simd([&](int k) {
-                        int i = block_i * B + i_local + k;
-                        int j = block_j * B + (local_diagonal - (i_local + k));
-                        return profile.values[i * profile.width + 4 + decoded_ptr[j - 2]];
-                    });
+#ifdef ENABLE_FS_INSERT_EXTENSION
+                    simd_t C_beta1  = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_fwd_beta1[global_i_base]);
+                    simd_t C_beta2  = Kokkos::Experimental::simd_unchecked_load<simd_t>(&soa_fwd_beta2[global_i_base]);
+#endif
+                    // =======================================================================
 
-                    simd_t bg_codon_emit_probs = gather_simd([&](int k) {
-                        int j = block_j * B + (local_diagonal - (i_local + k));
-                        return bg_codon_probs_ptr[j - 2];
-                    });
+                    int i_base = block_i * B + i_local;
+                    int j_base = block_j * B + local_diagonal - i_local;
 
-                    simd_t one_arr = gather_simd([&](int k) {
-                        int j = block_j * B + (local_diagonal - (i_local + k));
-                        return one_sfx_ptr[j];
-                    });
+                    simd_t codon_emit_probs = gather_profile_simd(
+                        profile.values, profile.width, i_base, j_base - 2, decoded_ptr
+                    );
+
+                    // The lowest memory address starting at j_base-2 is j_base-5
+                    simd_t bg_codon_emit_probs = load_reverse_simd(&bg_codon_probs_ptr[j_base - 5]);
+
+                    // The lowest memory address starting at j_base is j_base-3
+                    simd_t one_arr = load_reverse_simd(&one_sfx_ptr[j_base - 3]);
 
                     // LOAD MEMORY
                     simd_t w1 = local.W0.load_simd(local_D - 1, local_I);
@@ -1594,15 +1657,14 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
                         }
                     }
 
-                    // True Ghost Zone Defense via conditional Blend-Stores
-                    local.X.store_simd(local_D, local_I, X_ij_EV, valid_mask);
-                    local.Z0.store_simd(local_D, local_I, z0_val, valid_mask);
+                    local.X.store_simd(local_D, local_I, X_ij_EV);
+                    local.Z0.store_simd(local_D, local_I, z0_val);
 #ifdef ENABLE_FS_INSERT_EXTENSION
-                    local.Z1.store_simd(local_D, local_I, z1_val, valid_mask);
-                    local.Z2.store_simd(local_D, local_I, z2_val, valid_mask);
+                    local.Z1.store_simd(local_D, local_I, z1_val);
+                    local.Z2.store_simd(local_D, local_I, z2_val);
 #endif
-                    local.W0.store_simd(local_D, local_I, w0_val, valid_mask);
-                    local.Y0.store_simd(local_D, local_I, y0_val, valid_mask);
+                    local.W0.store_simd(local_D, local_I, w0_val);
+                    local.Y0.store_simd(local_D, local_I, y0_val);
                 }
             }
 
