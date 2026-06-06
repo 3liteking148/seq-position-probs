@@ -528,87 +528,125 @@ std::pair<T, U> operator+(const std::pair<T, U> &a, const std::pair<T, U> &b) {
 
 using DP_Cell = Float;
 
-template <typename T, bool Rolling = false> class FlatMatrix {
+template <typename T, bool Rolling = false, int PrePad = 0, int PostPad = 0>
+class FlatMatrix {
     std::vector<T> data;
     size_t cols;
     size_t logical_rows;
 
+    size_t phys_cols() const { return PrePad + cols + PostPad; }
+
 public:
     FlatMatrix() : cols(0), logical_rows(0) {}
 
-    void resize(size_t r, size_t c, T init = T()) {
+    void resize(size_t r, size_t c) {
         logical_rows = r;
         cols = c;
-        if constexpr (Rolling) {
-            data.resize(2 * c);
-        } else {
-            data.resize(r * c);
-        }
+        size_t n = Rolling ? 2 : r;
+        size_t total = n * phys_cols();
+        data.resize(total);
     }
 
     void assign(size_t r, size_t c, T init = T()) {
         logical_rows = r;
         cols = c;
-        if constexpr (Rolling) {
-            data.assign(2 * c, init);
-        } else {
-            data.assign(r * c, init);
+        size_t n = Rolling ? 2 : r;
+        size_t total = n * phys_cols();
+        data.assign(total, init);
+        for (size_t i = 0; i < n; ++i) {
+            T *row = data.data() + i * phys_cols();
+            std::fill_n(row, PrePad, T{});
+            std::fill_n(row + PrePad + cols, PostPad, T{});
         }
     }
 
-    inline T &operator()(size_t i, size_t j) {
-        // assert(0 <= i && i < logical_rows);
-        // assert(0 <= j && j < cols);
+    inline T &operator()(size_t i, int j) {
         if constexpr (Rolling) {
-            return data[(i & 1) * cols + j];
+            return data[(i & 1) * phys_cols() + PrePad + j];
         } else {
-            return data[i * cols + j];
+            return data[i * phys_cols() + PrePad + j];
         }
     }
 
-    inline const T &operator()(size_t i, size_t j) const {
+    inline const T &operator()(size_t i, int j) const {
         if constexpr (Rolling) {
-            return data[(i & 1) * cols + j];
+            return data[(i & 1) * phys_cols() + PrePad + j];
         } else {
-            return data[i * cols + j];
+            return data[i * phys_cols() + PrePad + j];
         }
     }
 
-    // Crucial for DP: clear the current row before calculating it
-    // so data from the "previous-previous" row doesn't pollute your maximums
     inline void clear_row(size_t i, T init_val = T()) {
         size_t actual_row = Rolling ? (i & 1) : i;
-        auto row_start = data.begin() + (actual_row * cols);
+        auto row_start = data.begin() + actual_row * phys_cols() + PrePad;
         std::fill(row_start, row_start + cols, init_val);
     }
 
-    // Direct row pointer for hot loops — avoids repeated i*cols multiply
     inline T *row_ptr(size_t i) {
         if constexpr (Rolling) {
-            return data.data() + (i & 1) * cols;
+            return data.data() + (i & 1) * phys_cols() + PrePad;
         } else {
-            return data.data() + i * cols;
+            return data.data() + i * phys_cols() + PrePad;
         }
     }
+
     inline const T *row_ptr(size_t i) const {
         if constexpr (Rolling) {
-            return data.data() + (i & 1) * cols;
+            return data.data() + (i & 1) * phys_cols() + PrePad;
         } else {
-            return data.data() + i * cols;
+            return data.data() + i * phys_cols() + PrePad;
         }
+    }
+};
+
+template <typename T, int PrePad = 0, int PostPad = 0>
+class PaddedVec {
+    std::vector<T> data_;
+    int logical_size_ = 0;
+public:
+    PaddedVec() = default;
+
+    T &operator[](int i) { return data_[PrePad + i]; }
+
+    const T &operator[](int i) const { return data_[PrePad + i]; }
+
+    T *data() { return data_.data() + PrePad; }
+
+    const T *data() const { return data_.data() + PrePad; }
+
+    int size() const { return logical_size_; }
+    bool empty() const { return logical_size_ == 0; }
+
+    auto begin() { return data(); }
+    auto end() { return data() + logical_size_; }
+    auto begin() const { return data(); }
+    auto end() const { return data() + logical_size_; }
+
+    void resize(int n, T val = T{}) {
+        logical_size_ = n;
+        data_.assign(n + PrePad + PostPad, val);
+        std::fill_n(data_.data(), PrePad, T{});
+        std::fill_n(data_.data() + PrePad + n, PostPad, T{});
+    }
+
+    void assign(int n, T val = T{}) { resize(n, val); }
+
+    void fill_logical(T val) {
+        std::fill_n(data_.data() + PrePad, logical_size_, val);
     }
 };
 
 struct DPScratch {
     FlatMatrix<simd_t> W1, X;
-    FlatMatrix<simd_t> X_pfx;
+    FlatMatrix<simd_t, false, 3, 0> X_pfx;
 
     // Reusable temporary buffers for findSimilarities
     std::vector<simd_t> W0_curr, W0_next;
     std::vector<simd_t> dp, dp_r;
     std::vector<simd_t> Y0_next, Y0_curr;
     std::vector<simd_t> one, one_sfx;
-    std::vector<simd_t> left_side, right_side;
+    PaddedVec<simd_t, 3, 0> right_side;
+    PaddedVec<simd_t, 0, 3> left_side;
     std::array<std::vector<AlignedSimilarity>, simdWidth> opt_profile_position;
     std::array<std::vector<bool>, simdWidth> aligned;
     std::vector<uint8_t> transposed_decoded;
@@ -1211,18 +1249,10 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         SimdFloat bg_raw = simdLookup(bg_probs_ptr, indices);
         simd_t bg_codon_emit_probs(bg_raw);
 
-        if (j - 3 >= 0) {
-            right_side[j - 3] += (Float)(1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) * bg_codon_emit_probs *
-                                 distribute3 * right_side[j];
-        }
-
-        if (j - 1 >= 0) {
-            right_side[j - 1] += (Float)(BACKGROUND_FRAMESHIFT_RATE * 0.25) * distribute1 * right_side[j];
-        }
-
-        if (j - 2 >= 0) {
-            right_side[j - 2] += (Float)(BACKGROUND_FRAMESHIFT_RATE_2 * 0.0625) * distribute2 * right_side[j];
-        }
+        right_side[j - 3] += (Float)(1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) * bg_codon_emit_probs *
+                             distribute3 * right_side[j];
+        right_side[j - 1] += (Float)(BACKGROUND_FRAMESHIFT_RATE * 0.25) * distribute1 * right_side[j];
+        right_side[j - 2] += (Float)(BACKGROUND_FRAMESHIFT_RATE_2 * 0.0625) * distribute2 * right_side[j];
 
         right_side[j] *= one[j]; // TODO: this one specifically (might be off by 1 idk)
         right_side[j] = Kokkos::max(right_side[j], Float(0.0));
@@ -1274,23 +1304,13 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 #endif
 
         // Shift register for w[1..3] — avoids 3 matrix reads per iteration
-        simd_t w_shift[3] = {0, 0, 0}; // w_shift[0]=w0(i,j-1), [1]=w0(i,j-2), [2]=w0(i,j-3)
+        simd_t w_shift[3] = {one_val_scaled, 0, 0}; // w_shift[0]=w0(i,j-1), [1]=w0(i,j-2), [2]=w0(i,j-3)
         simd_t pfx_prev = simd_t(0.0); // X_pfx(i, j-1) rolling value
 
         const simd_t simd_invScale(invScale);
 
         for (int j = 0; j < maxSequenceLength; j++) {
-            // w[1] = W0(i, j-1), w[2] = W0(i, j-2), w[3] = W0(i, j-3)
-            simd_t w1, w2, w3;
-            if (j == 0) {
-                w1 = one_val_scaled; w2 = simd_t(0); w3 = simd_t(0);
-            } else if (j == 1) {
-                w1 = w_shift[0]; w2 = one_val_scaled; w3 = simd_t(0);
-            } else if (j == 2) {
-                w1 = w_shift[0]; w2 = w_shift[1]; w3 = one_val_scaled;
-            } else {
-                w1 = w_shift[0]; w2 = w_shift[1]; w3 = w_shift[2];
-            }
+            simd_t w1 = w_shift[0], w2 = w_shift[1], w3 = w_shift[2];
 
             int r_0 = j & 3;
             int r_3 = (j - 3) & 3;
@@ -1310,16 +1330,10 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             x_row_i[j] = X_ij_EV;
 
             //
-            simd_t opt_succ = 0;
-            if (xpfx_row_im1 && j - 3 >= 0) {
-                opt_succ = xpfx_row_im1[j - 3];
-            }
+            simd_t opt_succ = xpfx_row_im1 ? xpfx_row_im1[j - 3] : simd_t(0);
 
-            simd_t pfx_mx = 0;
-            if (xpfx_row_im1)
-                pfx_mx = xpfx_row_im1[j];
-            if (j - 1 >= 0)
-                pfx_mx = Kokkos::max(pfx_mx, pfx_prev);
+            simd_t pfx_mx = xpfx_row_im1 ? xpfx_row_im1[j] : simd_t(0);
+            pfx_mx = Kokkos::max(pfx_mx, pfx_prev);
 
             pfx_mx = Kokkos::max(pfx_mx, X_ij_EV + opt_succ);
             pfx_mx = Kokkos::max(pfx_mx, right_side[j]);
@@ -1386,17 +1400,9 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
         simd_t bg_codon_emit_probs(bg_raw);
 
-        if (j + 3 < maxSequenceLength) {
-            left_side[j + 3] += (Float)(1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) * bg_codon_emit_probs * distribute3 * left_side[j];
-        }
-
-        if (j + 1 < maxSequenceLength) {
-            left_side[j + 1] += (Float)(BACKGROUND_FRAMESHIFT_RATE * 0.25) * distribute1 * left_side[j];
-        }
-
-        if (j + 2 < maxSequenceLength) {
-            left_side[j + 2] += (Float)(BACKGROUND_FRAMESHIFT_RATE_2 * 0.0625) * distribute2 * left_side[j];
-        }
+        left_side[j + 3] += (Float)(1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) * bg_codon_emit_probs * distribute3 * left_side[j];
+        left_side[j + 1] += (Float)(BACKGROUND_FRAMESHIFT_RATE * 0.25) * distribute1 * left_side[j];
+        left_side[j + 2] += (Float)(BACKGROUND_FRAMESHIFT_RATE_2 * 0.0625) * distribute2 * left_side[j];
 
         left_side[j] *= one_sfx[j];
         left_side[j] = Kokkos::max(left_side[j], Float(0.0));
@@ -1413,9 +1419,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         simd_t opt_right_rolling = simd_t(0.0); // X_sfx(i, j+1) from previous iteration
 
         for (int j = maxSequenceLength - 1; j >= 0; j--) {
-            // Guarded reads for X_sfx
-            simd_t opt_succ = (xsfx_row_ip1 && j + 3 < maxSequenceLength)
-                              ? xsfx_row_ip1[j + 3] : simd_t(0.0);
+            simd_t opt_succ = xsfx_row_ip1 ? xsfx_row_ip1[j + 3] : simd_t(0.0);
 
             simd_t opt_down = xsfx_row_ip1 ? xsfx_row_ip1[j] : simd_t(0.0);
 
