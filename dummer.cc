@@ -544,67 +544,61 @@ using DP_Cell = Float;
 
 const size_t PADDING_SIZE = simdWidth + 32 /* block size */ + 3;
 
-template <typename T>
+template <typename T, int K = 0>
 class DiagonalMatrix {
 public:
     std::vector<T> data;
-    std::vector<std::size_t> diag_offsets;
-    std::size_t rows;
-    std::size_t cols;
-    std::size_t pad;
+    std::size_t padded_rows;
+    std::size_t d_pad;
+    std::size_t i_pad_front;
 
 public:
-    explicit DiagonalMatrix() : rows(0), cols(0), pad(PADDING_SIZE) {}
+    explicit DiagonalMatrix() : padded_rows(0), d_pad(PADDING_SIZE), i_pad_front(PADDING_SIZE) {}
 
     void resize(std::size_t r, std::size_t c) {
-        // Pad the rows to absorb block overshoot.
-        // Pad the cols by 2x to safely absorb negative 'j' indices AND forward block overshoot.
-        rows = r + pad;
-        cols = c + (2 * pad);
+        // Flat 1-Row-per-Diagonal Layout with Padding
+        // Align padded_rows to simdWidth for safe SIMD access
+        std::size_t row_size = r + i_pad_front + PADDING_SIZE;
+        padded_rows = ((row_size + simdWidth - 1) / simdWidth) * simdWidth;
+
+        std::size_t num_diags;
+        if constexpr (K > 0) {
+            num_diags = K;
+        } else {
+            num_diags = r + c + d_pad + PADDING_SIZE;
+        }
 
         if (r == 0 || c == 0) {
             data.clear();
-            diag_offsets.clear();
             return;
         }
 
-        std::size_t width = cols;
-        std::size_t num_diags = rows + width - 1;
-        diag_offsets.resize(num_diags + 1, 0);
-
-        std::size_t offset = 0;
-        for (std::size_t d = 0; d < num_diags; ++d) {
-            diag_offsets[d] = offset;
-
-            std::ptrdiff_t d_signed = static_cast<std::ptrdiff_t>(d);
-            std::ptrdiff_t W_signed = static_cast<std::ptrdiff_t>(width);
-            std::ptrdiff_t r_signed = static_cast<std::ptrdiff_t>(rows);
-
-            std::ptrdiff_t min_i = std::max<std::ptrdiff_t>(0, d_signed - W_signed + 1);
-            std::ptrdiff_t max_i = std::min<std::ptrdiff_t>(r_signed - 1, d_signed);
-
-            std::size_t diag_length = static_cast<std::size_t>(max_i - min_i + 1);
-            offset += diag_length;
+        std::size_t total_size = num_diags * padded_rows;
+        if (data.size() < total_size) {
+            data.resize(total_size);
         }
+    }
 
-        diag_offsets[num_diags] = offset;
-        data.assign(offset, T{});
+    inline std::size_t get_d_index(std::ptrdiff_t d) const {
+        std::size_t shifted_d = d + d_pad;
+        if constexpr (K > 0) return shifted_d % K;
+        return shifted_d;
     }
 
     inline T& operator()(std::ptrdiff_t i, std::ptrdiff_t j) {
-        return data[get_internal_index(i, j)];
+        return data[get_d_index(i + j) * padded_rows + (i + i_pad_front)];
     }
 
     inline const T& operator()(std::ptrdiff_t i, std::ptrdiff_t j) const {
-        return data[get_internal_index(i, j)];
+        return data[get_d_index(i + j) * padded_rows + (i + i_pad_front)];
     }
 
     inline T* data_ptr_diag_i(std::ptrdiff_t d, std::ptrdiff_t i) {
-        return &data[get_internal_index_diag_i(d, i)];
+        return &data[get_d_index(d) * padded_rows + (i + i_pad_front)];
     }
 
     inline const T* data_ptr_diag_i(std::ptrdiff_t d, std::ptrdiff_t i) const {
-        return &data[get_internal_index_diag_i(d, i)];
+        return &data[get_d_index(d) * padded_rows + (i + i_pad_front)];
     }
 
     inline simd_t load_simd(std::ptrdiff_t d, std::ptrdiff_t i) const {
@@ -615,59 +609,21 @@ public:
         blend_store_simd(data_ptr_diag_i(d, i), vec, mask);
     }
 
+    inline T* get_diag_base_ptr(std::ptrdiff_t d) {
+        return &data[get_d_index(d) * padded_rows + i_pad_front];
+    }
+
     inline void safe_copy_to(std::ptrdiff_t d, std::ptrdiff_t i_start, std::size_t requested_count, T* dest) const {
-        std::ptrdiff_t d_shifted = d + static_cast<std::ptrdiff_t>(pad);
-        std::ptrdiff_t max_i = std::min(static_cast<std::ptrdiff_t>(rows) - 1, d_shifted);
-        std::ptrdiff_t avail = max_i - i_start + 1;
-
-        if (avail <= 0) {
-            std::fill_n(dest, requested_count, T{0});
-        } else {
-            std::size_t to_copy = std::min(requested_count, static_cast<std::size_t>(avail));
-            std::copy_n(data_ptr_diag_i(d, i_start), to_copy, dest);
-            if (to_copy < requested_count) {
-                std::fill_n(dest + to_copy, requested_count - to_copy, T{0});
-            }
-        }
-    }
-
-private:
-    inline std::size_t get_internal_index(std::ptrdiff_t i, std::ptrdiff_t j) const {
-        std::ptrdiff_t j_shifted = j + static_cast<std::ptrdiff_t>(pad);
-        std::ptrdiff_t d_shifted = i + j_shifted;
-
-        assert(d_shifted >= 0 && static_cast<std::size_t>(d_shifted) < diag_offsets.size() - 1
-               && "Diagonal index out of padded matrix bounds");
-
-        std::ptrdiff_t min_i = std::max<std::ptrdiff_t>(0, d_shifted - static_cast<std::ptrdiff_t>(cols) + 1);
-
-        assert(i >= min_i && "i index underflowed the diagonal bounds (too small)");
-        assert(i < static_cast<std::ptrdiff_t>(rows) && "i index overflowed the padded diagonal bounds (too large)");
-
-        return diag_offsets[static_cast<std::size_t>(d_shifted)] + static_cast<std::size_t>(i - min_i);
-    }
-
-    inline std::size_t get_internal_index_diag_i(std::ptrdiff_t d, std::ptrdiff_t i) const {
-        std::ptrdiff_t d_shifted = d + static_cast<std::ptrdiff_t>(pad);
-
-        assert(d_shifted >= 0 && static_cast<std::size_t>(d_shifted) < diag_offsets.size() - 1
-               && "Diagonal index out of padded matrix bounds");
-
-        std::ptrdiff_t min_i = std::max<std::ptrdiff_t>(0, d_shifted - static_cast<std::ptrdiff_t>(cols) + 1);
-
-        assert(i >= min_i && "i index underflowed the diagonal bounds (too small)");
-        assert(i < static_cast<std::ptrdiff_t>(rows) && "i index overflowed the padded diagonal bounds (too large)");
-
-        return diag_offsets[static_cast<std::size_t>(d_shifted)] + static_cast<std::size_t>(i - min_i);
+        std::copy_n(data_ptr_diag_i(d, i_start), requested_count, dest);
     }
 };
 
 
 struct BlockDPScratch {
-    DiagonalMatrix<Float> W1, X, X_pfx;
-    DiagonalMatrix<Float> Y0, Z0_mat, W0;
+    DiagonalMatrix<Float, 0> W1, X, X_pfx;
+    DiagonalMatrix<Float, 8> Y0, Z0_mat, W0;
 #ifdef ENABLE_FS_INSERT_EXTENSION
-    DiagonalMatrix<Float> Z1_mat, Z2_mat;
+    DiagonalMatrix<Float, 8> Z1_mat, Z2_mat;
 #endif
 
     std::vector<Float> dp;
@@ -1218,6 +1174,28 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
         int max_i = std::min(D, (int)profile.length);
         if (min_i > max_i) continue;
 
+        // Fetch base pointers for required diagonals
+        const Float* w1_j3_base = scratch.W1.get_diag_base_ptr(D + 4);
+        const Float* y0_j_base  = scratch.Y0.get_diag_base_ptr(D + 1);
+        const Float* z0_j3_base = scratch.Z0_mat.get_diag_base_ptr(D + 3);
+#ifdef ENABLE_FS_DELETE_STATES
+        const Float* w1_j2_base = scratch.W1.get_diag_base_ptr(D + 3);
+        const Float* w1_j1_base = scratch.W1.get_diag_base_ptr(D + 2);
+#endif
+#ifdef ENABLE_FS_INSERT_EXTENSION
+        const Float* z1_j1_base = scratch.Z1_mat.get_diag_base_ptr(D + 1);
+        const Float* z2_j2_base = scratch.Z2_mat.get_diag_base_ptr(D + 2);
+#endif
+
+        // Store base pointers
+        Float* w1_dst_base = scratch.W1.get_diag_base_ptr(D);
+        Float* y0_dst_base = scratch.Y0.get_diag_base_ptr(D);
+        Float* z0_dst_base = scratch.Z0_mat.get_diag_base_ptr(D);
+#ifdef ENABLE_FS_INSERT_EXTENSION
+        Float* z1_dst_base = scratch.Z1_mat.get_diag_base_ptr(D);
+        Float* z2_dst_base = scratch.Z2_mat.get_diag_base_ptr(D);
+#endif
+
         for (int i = min_i; i <= max_i; i += simdWidth) {
             simd_t is_valid = gather_simd([&](int k) -> Float {
                 return (i + k > max_i) ? 0.0 : 1.0;
@@ -1226,29 +1204,29 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
 
             simd_t C_enter = gather_simd([&](int k) -> Float {
                 int r = i + k;
-                return (r <= profile.length) ? profile.values_v2[r].enter_match_probability * distribute3 : 0.0;
+                return (r <= (int)profile.length) ? profile.values_v2[r].enter_match_probability * distribute3 : 0.0;
             });
 #ifdef ENABLE_FS_DELETE_STATES
-            simd_t C_delta0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].delta_prime[0] : 0.0; });
-            simd_t C_delta1 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].delta_prime[1] * distribute2 : 0.0; });
-            simd_t C_delta2 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].delta_prime[2] * distribute1 : 0.0; });
+            simd_t C_delta0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].delta_prime[0] : 0.0; });
+            simd_t C_delta1 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].delta_prime[1] * distribute2 : 0.0; });
+            simd_t C_delta2 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].delta_prime[2] * distribute1 : 0.0; });
 #else
-            simd_t C_delta0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].delta_prime : 0.0; });
+            simd_t C_delta0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].delta_prime : 0.0; });
 #endif
-            simd_t C_alpha0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].alpha_prime[0] * distribute3 : 0.0; });
-            simd_t C_alpha1 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].alpha_prime[1] * distribute1 : 0.0; });
-            simd_t C_alpha2 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].alpha_prime[2] * distribute2 : 0.0; });
-            simd_t C_beta0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].beta_prime[0] * distribute3 : 0.0; });
+            simd_t C_alpha0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].alpha_prime[0] * distribute3 : 0.0; });
+            simd_t C_alpha1 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].alpha_prime[1] * distribute1 : 0.0; });
+            simd_t C_alpha2 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].alpha_prime[2] * distribute2 : 0.0; });
+            simd_t C_beta0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].beta_prime[0] * distribute3 : 0.0; });
 #ifdef ENABLE_FS_INSERT_EXTENSION
-            simd_t C_beta1 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].beta_prime[1] * distribute3 : 0.0; });
-            simd_t C_beta2 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].beta_prime[2] * distribute3 : 0.0; });
+            simd_t C_beta1 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].beta_prime[1] * distribute3 : 0.0; });
+            simd_t C_beta2 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].beta_prime[2] * distribute3 : 0.0; });
 #endif
-            simd_t C_eps0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].epsilon_prime : 0.0; });
+            simd_t C_eps0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].epsilon_prime : 0.0; });
 
             simd_t codon_emit_probs = gather_simd([&](int k) -> Float {
                 int r = i + k;
                 int c_j = D - r;
-                if (r <= profile.length && c_j + 1 < maxSequenceLength) {
+                if (r <= (int)profile.length && c_j + 1 < maxSequenceLength) {
                     return profile.values[r * profile.width + 4 + decoded_ptr[c_j + 1]];
                 }
                 return 0.0;
@@ -1266,23 +1244,23 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
             simd_t one_arr = gather_simd([&](int k) -> Float {
                 int r = i + k;
                 int c_j = D - r;
-                if (c_j < maxSequenceLength) {
+                if (c_j >= 0 && c_j < maxSequenceLength) {
                     return one_ptr[c_j];
                 }
                 return 0.0;
             });
 
             // LOAD MEMORY
-            simd_t w1_i1_j3 = scratch.W1.load_simd(D + 4, i + 1);
-            simd_t y0_i1_j  = scratch.Y0.load_simd(D + 1, i + 1);
+            simd_t w1_i1_j3 = Kokkos::Experimental::simd_unchecked_load<simd_t>(w1_j3_base + i + 1);
+            simd_t y0_i1_j  = Kokkos::Experimental::simd_unchecked_load<simd_t>(y0_j_base + i + 1);
 #ifdef ENABLE_FS_DELETE_STATES
-            simd_t w1_i1_j2 = scratch.W1.load_simd(D + 3, i + 1);
-            simd_t w1_i1_j1 = scratch.W1.load_simd(D + 2, i + 1);
+            simd_t w1_i1_j2 = Kokkos::Experimental::simd_unchecked_load<simd_t>(w1_j2_base + i + 1);
+            simd_t w1_i1_j1 = Kokkos::Experimental::simd_unchecked_load<simd_t>(w1_j1_base + i + 1);
 #endif
-            simd_t z0_i_j3  = scratch.Z0_mat.load_simd(D + 3, i);
+            simd_t z0_i_j3  = Kokkos::Experimental::simd_unchecked_load<simd_t>(z0_j3_base + i);
 #ifdef ENABLE_FS_INSERT_EXTENSION
-            simd_t z1_i_j1  = scratch.Z1_mat.load_simd(D + 1, i);
-            simd_t z2_i_j2  = scratch.Z2_mat.load_simd(D + 2, i);
+            simd_t z1_i_j1  = Kokkos::Experimental::simd_unchecked_load<simd_t>(z1_j1_base + i);
+            simd_t z2_i_j2  = Kokkos::Experimental::simd_unchecked_load<simd_t>(z2_j2_base + i);
 #endif
 
             // MATH
@@ -1312,17 +1290,17 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
                 int r = i + k;
                 if (r > max_i) break;
                 int c_j = D - r;
-                if (r > profile.length || c_j >= maxSequenceLength) continue;
+                if (r > (int)profile.length || c_j >= maxSequenceLength) continue;
                 right_side_ptr[c_j] += w_val[k];
             }
 
             // STORE MEMORY
-            scratch.W1.store_simd(D, i, w_val, valid_mask);
-            scratch.Y0.store_simd(D, i, y0_val, valid_mask);
-            scratch.Z0_mat.store_simd(D, i, z0_val, valid_mask);
+            blend_store_simd(w1_dst_base + i, w_val, valid_mask);
+            blend_store_simd(y0_dst_base + i, y0_val, valid_mask);
+            blend_store_simd(z0_dst_base + i, z0_val, valid_mask);
 #ifdef ENABLE_FS_INSERT_EXTENSION
-            scratch.Z1_mat.store_simd(D, i, z1_val, valid_mask);
-            scratch.Z2_mat.store_simd(D, i, z2_val, valid_mask);
+            blend_store_simd(z1_dst_base + i, z1_val, valid_mask);
+            blend_store_simd(z2_dst_base + i, z2_val, valid_mask);
 #endif
         }
     }
@@ -1348,9 +1326,9 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
     for (int j = maxSequenceLength - 1; j >= 0; j--) {
         Float bg_codon_emit_probs = (j >= 2) ? bg_probs_ptr[decoded[j - 2]] : 0;
 
-        right_side_ptr[j - 3] += (1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) * bg_codon_emit_probs * distribute3 * right_side_ptr[j];
-        right_side_ptr[j - 1] += (BACKGROUND_FRAMESHIFT_RATE * 0.25) * distribute1 * right_side_ptr[j];
-        right_side_ptr[j - 2] += (BACKGROUND_FRAMESHIFT_RATE_2 * 0.0625) * distribute2 * right_side_ptr[j];
+        if (j - 3 >= 0) right_side_ptr[j - 3] += (1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) * bg_codon_emit_probs * distribute3 * right_side_ptr[j];
+        if (j - 1 >= 0) right_side_ptr[j - 1] += (BACKGROUND_FRAMESHIFT_RATE * 0.25) * distribute1 * right_side_ptr[j];
+        if (j - 2 >= 0) right_side_ptr[j - 2] += (BACKGROUND_FRAMESHIFT_RATE_2 * 0.0625) * distribute2 * right_side_ptr[j];
         right_side_ptr[j] *= one_sfx_ptr[j];
         right_side_ptr[j] = std::max(right_side_ptr[j], (Float)0.0);
     }
@@ -1359,11 +1337,36 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
     }
 
     // FORWARD DP BLOCK (No Tiling, Antidiagonal Sweep)
-    int D_max_fwd = profile.length + maxSequenceLength;
+    int D_max_fwd = (int)profile.length + maxSequenceLength;
     for (int D = 0; D <= D_max_fwd; D++) {
         int min_i = std::max(0, D - maxSequenceLength + 1);
         int max_i = std::min(D, (int)profile.length);
         if (min_i > max_i) continue;
+
+        // Fetch base pointers for required diagonals
+        const Float* w1_base = scratch.W0.get_diag_base_ptr(D - 1);
+        const Float* w2_base = scratch.W0.get_diag_base_ptr(D - 2);
+        const Float* w3_base = scratch.W0.get_diag_base_ptr(D - 3);
+        const Float* w1_bkwd_base = scratch.W1.get_diag_base_ptr(D + 1);
+        const Float* z0_prev_base = scratch.Z0_mat.get_diag_base_ptr(D - 3);
+#ifdef ENABLE_FS_INSERT_EXTENSION
+        const Float* z1_prev_base = scratch.Z1_mat.get_diag_base_ptr(D - 3);
+        const Float* z2_prev_base = scratch.Z2_mat.get_diag_base_ptr(D - 3);
+#endif
+        const Float* w0_prev_base = scratch.W0.get_diag_base_ptr(D);
+        const Float* y0_prev_base = scratch.Y0.get_diag_base_ptr(D - 1);
+        const Float* wBegAnchored_base = scratch.W1.get_diag_base_ptr(D);
+
+        // Store base pointers
+        Float* x_dst_base = scratch.X.get_diag_base_ptr(D);
+        Float* z0_dst_base = scratch.Z0_mat.get_diag_base_ptr(D);
+#ifdef ENABLE_FS_INSERT_EXTENSION
+        Float* z1_dst_base = scratch.Z1_mat.get_diag_base_ptr(D);
+        Float* z2_dst_base = scratch.Z2_mat.get_diag_base_ptr(D);
+#endif
+        Float* w0_dst_base = scratch.W0.get_diag_base_ptr(D);
+        Float* y0_dst_base = scratch.Y0.get_diag_base_ptr(D);
+        Float* w0_next_dst_base = scratch.W0.get_diag_base_ptr(D + 1);
 
         for (int i = min_i; i <= max_i; i += simdWidth) {
             simd_t is_valid = gather_simd([&](int k) -> Float {
@@ -1373,29 +1376,29 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
 
             simd_t C_enter = gather_simd([&](int k) -> Float {
                 int r = i + k;
-                return (r <= profile.length) ? profile.values_v2[r].enter_match_probability * distribute3 : 0.0;
+                return (r <= (int)profile.length) ? profile.values_v2[r].enter_match_probability * distribute3 : 0.0;
             });
-            simd_t C_alpha0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].alpha_prime[0] : 0.0; });
-            simd_t C_alpha1 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].alpha_prime[1] * distribute1 : 0.0; });
-            simd_t C_alpha2 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].alpha_prime[2] * distribute2 : 0.0; });
-            simd_t C_beta0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].beta_prime[0] : 0.0; });
+            simd_t C_alpha0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].alpha_prime[0] : 0.0; });
+            simd_t C_alpha1 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].alpha_prime[1] * distribute1 : 0.0; });
+            simd_t C_alpha2 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].alpha_prime[2] * distribute2 : 0.0; });
+            simd_t C_beta0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].beta_prime[0] : 0.0; });
 #ifdef ENABLE_FS_INSERT_EXTENSION
-            simd_t C_beta1 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].beta_prime[1] : 0.0; });
-            simd_t C_beta2 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].beta_prime[2] : 0.0; });
+            simd_t C_beta1 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].beta_prime[1] : 0.0; });
+            simd_t C_beta2 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].beta_prime[2] : 0.0; });
 #endif
 #ifdef ENABLE_FS_DELETE_STATES
-            simd_t C_delta0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].delta_prime[0] : 0.0; });
-            simd_t C_delta1 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].delta_prime[1] * distribute2 : 0.0; });
-            simd_t C_delta2 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].delta_prime[2] * distribute1 : 0.0; });
+            simd_t C_delta0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].delta_prime[0] : 0.0; });
+            simd_t C_delta1 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].delta_prime[1] * distribute2 : 0.0; });
+            simd_t C_delta2 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].delta_prime[2] * distribute1 : 0.0; });
 #else
-            simd_t C_delta0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].delta_prime : 0.0; });
+            simd_t C_delta0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].delta_prime : 0.0; });
 #endif
-            simd_t C_eps0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= profile.length) ? profile.values_v2[r].epsilon_prime : 0.0; });
+            simd_t C_eps0 = gather_simd([&](int k) -> Float { int r = i + k; return (r <= (int)profile.length) ? profile.values_v2[r].epsilon_prime : 0.0; });
 
             simd_t codon_emit_probs = gather_simd([&](int k) -> Float {
                 int r = i + k;
                 int c_j = D - r;
-                if (r <= profile.length && c_j >= 2 && c_j < maxSequenceLength) {
+                if (r <= (int)profile.length && c_j >= 2 && c_j < maxSequenceLength) {
                     return profile.values[r * profile.width + 4 + decoded_ptr[c_j - 2]];
                 }
                 return 0.0;
@@ -1419,10 +1422,10 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
                 return 0.0;
             });
 
-            // LOAD MEMORY FROM GLOBAL DiagonalMatrix
-            simd_t w1 = scratch.W0.load_simd(D - 1, i);
-            simd_t w2 = scratch.W0.load_simd(D - 2, i);
-            simd_t w3 = scratch.W0.load_simd(D - 3, i);
+            // Optimized LOAD MEMORY FROM DiagonalMatrix
+            simd_t w1 = Kokkos::Experimental::simd_unchecked_load<simd_t>(w1_base + i);
+            simd_t w2 = Kokkos::Experimental::simd_unchecked_load<simd_t>(w2_base + i);
+            simd_t w3 = Kokkos::Experimental::simd_unchecked_load<simd_t>(w3_base + i);
 
             // Initial conditions for borders
             simd_t j_eq_0 = gather_simd([&](int k) -> Float { return (D - (i + k) == 0) ? 1.0 : 0.0; });
@@ -1434,13 +1437,13 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
             w3 = Kokkos::Experimental::condition(j_eq_2 > 0.5, simd_t(scale), w3);
 
             simd_t X_ij = C_enter * codon_emit_probs * w3;
-            simd_t w1_bkwd = scratch.W1.load_simd(D + 1, i + 1);
+            simd_t w1_bkwd = Kokkos::Experimental::simd_unchecked_load<simd_t>(w1_bkwd_base + i + 1);
             simd_t X_ij_EV = X_ij * w1_bkwd * simd_t(invScale);
 
-            simd_t z0_prev = scratch.Z0_mat.load_simd(D - 3, i);
+            simd_t z0_prev = Kokkos::Experimental::simd_unchecked_load<simd_t>(z0_prev_base + i);
 #ifdef ENABLE_FS_INSERT_EXTENSION
-            simd_t z1_prev = scratch.Z1_mat.load_simd(D - 3, i);
-            simd_t z2_prev = scratch.Z2_mat.load_simd(D - 3, i);
+            simd_t z1_prev = Kokkos::Experimental::simd_unchecked_load<simd_t>(z1_prev_base + i);
+            simd_t z2_prev = Kokkos::Experimental::simd_unchecked_load<simd_t>(z2_prev_base + i);
 #endif
 
 #ifdef ENABLE_FS_INSERT_EXTENSION
@@ -1451,10 +1454,10 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
             simd_t z1_val = C_alpha1 * w1;
             simd_t z2_val = C_alpha2 * w2;
 
-            simd_t w0_prev = scratch.W0.load_simd(D, i);
+            simd_t w0_prev = Kokkos::Experimental::simd_unchecked_load<simd_t>(w0_prev_base + i);
             simd_t w0_val = w0_prev + z0_val + z1_val + z2_val + one_arr * simd_t(scale);
 
-            simd_t y0_prev = scratch.Y0.load_simd(D - 1, i - 1);
+            simd_t y0_prev = Kokkos::Experimental::simd_unchecked_load<simd_t>(y0_prev_base + i - 1);
 #ifdef ENABLE_FS_DELETE_STATES
             simd_t y0_val = C_delta0 * w0_val + C_eps0 * y0_prev;
             simd_t w0_next = X_ij + y0_val + C_delta1 * w2 + C_delta2 * w1;
@@ -1463,7 +1466,7 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
             simd_t w0_next = X_ij + y0_val;
 #endif
 
-            simd_t wBegAnchored = scratch.W1.load_simd(D, i);
+            simd_t wBegAnchored = Kokkos::Experimental::simd_unchecked_load<simd_t>(wBegAnchored_base + i);
             simd_t wMidAnchored = w0_val * wBegAnchored * simd_t(invScale);
 
             // Scatter to global
@@ -1471,7 +1474,7 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
                 int r = i + k;
                 if (r > max_i) break;
                 int c_j = D - r;
-                if (r > profile.length || c_j >= maxSequenceLength) continue;
+                if (r > (int)profile.length || c_j >= maxSequenceLength) continue;
 
                 Float w_mid = wMidAnchored[k];
                 if (w_mid > scratch.best_wMid[c_j]) {
@@ -1482,17 +1485,17 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
                 left_side_ptr[c_j] += w0_val[k];
             }
 
-            // STORE MEMORY DIRECTLY TO GLOBAL DiagonalMatrix
-            scratch.X.store_simd(D, i, X_ij_EV, valid_mask);
-            scratch.Z0_mat.store_simd(D, i, z0_val, valid_mask);
+            // Optimized STORE MEMORY
+            blend_store_simd(x_dst_base + i, X_ij_EV, valid_mask);
+            blend_store_simd(z0_dst_base + i, z0_val, valid_mask);
 #ifdef ENABLE_FS_INSERT_EXTENSION
-            scratch.Z1_mat.store_simd(D, i, z1_val, valid_mask);
-            scratch.Z2_mat.store_simd(D, i, z2_val, valid_mask);
+            blend_store_simd(z1_dst_base + i, z1_val, valid_mask);
+            blend_store_simd(z2_dst_base + i, z2_val, valid_mask);
 #endif
-            scratch.W0.store_simd(D, i, w0_val, valid_mask);
-            scratch.Y0.store_simd(D, i, y0_val, valid_mask);
+            blend_store_simd(w0_dst_base + i, w0_val, valid_mask);
+            blend_store_simd(y0_dst_base + i, y0_val, valid_mask);
 
-            scratch.W0.store_simd(D + 1, i + 1, w0_next, valid_mask);
+            blend_store_simd(w0_next_dst_base + i + 1, w0_next, valid_mask);
         }
     }
 
@@ -1523,9 +1526,9 @@ void findSimilaritiesBlockDP(std::vector<AlignedSimilarity> &similarities, const
 
     for (int j = 0; j < maxSequenceLength; j++) {
         Float bg_codon_emit_probs = bg_codon_probs_ptr[j + 1];
-        left_side_ptr[j + 3] += (1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) * bg_codon_emit_probs * distribute3 * left_side_ptr[j];
-        left_side_ptr[j + 1] += (BACKGROUND_FRAMESHIFT_RATE * 0.25) * distribute1 * left_side_ptr[j];
-        left_side_ptr[j + 2] += (BACKGROUND_FRAMESHIFT_RATE_2 * 0.0625) * distribute2 * left_side_ptr[j];
+        if (j + 3 < maxSequenceLength) left_side_ptr[j + 3] += (1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) * bg_codon_emit_probs * distribute3 * left_side_ptr[j];
+        if (j + 1 < maxSequenceLength) left_side_ptr[j + 1] += (BACKGROUND_FRAMESHIFT_RATE * 0.25) * distribute1 * left_side_ptr[j];
+        if (j + 2 < maxSequenceLength) left_side_ptr[j + 2] += (BACKGROUND_FRAMESHIFT_RATE_2 * 0.0625) * distribute2 * left_side_ptr[j];
         left_side_ptr[j] *= one_ptr[j];
         left_side_ptr[j] = std::max(left_side_ptr[j], (Float)0.0);
     }
