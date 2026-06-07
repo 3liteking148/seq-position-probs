@@ -61,13 +61,6 @@ const int XDROP_MIN_I = 5;
 #define EVALUE
 #define ALIGN
 
-// uncomment to enable I_1, I_2 edge to I_0
-//#define ENABLE_FS_INSERT_EXTENSION
-
-// uncomment to enable D_1, D_2 states
-// D1, D2 cannot transition to another delete state for now (only to junction state)
-#define ENABLE_FS_DELETE_STATES
-
 // using through BATH heuristic pipeline
 #define PIPELINE_MODE
 
@@ -189,11 +182,7 @@ const int nonLetterWidth = 9; // number of non-letter values per position
 struct Params { // TODO: maybe SIMD order
     Float alpha_prime[3];
     Float beta_prime[3];
-#ifdef ENABLE_FS_DELETE_STATES
     Float delta_prime[3];
-#else
-    Float delta_prime;
-#endif
     Float epsilon_prime;
     Float enter_match_probability;
 };
@@ -1166,26 +1155,14 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
             // Pre-calculate constants for this i
             const simd_t C_enter = params_cur.enter_match_probability * distribute3;
-#ifdef ENABLE_FS_DELETE_STATES
             const simd_t C_delta0 = params_cur.delta_prime[0];
             const simd_t C_delta1 = params_cur.delta_prime[1] * distribute2;
             const simd_t C_delta2 = params_cur.delta_prime[2] * distribute1;
-#else
-            const simd_t C_delta0 = params_cur.delta_prime;
-#endif
             const simd_t C_alpha0 = params_cur.alpha_prime[0] * distribute3;
             const simd_t C_alpha1 = params_cur.alpha_prime[1] * distribute1;
             const simd_t C_alpha2 = params_cur.alpha_prime[2] * distribute2;
             const simd_t C_beta0 = params_cur.beta_prime[0] * distribute3;
-#ifdef ENABLE_FS_INSERT_EXTENSION
-            const simd_t C_beta1 = params_cur.beta_prime[1] * distribute3;
-            const simd_t C_beta2 = params_cur.beta_prime[2] * distribute3;
-#endif
             simd_t Z0_ring[4] = {0, 0, 0, 0};
-#ifdef ENABLE_FS_INSERT_EXTENSION
-            simd_t Z1_ring[4] = {0, 0, 0, 0};
-            simd_t Z2_ring[4] = {0, 0, 0, 0};
-#endif
 
             // Raw row pointers — avoid repeated i*cols in inner loop
             simd_t *__restrict__ w1_row_i = scratch.W1.row_ptr(i);
@@ -1207,16 +1184,9 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                 simd_t w_val =
                     w1_row_ip1[j + 3] * codon_emit_probs * C_enter +
                     Y0_next[j + 0] * C_delta0 +
-#ifdef ENABLE_FS_DELETE_STATES
                     w1_row_ip1[j + 2] * C_delta1 +
                     w1_row_ip1[j + 1] * C_delta2 +
-#endif
                     Z0_ring[r_3] * bg_codon_emit_probs * C_alpha0
-#ifdef ENABLE_FS_INSERT_EXTENSION
-                    +
-                    Z1_ring[r_1] * C_alpha1 +
-                    Z2_ring[r_2] * C_alpha2
-#endif
                  + one[j] * C_scale;
                 w1_row_i[j] = w_val;
 #ifdef ALIGN
@@ -1226,10 +1196,6 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                 Y0_curr[j] = Kokkos::fma(C_eps0, Y0_next[j], w_val);
                 simd_t z0_future = Z0_ring[r_3] * bg_codon_emit_probs;
                 Z0_ring[r_0] = Kokkos::fma(C_beta0, z0_future, w_val);
-#ifdef ENABLE_FS_INSERT_EXTENSION
-                Z1_ring[r_0] = Kokkos::fma(C_beta1, z0_future, w_val);
-                Z2_ring[r_0] = Kokkos::fma(C_beta2, z0_future, w_val);
-#endif
             }
 
             std::swap(Y0_curr, Y0_next);
@@ -1281,17 +1247,9 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         const simd_t C_alpha1 = params_cur.alpha_prime[1] * distribute1;
         const simd_t C_alpha2 = params_cur.alpha_prime[2] * distribute2;
         const simd_t C_beta0 = params_cur.beta_prime[0];
-#ifdef ENABLE_FS_INSERT_EXTENSION
-        const simd_t C_beta1 = params_cur.beta_prime[1];
-        const simd_t C_beta2 = params_cur.beta_prime[2];
-#endif
-#ifdef ENABLE_FS_DELETE_STATES
         const simd_t C_delta0 = params_cur.delta_prime[0];
         const simd_t C_delta1 = params_cur.delta_prime[1] * distribute2;
         const simd_t C_delta2 = params_cur.delta_prime[2] * distribute1;
-#else
-        const simd_t C_delta0 = params_cur.delta_prime;
-#endif
         const simd_t C_eps0 = params_cur.epsilon_prime;
         const simd_t C_scale = scale;
 
@@ -1369,16 +1327,10 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             //
 #endif
 
-#ifdef ENABLE_FS_INSERT_EXTENSION
-            Z0_ring[r_0] =
-                bg_codon_emit_probs * distribute3 *
-                (C_alpha0 * w3 + C_beta0 * Z0_ring[r_3] +
-                    C_beta1 * Z1_ring[r_3] + C_beta2 * Z2_ring[r_3]);
-#else
+
             Z0_ring[r_0] =
                 bg_codon_emit_probs * distribute3 *
                 (C_alpha0 * w3 + C_beta0 * Z0_ring[r_3]);
-#endif
             Z1_ring[r_0] = C_alpha1 * w1;
             Z2_ring[r_0] = C_alpha2 * w2;
 
@@ -1408,19 +1360,10 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             w_shift[1] = w_shift[0];
             w_shift[0] = w0;
 
-#ifdef ENABLE_FS_DELETE_STATES
             Y0_curr[j] = C_delta0 * w0 + C_eps0 * Y0_next[j];
             Y0_curr[j] *= is_active;
             if (w0_row_ip1)
                 w0_row_ip1[j] += X_ij + Y0_curr[j] + C_delta1 * w2 + C_delta2 * w1;
-#else
-            auto Y0_curr_j = C_delta0 * Kokkos::Experimental::condition(is_active > 0, w0, simd_t(0))
-                           + C_eps0 * Y0_next[j];
-            Y0_curr_j *= is_active;
-            if (w0_row_ip1)
-                w0_row_ip1[j] += Kokkos::Experimental::condition(active_shift[2] > 0, X_ij, simd_t(0))
-                               + Y0_curr_j;
-#endif
 
             // SIMD anchor tracking — update best values per j using wMid
             if (in_band) {
@@ -2415,22 +2358,13 @@ int finalizeProfile(Profile &p, char *consensusSequence, int backgroundProbsType
 
         double delta1 = probs[p.width + 2];
         double epsilon1 = probs[p.width + 3];
-
-#ifdef ENABLE_FS_DELETE_STATES
         double deltaFS1 = DELETE1; // simulate delete
         double deltaFS2 = DELETE2;
         p.values_v2.rbegin()->delta_prime[0] = delta * (1 - epsilon1);
         p.values_v2.rbegin()->delta_prime[1] = deltaFS1 * (1 - epsilon1);
         p.values_v2.rbegin()->delta_prime[2] = deltaFS2 * (1 - epsilon1);
-
         p.values_v2.rbegin()->epsilon_prime = epsilon * (1 - epsilon1) / (1 - epsilon);
         p.values_v2.rbegin()->enter_match_probability = (1 - alpha - alphaFS1 - alphaFS2 - delta - deltaFS1 - deltaFS2);
-#else
-        p.values_v2.rbegin()->delta_prime = delta * (1 - epsilon1);
-        p.values_v2.rbegin()->epsilon_prime = epsilon * (1 - epsilon1) / (1 - epsilon);
-        p.values_v2.rbegin()->enter_match_probability = (1 - alpha - alphaFS1 - alphaFS2 - delta);
-#endif
-
 
         double c = (1 - alpha - delta);
         if (epsilon >= 1)
