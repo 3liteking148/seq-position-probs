@@ -1186,7 +1186,9 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                     Y0_next[j + 0] * C_delta0 +
                     w1_row_ip1[j + 2] * C_delta1 +
                     w1_row_ip1[j + 1] * C_delta2 +
-                    Z0_ring[r_3] * bg_codon_emit_probs * C_alpha0
+                    Z0_ring[r_3] * bg_codon_emit_probs * C_alpha0 +
+                    w1_row_i[j + 1] * C_alpha1 +
+                    w1_row_i[j + 2] * C_alpha2
                  + one[j] * C_scale;
                 w1_row_i[j] = w_val;
 #ifdef ALIGN
