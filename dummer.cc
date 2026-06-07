@@ -668,14 +668,14 @@ void addForwardAlignment(int idx, size_t profileLength, size_t sequenceLength, s
     int i = iBeg, j = jBeg;
     while (i <= profileLength && j < sequenceLength) {
         auto choice = std::max({
-            DP_Cell_v2{.metric=scratch.X(i, j)[idx] + scratch.W1(i + 1, j + 3)[idx], .i=i + 1, .j=j + 3, .emit=true},
+            DP_Cell_v2{.metric=(j + 3 < (int)sequenceLength ? scratch.X(i, j + 3)[idx] + scratch.W1(i + 1, j + 3)[idx] : -INFINITY), .i=i + 1, .j=j + 3, .emit=true},
             DP_Cell_v2{.metric=scratch.W1(i + 1, j)[idx], .i=i + 1, .j=j, .emit=false},
             DP_Cell_v2{.metric=scratch.W1(i, j + 1)[idx], .i=i, .j=j + 1, .emit=false},
             DP_Cell_v2{.metric=scratch.left_side[j][idx], .i=INT_MAX, .j=INT_MAX, .emit=false},
         });
 
-        if (choice.emit && j >= 2) {
-            addForwardMatch(alignment, i, j - 2);
+        if (choice.emit) {
+            addForwardMatch(alignment, i, j + 1);
         }
         i = choice.i, j = choice.j;
     }
@@ -686,18 +686,18 @@ void addReverseAlignment(int idx, std::vector<SegmentPair> &alignment, int iEnd,
     int i = iEnd, j = jEnd;
     while (i >= 0 && j >= 0) {
         DP_Cell opt_succ = 0;
-        if (i - 1 >= 0 && j - 3 >= 0) {
-            opt_succ = scratch.X_pfx(i - 1, j - 3)[idx];
+        if (i >= 2 && j >= 3) {
+            opt_succ = scratch.X_pfx(i - 2, j - 3)[idx];
         }
         auto choice = std::max({
-            DP_Cell_v2{.metric=scratch.X(i, j)[idx] + opt_succ, .i=i - 1, .j=j - 3, .emit=true},
-            DP_Cell_v2{.metric=(i ? scratch.X_pfx(i - 1, j)[idx] : 0), .i=i - 1, .j=j, .emit=false},
-            DP_Cell_v2{.metric=(j ? scratch.X_pfx(i, j - 1)[idx] : 0), .i=i, .j=j - 1, .emit=false},
-            DP_Cell_v2{.metric=scratch.right_side[j][idx], .i=INT_MIN, .j=INT_MIN, .emit=false},
+            DP_Cell_v2{.metric=(i >= 1 && j >= 3 ? scratch.X(i - 1, j)[idx] + opt_succ : -INFINITY), .i=i - 1, .j=j - 3, .emit=true},
+            DP_Cell_v2{.metric=(i >= 1 ? scratch.X_pfx(i - 2, j)[idx] : -INFINITY), .i=i - 1, .j=j, .emit=false},
+            DP_Cell_v2{.metric=(j > 0 ? scratch.X_pfx(i - 1, j - 1)[idx] : -INFINITY), .i=i, .j=j - 1, .emit=false},
+            DP_Cell_v2{.metric=scratch.right_side[j][idx], .i=-1, .j=-1, .emit=false},
         });
 
-        if (choice.emit && j >= 2) {
-            addReverseMatch(alignment, i, j - 2);
+        if (choice.emit) {
+            addReverseMatch(alignment, i - 1, j - 2);
         }
         i = choice.i, j = choice.j;
     }
