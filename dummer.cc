@@ -683,21 +683,21 @@ void addForwardAlignment(int idx, size_t profileLength, size_t sequenceLength, s
 
 void addReverseAlignment(int idx, std::vector<SegmentPair> &alignment, int iEnd, int jEnd,
                          DPScratch &scratch) {
-    int i = iEnd, j = jEnd;
+    int i = iEnd - 1, j = jEnd;
     while (i >= 0 && j >= 0) {
         DP_Cell opt_succ = 0;
-        if (i >= 2 && j >= 3) {
-            opt_succ = scratch.X_pfx(i - 2, j - 3)[idx];
+        if (i >= 1 && j >= 3) {
+            opt_succ = scratch.X_pfx(i - 1, j - 3)[idx];
         }
         auto choice = std::max({
-            DP_Cell_v2{.metric=(i >= 1 && j >= 3 ? scratch.X(i - 1, j)[idx] + opt_succ : -INFINITY), .i=i - 1, .j=j - 3, .emit=true},
-            DP_Cell_v2{.metric=(i >= 1 ? scratch.X_pfx(i - 2, j)[idx] : -INFINITY), .i=i - 1, .j=j, .emit=false},
-            DP_Cell_v2{.metric=(j > 0 ? scratch.X_pfx(i - 1, j - 1)[idx] : -INFINITY), .i=i, .j=j - 1, .emit=false},
+            DP_Cell_v2{.metric=(j >= 3 ? scratch.X(i, j)[idx] + opt_succ : -INFINITY), .i=i - 1, .j=j - 3, .emit=true},
+            DP_Cell_v2{.metric=(i >= 1 ? scratch.X_pfx(i - 1, j)[idx] : -INFINITY), .i=i - 1, .j=j, .emit=false},
+            DP_Cell_v2{.metric=(j > 0 ? scratch.X_pfx(i, j - 1)[idx] : -INFINITY), .i=i, .j=j - 1, .emit=false},
             DP_Cell_v2{.metric=scratch.right_side[j][idx], .i=-1, .j=-1, .emit=false},
         });
 
         if (choice.emit) {
-            addReverseMatch(alignment, i - 1, j - 2);
+            addReverseMatch(alignment, i, j - 2);
         }
         i = choice.i, j = choice.j;
     }
