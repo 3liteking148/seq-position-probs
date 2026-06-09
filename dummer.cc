@@ -55,8 +55,8 @@
 #define OPT_t 1000
 #define OPT_l 5000
 #define OPT_b 100
-#define OPT_x 1e-7 // 0 to enable full DP mode
-const int XDROP_MIN_I = 5;
+#define OPT_x 1e-3 // 0 to enable full DP mode
+const int XDROP_MIN_I = 32;
 
 #define EVALUE
 #define ALIGN
@@ -1237,6 +1237,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     }
 #endif
 
+    size_t active_cells = 0, total_cells = 0;
     size_t band_cells = 0;
     simd_t global_best = simd_t(0.0);
     for (int i = 0; i <= profile.length; i++) {
@@ -1291,6 +1292,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
         simd_t lane_first_active = simd_t((Float)maxSequenceLength);
         simd_t lane_last_active = simd_t(0.0);
+        simd_t row_active_count = simd_t(0);
 
 
         for (int j = seq_start; j <= hi; j++) {
@@ -1351,6 +1353,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             simd_t is_active = (in_band && useXDrop && i >= XDROP_MIN_I)
                 ? Kokkos::Experimental::condition(wMid >= global_best * OPT_x, simd_t(1), simd_t(0))
                 : (in_band ? simd_t(1) : simd_t(0));
+            row_active_count += is_active;
             w0 *= is_active;
             w0_row_i[j] = w0;
 
@@ -1381,6 +1384,15 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                 scratch.best_wEnd[j] = Kokkos::Experimental::condition(mask, w0, scratch.best_wEnd[j]);
                 scratch.best_i[j] = Kokkos::Experimental::condition(mask, simd_t((Float)i), scratch.best_i[j]);
             }
+        }
+
+        {
+            Float row_active_arr[simdWidth];
+            simd_unchecked_store(row_active_count, row_active_arr, Kokkos::Experimental::simd_flag_default);
+            for (int k = 0; k < activeCount; k++) {
+                active_cells += (int64_t)row_active_arr[k];
+            }
+            total_cells += activeCount * (hi - seq_start + 1);
         }
 
         if (useXDrop && i >= XDROP_MIN_I) {
@@ -1420,7 +1432,9 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         debug_band += band_cells;
         std::ostringstream ss;
         ss << "# X-drop: " << debug_band << "/" << debug_full
-           << " (" << (100.0 * debug_band / debug_full) << "%)" << std::endl;
+           << " (" << (100.0 * debug_band / debug_full) << "%)"
+           << "  active: " << active_cells << "/" << total_cells
+           << " (" << (100.0 * active_cells / total_cells) << "%)" << std::endl;
         std::cerr << ss.str();
     }
 
