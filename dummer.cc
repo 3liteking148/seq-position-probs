@@ -1676,7 +1676,9 @@ double maximumLikelihoodLambda(const double *scores, int n) {
     double lo = 1;
     double hi = 1;
     double x, y;
+    int iters = 0;
     do {
+        if (++iters > 1000) return 1.0;
         lo /= 2;
         hi *= 2;
         x = shouldBe0(scores, n, lo);
