@@ -207,6 +207,7 @@ struct Sequence {
     size_t w_start, w_end, true_length;
     std::string target_profile;
     bool is_plus;
+    bool has_pipeline_fields = false;
 #endif
 };
 
@@ -338,23 +339,23 @@ std::istream &readContig(std::istream &in, Sequence &sequence, Contig &contig,
             return fail(in, "bad sequence data: no name");
 #ifdef PIPELINE_MODE
         size_t slash = word.find('/');
-        std::string chr = word.substr(0, slash);
-
-        std::string range = word.substr(slash + 1);
-        size_t dash = range.find('-');
-
-        sequence.w_start = std::stoi(range.substr(0, dash));
-        sequence.w_end = std::stoi(range.substr(dash + 1));
-
-        std::string length, profile, strand;
-        if (!(iss >> length >> profile >> strand))
-            return fail(in, "bad filtered sequence data: no true length, profile, or strand");
-
-        sequence.true_length = stoll(length.substr(length.find('=') + 1));
-        sequence.target_profile = profile.substr(profile.find('=') + 1);
-        sequence.is_plus = strand.find("plus_strand") != std::string::npos;
-        // keep sequence name
-        word = chr;
+        if (slash != std::string::npos) {
+            std::string chr = word.substr(0, slash);
+            std::string range = word.substr(slash + 1);
+            size_t dash = range.find('-');
+            if (dash != std::string::npos) {
+                sequence.w_start = std::stoi(range.substr(0, dash));
+                sequence.w_end = std::stoi(range.substr(dash + 1));
+            }
+            std::string length, profile, strand;
+            if (iss >> length >> profile >> strand) {
+                sequence.true_length = stoll(length.substr(length.find('=') + 1));
+                sequence.target_profile = profile.substr(profile.find('=') + 1);
+                sequence.is_plus = strand.find("plus_strand") != std::string::npos;
+            }
+            sequence.has_pipeline_fields = true;
+            word = chr;
+        }
 #endif
         sequence.nameIdx = vec.size();
         sequence.length = 0;
@@ -455,12 +456,14 @@ void printSimilarity(const char *names, Profile &p, Sequence s, const FinalSimil
     int span2 = length - std::count(seq + length, seq + length * 2, '-');
     int start2 = strandPosition(sim.strandNum, s.length, sim.start2);
 #ifdef PIPELINE_MODE
-    if (s.is_plus) {
-        start2 = s.w_start - 1 + start2;
-    } else {
-        start2 = s.true_length - s.w_end + start2;
+    if (s.has_pipeline_fields) {
+        if (s.is_plus) {
+            start2 = s.w_start - 1 + start2;
+        } else {
+            start2 = s.true_length - s.w_end + start2;
+        }
     }
-    int reportSeqLength = s.true_length;
+    int reportSeqLength = s.has_pipeline_fields ? s.true_length : s.length;
 #else
     int reportSeqLength = s.length;
 #endif
@@ -3143,7 +3146,7 @@ Options for background letter probabilities:\n\
                 for (size_t j = 0; j < numOfProfiles; ++j) {
                     const Profile &p = profiles[j];
 #ifdef PIPELINE_MODE
-                    if (!strcmp(&charVec[p.nameIdx], sequence.target_profile.c_str())) {
+                    if (sequence.target_profile.empty() || !strcmp(&charVec[p.nameIdx], sequence.target_profile.c_str())) {
 #endif
                         Float minProbRatio =
                             (evalueOpt > 0)
