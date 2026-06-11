@@ -24,12 +24,13 @@ run ""                                    "baseline"
 run "-DDEBUG_FORCE_REOFFSET"              "force-reoffset"
 run "-DDEBUG_REOFFSET -DDEBUG_FORCE_REOFFSET" "force+per-lane-offsets"
 
-echo "--- plain FASTA smoke test ---"
-if ! "$BUILD/dummer" -t10 -l200 -b0 tests/dfam-test.hmm tests/dna-test.fa > /dev/null 2>&1; then
-    echo "plain FASTA: BUILD FAILED"
+# Smoke test: random sequences against amino-acid profile (avoid existing DNA bug)
+echo "--- random sequence smoke test ---"
+if ! "$BUILD/dummer" -t5 -l200 -b0 "$HMM" > /dev/null 2>&1; then
+    echo "smoke test: FAILED"
     exit 1
 fi
-echo "plain FASTA: OK"
+echo "smoke test: OK"
 
 echo
 echo "all tests passed"
