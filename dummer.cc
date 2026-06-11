@@ -1099,10 +1099,12 @@ std::vector<uint8_t> decodeSequence(const char *sequence, int sequenceLength, co
 
 // Harmonize alignment regions by offsetting sequences to converge X-drop bands.
 // Called periodically from findSimilarities forward pass.
-static bool reoffset(DPScratch& scratch, int activeCount, int current_i,
+// delta_out receives the per-lane shift amounts applied (for band preservation).
+static bool reoffset(DPScratch& scratch, int activeCount,
                      int old_sl, int& new_sl,
                      simd_t& active_seq_len,
                      Float* active_sequence_length,
+                     std::array<int, simdWidth>& delta_out,
                      const std::array<std::vector<uint8_t>*, simdWidth>& decoded,
                      const Profile& profile,
                      int zero_idx, uint8_t*& transposed_base) {
@@ -1130,6 +1132,8 @@ static bool reoffset(DPScratch& scratch, int activeCount, int current_i,
         if (d > 0) any_shift = true;
     }
     if (!any_shift) return false;
+
+    delta_out = delta;
 
     // Step 3: Update cumulative offsets
     for (int k = 0; k < activeCount; k++) scratch.seq_offset[k] += delta[k];
@@ -1190,12 +1194,6 @@ static bool reoffset(DPScratch& scratch, int activeCount, int current_i,
     scratch.null_model_prefix.shiftColumnar(d, new_sl + 4, ac, scratch.shift_buf);
     scratch.null_model_suffix.shiftColumnar(d, new_sl + 4, ac, scratch.shift_buf);
 
-    // Step 9: Reset band bounds for remaining rows
-    for (int r = current_i + 1; r <= (int)profile.length + 1; r++) {
-        scratch.fwd_band_lo[r] = 0;
-        scratch.fwd_band_hi[r] = new_sl - 1;
-    }
-
     return true;
 }
 
@@ -1235,32 +1233,14 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     simd_t active_seq_len = Kokkos::Experimental::simd_unchecked_load<simd_t>(active_sequence_length);
 
 #ifdef DEBUG_REOFFSET
-    // Apply fixed per-lane offsets to verify traceback coordinate handling.
-    // Lane k skips k*36 bases (k*12 codons) from the front of its sequence.
-    for (int k = 0; k < activeCount; k++)
-        scratch.seq_offset[k] = k * 36;
-    active_dp_width = 0;
+    // Block 1: Set per-lane offsets for testing.
+    // Lane k skips k*36 bases from the front of its sequence.
+    // Skip offsetting when the offset would exceed the sequence length.
     for (int k = 0; k < activeCount; k++) {
-        active_sequence_length[k] = std::max((Float)0, (Float)decoded[k]->size() - (Float)scratch.seq_offset[k]);
-        actual_sequence_length[k] = active_sequence_length[k];  // match null model to window
-        if (active_sequence_length[k] > active_dp_width) active_dp_width = (int)active_sequence_length[k];
+        int off = k * 36;
+        if (off < (int)decoded[k]->size())
+            scratch.seq_offset[k] = off;
     }
-    if (active_dp_width < 4) active_dp_width = 4;
-    scratch.active_dp_width = active_dp_width;
-
-    scratch.transposed_decoded.assign((active_dp_width + 8) * simdWidth, zero_idx);
-    transposed_base = scratch.transposed_decoded.data() + 4 * simdWidth;
-    for (int k = 0; k < activeCount; k++) {
-        int off = scratch.seq_offset[k];
-        const auto& src = *decoded[k];
-        for (int j = 0; j < active_dp_width; j++) {
-            int src_pos = j + off;
-            transposed_base[j * simdWidth + k] = (src_pos < (int)src.size()) ? src[src_pos] : zero_idx;
-        }
-    }
-
-    actual_seq_len = Kokkos::Experimental::simd_unchecked_load<simd_t>(actual_sequence_length);
-    active_seq_len = Kokkos::Experimental::simd_unchecked_load<simd_t>(active_sequence_length);
 #endif
 
     auto &null_probs_prefix = scratch.null_probs_prefix;
@@ -1644,29 +1624,9 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             total_cells += activeCount * (hi - seq_start + 1);
         }
 
-        if (useXDrop && i >= XDROP_MIN_I) {
-            Float first_arr[simdWidth], last_arr[simdWidth];
-            simd_unchecked_store(lane_first_active, first_arr, Kokkos::Experimental::simd_flag_default);
-            simd_unchecked_store(lane_last_active, last_arr, Kokkos::Experimental::simd_flag_default);
-            int new_lo = active_dp_width, new_hi = 0;
-            int has_active = 0;
-            for (int k = 0; k < activeCount; k++) {
-                int f = (int)first_arr[k];
-                int l = (int)last_arr[k];
-                if (f <= l) {
-                    new_lo = std::min(new_lo, f);
-                    new_hi = std::max(new_hi, l);
-                    has_active = 1;
-                }
-            }
-            if (has_active) {
-                scratch.fwd_band_lo[i + 1] = new_lo;
-                scratch.fwd_band_hi[i + 1] = std::min(active_dp_width - 1, new_hi + 3);
-            } else {
-                scratch.fwd_band_lo[i + 1] = lo;
-                scratch.fwd_band_hi[i + 1] = std::min(active_dp_width - 1, lo + 3);
-            }
-        }
+        Float first_arr[simdWidth], last_arr[simdWidth];
+        simd_unchecked_store(lane_first_active, first_arr, Kokkos::Experimental::simd_flag_default);
+        simd_unchecked_store(lane_last_active, last_arr, Kokkos::Experimental::simd_flag_default);
 
         // Re-offset: converge X-drop bands when they span too much of the sequence
         if (useXDrop && i >= XDROP_MIN_I * 2 && i % XDROP_MIN_I == 0 && i < profile.length - 1) {
@@ -1677,15 +1637,42 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             if (bw > active_dp_width / 2) {
 #endif
                 int new_sl;
-                if (reoffset(scratch, activeCount, i, active_dp_width, new_sl,
-                             active_seq_len, active_sequence_length,
+                std::array<int, simdWidth> delta;
+                if (reoffset(scratch, activeCount, active_dp_width, new_sl,
+                             active_seq_len, active_sequence_length, delta,
                              decoded, profile, zero_idx, transposed_base)) {
                     active_dp_width = new_sl;
                     scratch.active_dp_width = active_dp_width;
                     scratch.W0_next.resize(active_dp_width + 4, simd_t(0.0));
                     scratch.Y0_curr.resize(active_dp_width + 4, simd_t(0.0));
                     bg_codon_probs_base = scratch.bg_codon_probs.data();
+                    for (int k = 0; k < activeCount; k++) {
+                        first_arr[k] -= (Float)delta[k];
+                        last_arr[k]  -= (Float)delta[k];
+                    }
                 }
+            }
+        }
+
+        if (useXDrop && i >= XDROP_MIN_I) {
+            int new_lo = active_dp_width, new_hi = 0;
+            int has_active = 0;
+            for (int k = 0; k < activeCount; k++) {
+                int first = (int)first_arr[k];
+                int last  = (int)last_arr[k];
+                if (first <= last) {
+                    assert(first >= 0 && last < active_dp_width);
+                    new_lo = std::min(new_lo, first);
+                    new_hi = std::max(new_hi, last);
+                    has_active = 1;
+                }
+            }
+            if (has_active) {
+                scratch.fwd_band_lo[i + 1] = new_lo;
+                scratch.fwd_band_hi[i + 1] = std::min(active_dp_width - 1, new_hi + 3);
+            } else {
+                scratch.fwd_band_lo[i + 1] = lo;
+                scratch.fwd_band_hi[i + 1] = std::min(active_dp_width - 1, lo + 3);
             }
         }
 
@@ -1766,7 +1753,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         if (minProbRatio[idx] >= 0) {
             std::ranges::sort(scratch.opt_profile_position[idx], std::greater<>());
             auto &aligned = scratch.aligned;
-            aligned[idx].assign(decoded[idx]->size(), false);
+            aligned[idx].assign(decoded[idx]->size() + scratch.seq_offset[idx], false);
             for (auto &aligned_similarity : scratch.opt_profile_position[idx]) {
                 if (aligned_similarity.probRatio >= minProbRatio[idx] &&
                     !aligned[idx][aligned_similarity.anchor2]) {
@@ -1781,7 +1768,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                     // todo: silence nuclear fallout
                     int startIdx = std::max(aligned_similarity.anchor2 - 12 * profile.length, 0);
                     int endIdx =
-                        std::min(aligned_similarity.anchor2 + 12 * profile.length, (int)decoded[idx]->size());
+                        std::min(aligned_similarity.anchor2 + 12 * profile.length, (int)decoded[idx]->size() + scratch.seq_offset[idx]);
                     // std::cout << startIdx << " " << endIdx << std::endl;
                     std::fill(aligned[idx].begin() + startIdx, aligned[idx].begin() + endIdx, true);
                     }
