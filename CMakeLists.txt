@@ -35,9 +35,18 @@ add_executable(dummer dummer.cc dummer-util.hh tantan-wrapper.hh version.hh can_
 target_compile_definitions(dummer PRIVATE DOUBLE)
 target_include_directories(dummer PRIVATE "${CMAKE_SOURCE_DIR}/include")
 target_link_libraries(dummer Kokkos::kokkos)
+add_custom_command(TARGET dummer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:dummer> "${CMAKE_SOURCE_DIR}/bin/dummer")
 
 add_executable(dummerl dummer.cc dummer-util.hh tantan-wrapper.hh version.hh can_i_haz_simd.hh)
 target_include_directories(dummerl PRIVATE "${CMAKE_SOURCE_DIR}/include")
 target_link_libraries(dummerl Kokkos::kokkos)
+add_custom_command(TARGET dummerl POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:dummerl> "${CMAKE_SOURCE_DIR}/bin/dummerl")
 
 add_executable(dummer-build dummer-build.cc dummer-util.hh version.hh priors/gap-priors.hh priors/wheeler4.hh priors/blocks9.hh)
+add_custom_command(TARGET dummer-build POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:dummer-build> "${CMAKE_SOURCE_DIR}/bin/dummer-build")
