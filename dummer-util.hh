@@ -17,9 +17,8 @@ int err(const char *message) {
 }
 
 std::istream &fail(std::istream &s, const char *message) {
-  std::cerr << message << "\n";
-  s.setstate(std::ios::failbit);
-  return s;
+  std::cerr << "FATAL: " << message << "\n";
+  std::abort();
 }
 
 std::istream &openFile(std::ifstream &file, const char *name) {
