@@ -55,7 +55,7 @@
 #define OPT_t 20
 #define OPT_l 5000
 #define OPT_b 100
-#define OPT_x 1e-3 // 0 to enable full DP mode
+#define OPT_x 1e-1 // 0 to enable full DP mode
 const int XDROP_MIN_I = 32;
 
 #define EVALUE
@@ -1099,12 +1099,16 @@ std::vector<uint8_t> decodeSequence(const char *sequence, int sequenceLength, co
 
 // Harmonize alignment regions by offsetting sequences to converge X-drop bands.
 // Called periodically from findSimilarities forward pass.
-// delta_out receives the per-lane shift amounts applied (for band preservation).
+// Computes the next row's band bounds (out_lo, out_hi) from the current row's
+// per-lane active bounds (active_first, active_last), shifted into the new
+// coordinate system defined by the per-lane deltas and new_sl.
 static bool reoffset(DPScratch& scratch, int activeCount,
                      int old_sl, int& new_sl,
                      simd_t& active_seq_len,
                      Float* active_sequence_length,
-                     std::array<int, simdWidth>& delta_out,
+                     const std::array<int, simdWidth>& active_first,
+                     const std::array<int, simdWidth>& active_last,
+                     int& out_lo, int& out_hi,
                      const std::array<std::vector<uint8_t>*, simdWidth>& decoded,
                      const Profile& profile,
                      int zero_idx, uint8_t*& transposed_base) {
@@ -1132,8 +1136,6 @@ static bool reoffset(DPScratch& scratch, int activeCount,
         if (d > 0) any_shift = true;
     }
     if (!any_shift) return false;
-
-    delta_out = delta;
 
     // Step 3: Update cumulative offsets
     for (int k = 0; k < activeCount; k++) scratch.seq_offset[k] += delta[k];
@@ -1193,6 +1195,21 @@ static bool reoffset(DPScratch& scratch, int activeCount,
     scratch.best_i.shiftColumnar(d, new_sl + 4, ac, scratch.shift_buf);
     scratch.null_model_prefix.shiftColumnar(d, new_sl + 4, ac, scratch.shift_buf);
     scratch.null_model_suffix.shiftColumnar(d, new_sl + 4, ac, scratch.shift_buf);
+
+    // Step 9: Compute next row's band bounds in the new coordinate system.
+    // Shift each lane's active bounds by delta, clamp to [0, new_sl-1].
+    out_lo = new_sl;
+    out_hi = 0;
+    for (int k = 0; k < activeCount; k++) {
+        int first = active_first[k] - delta[k];
+        int last  = active_last[k] - delta[k];
+        first = std::max(0, first);
+        last  = std::min(new_sl - 1, last);
+        if (first <= last) {
+            out_lo = std::min(out_lo, first);
+            out_hi = std::max(out_hi, last);
+        }
+    }
 
     return true;
 }
@@ -1615,10 +1632,13 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             }
         }
 
+        int64_t row_active_this;
         {
             Float row_active_arr[simdWidth];
             simd_unchecked_store(row_active_count, row_active_arr, Kokkos::Experimental::simd_flag_default);
+            row_active_this = 0;
             for (int k = 0; k < activeCount; k++) {
+                row_active_this += (int64_t)row_active_arr[k];
                 active_cells += (int64_t)row_active_arr[k];
             }
             total_cells += activeCount * (hi - seq_start + 1);
@@ -1628,51 +1648,75 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         simd_unchecked_store(lane_first_active, first_arr, Kokkos::Experimental::simd_flag_default);
         simd_unchecked_store(lane_last_active, last_arr, Kokkos::Experimental::simd_flag_default);
 
-        // Re-offset: converge X-drop bands when they span too much of the sequence
-        if (useXDrop && i >= XDROP_MIN_I * 2 && i % XDROP_MIN_I == 0 && i < profile.length - 1) {
-            int bw = scratch.fwd_band_hi[i] - scratch.fwd_band_lo[i];
+        int64_t row_total = (int64_t)activeCount * (hi - seq_start + 1);
+        if (row_active_this > row_total) {
+            fprintf(stderr, "BUG at i=%d: row_active=%ld row_total=%ld lo=%d hi=%d seq_start=%d active_dp_width=%d\n",
+                    i, row_active_this, row_total, lo, hi, seq_start, active_dp_width);
+            for (int k = 0; k < activeCount; k++)
+                fprintf(stderr, "  lane %d: first=%d last=%d\n", k, (int)first_arr[k], (int)last_arr[k]);
+        }
+
+        // Compute band bounds for the next row.
+        // When re-offsetting is active, reoffset directly computes shifted
+        // bounds in the new coordinate system from the current row's lane activity.
+        // Otherwise, compute bounds from first_arr/last_arr directly.
+        bool computed_band = false;
+        int next_lo = active_dp_width, next_hi = 0, next_has_active = 0;
+
+        if (useXDrop && i >= XDROP_MIN_I) {
+            if (i >= XDROP_MIN_I * 2 && i % XDROP_MIN_I == 0 && i < profile.length - 1) {
+                int bw = scratch.fwd_band_hi[i] - scratch.fwd_band_lo[i];
 #ifdef DEBUG_FORCE_REOFFSET
-            if (true) {
+                if (true) {
 #else
-            if (bw > active_dp_width / 2) {
+                if (bw > 0) {
 #endif
-                int new_sl;
-                std::array<int, simdWidth> delta;
-                if (reoffset(scratch, activeCount, active_dp_width, new_sl,
-                             active_seq_len, active_sequence_length, delta,
-                             decoded, profile, zero_idx, transposed_base)) {
-                    active_dp_width = new_sl;
-                    scratch.active_dp_width = active_dp_width;
-                    scratch.W0_next.resize(active_dp_width + 4, simd_t(0.0));
-                    scratch.Y0_curr.resize(active_dp_width + 4, simd_t(0.0));
-                    bg_codon_probs_base = scratch.bg_codon_probs.data();
+                    std::array<int, simdWidth> active_first_int, active_last_int;
                     for (int k = 0; k < activeCount; k++) {
-                        first_arr[k] -= (Float)delta[k];
-                        last_arr[k]  -= (Float)delta[k];
+                        active_first_int[k] = (int)first_arr[k];
+                        active_last_int[k] = (int)last_arr[k];
+                    }
+                    int new_sl, out_lo, out_hi;
+                    if (reoffset(scratch, activeCount, active_dp_width, new_sl,
+                                 active_seq_len, active_sequence_length,
+                                 active_first_int, active_last_int, out_lo, out_hi,
+                                 decoded, profile, zero_idx, transposed_base)) {
+                        active_dp_width = new_sl;
+                        scratch.active_dp_width = active_dp_width;
+                        scratch.W0_next.resize(active_dp_width + 4, simd_t(0.0));
+                        scratch.Y0_curr.resize(active_dp_width + 4, simd_t(0.0));
+                        bg_codon_probs_base = scratch.bg_codon_probs.data();
+                        next_lo = out_lo;
+                        next_hi = out_hi;
+                        next_has_active = out_lo <= out_hi;
+                        computed_band = true;
                     }
                 }
             }
-        }
 
-        if (useXDrop && i >= XDROP_MIN_I) {
-            int new_lo = active_dp_width, new_hi = 0;
-            int has_active = 0;
-            for (int k = 0; k < activeCount; k++) {
-                int first = (int)first_arr[k];
-                int last  = (int)last_arr[k];
-                if (first <= last) {
-                    assert(first >= 0 && last < active_dp_width);
-                    new_lo = std::min(new_lo, first);
-                    new_hi = std::max(new_hi, last);
-                    has_active = 1;
+            if (!computed_band) {
+                for (int k = 0; k < activeCount; k++) {
+                    int first = (int)first_arr[k];
+                    int last  = (int)last_arr[k];
+                    if (first <= last) {
+                        next_lo = std::min(next_lo, first);
+                        next_hi = std::max(next_hi, last);
+                        next_has_active = 1;
+                    }
                 }
             }
-            if (has_active) {
-                scratch.fwd_band_lo[i + 1] = new_lo;
-                scratch.fwd_band_hi[i + 1] = std::min(active_dp_width - 1, new_hi + 3);
+
+            if (next_has_active) {
+                if (computed_band) {
+                    scratch.fwd_band_lo[i + 1] = next_lo;
+                    scratch.fwd_band_hi[i + 1] = std::min(active_dp_width - 1, next_hi + 3);
+                } else {
+                    scratch.fwd_band_lo[i + 1] = std::clamp(next_lo, 0, active_dp_width - 1);
+                    scratch.fwd_band_hi[i + 1] = std::clamp(next_hi + 3, 0, active_dp_width - 1);
+                }
             } else {
-                scratch.fwd_band_lo[i + 1] = lo;
-                scratch.fwd_band_hi[i + 1] = std::min(active_dp_width - 1, lo + 3);
+                scratch.fwd_band_lo[i + 1] = std::clamp(lo, 0, active_dp_width - 1);
+                scratch.fwd_band_hi[i + 1] = std::clamp(lo + 3, 0, active_dp_width - 1);
             }
         }
 
