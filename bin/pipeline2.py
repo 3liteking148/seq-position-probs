@@ -93,7 +93,7 @@ def main():
     cpus = args.cpus
 
     script_dir = os.path.dirname(os.path.realpath(__file__))
-    dummer_exec = os.path.join(script_dir, "dummer")
+    dummer_exec = os.path.join(script_dir, "../build/dummer")
 
     # ---------------------------------------------------------
     # 1. Parse sequences and HMMs
