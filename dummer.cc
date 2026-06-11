@@ -1231,6 +1231,35 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     simd_t actual_seq_len = Kokkos::Experimental::simd_unchecked_load<simd_t>(actual_sequence_length);
     simd_t active_seq_len = Kokkos::Experimental::simd_unchecked_load<simd_t>(active_sequence_length);
 
+#ifdef DEBUG_REOFFSET
+    // Apply fixed per-lane offsets to verify traceback coordinate handling.
+    // Lane k skips k*36 bases (k*12 codons) from the front of its sequence.
+    for (int k = 0; k < activeCount; k++)
+        scratch.seq_offset[k] = k * 36;
+    active_dp_width = 0;
+    for (int k = 0; k < activeCount; k++) {
+        active_sequence_length[k] = std::max((Float)0, (Float)decoded[k]->size() - (Float)scratch.seq_offset[k]);
+        actual_sequence_length[k] = active_sequence_length[k];  // match null model to window
+        if (active_sequence_length[k] > active_dp_width) active_dp_width = (int)active_sequence_length[k];
+    }
+    if (active_dp_width < 4) active_dp_width = 4;
+    scratch.active_dp_width = active_dp_width;
+
+    scratch.transposed_decoded.assign((active_dp_width + 8) * simdWidth, zero_idx);
+    transposed_base = scratch.transposed_decoded.data() + 4 * simdWidth;
+    for (int k = 0; k < activeCount; k++) {
+        int off = scratch.seq_offset[k];
+        const auto& src = *decoded[k];
+        for (int j = 0; j < active_dp_width; j++) {
+            int src_pos = j + off;
+            transposed_base[j * simdWidth + k] = (src_pos < (int)src.size()) ? src[src_pos] : zero_idx;
+        }
+    }
+
+    actual_seq_len = Kokkos::Experimental::simd_unchecked_load<simd_t>(actual_sequence_length);
+    active_seq_len = Kokkos::Experimental::simd_unchecked_load<simd_t>(active_sequence_length);
+#endif
+
     auto &null_probs_prefix = scratch.null_probs_prefix;
     auto &null_probs_suffix = scratch.null_probs_suffix;
     null_probs_prefix.resize(active_dp_width + 4); null_probs_suffix.resize(active_dp_width + 4);
@@ -1639,7 +1668,11 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         // Re-offset: converge X-drop bands when they span too much of the sequence
         if (useXDrop && i >= XDROP_MIN_I * 2 && i % XDROP_MIN_I == 0 && i < profile.length - 1) {
             int bw = scratch.fwd_band_hi[i] - scratch.fwd_band_lo[i];
+#ifdef DEBUG_FORCE_REOFFSET
+            if (true) {
+#else
             if (bw > active_dp_width / 2) {
+#endif
                 int new_sl;
                 if (reoffset(scratch, activeCount, i, active_dp_width, new_sl,
                              active_seq_len, active_sequence_length,
