@@ -1147,6 +1147,34 @@ void reoffset(DPScratch& scratch, int activeCount,
     }
 }
 
+template <typename MatrixType>
+simd_t simdGather(const MatrixType* matrices, Float* buf, int activeCount, int i_row, int col) {
+    for (int k = 0; k < activeCount; k++)
+        buf[k] = matrices[k].get(i_row, col);
+    for (int k = activeCount; k < simdWidth; k++)
+        buf[k] = Float(0);
+    return Kokkos::Experimental::simd_unchecked_load<simd_t>(buf);
+}
+
+template <typename MatrixType>
+void simdScatter(simd_t val, MatrixType* matrices, Float* buf, int activeCount, int i_row, int col) {
+    simd_unchecked_store(val, buf, Kokkos::Experimental::simd_flag_default);
+    for (int k = 0; k < activeCount; k++)
+        matrices[k].set(i_row, col, buf[k]);
+}
+
+uint8_t* buildTransposedDecoded(DPScratch& scratch, int active_dp_width, int activeCount,
+                                 int zero_idx, const std::array<std::vector<uint8_t>*, simdWidth>& decoded) {
+    scratch.transposed_decoded.assign((active_dp_width + 8) * simdWidth, zero_idx);
+    uint8_t* transposed_base = scratch.transposed_decoded.data() + 4 * simdWidth;
+    for (int idx = 0; idx < activeCount; idx++) {
+        for (size_t j = 0; j < decoded[idx]->size(); j++) {
+            transposed_base[j * simdWidth + idx] = (*decoded[idx])[j];
+        }
+    }
+    return transposed_base;
+}
+
 void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &similarities, const Profile &profile,
                       const std::array<std::vector<uint8_t>*, simdWidth> &decoded, std::array<Float, simdWidth> minProbRatio,
                       DPScratch &scratch, int activeCount, bool useXDrop) {
@@ -1163,13 +1191,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     int alphabetSize = profile.width - nonLetterWidth;
     int zero_idx = alphabetSize + 4; // new padded index that maps to 0.0
 
-    scratch.transposed_decoded.assign((scratch.active_dp_width + 8) * simdWidth, zero_idx);
-    uint8_t* transposed_base = scratch.transposed_decoded.data() + 4 * simdWidth;
-    for (int idx = 0; idx < activeCount; idx++) {
-        for (size_t j = 0; j < decoded[idx]->size(); j++) {
-            transposed_base[j * simdWidth + idx] = (*decoded[idx])[j];
-        }
-    }
+    uint8_t* transposed_base = buildTransposedDecoded(scratch, scratch.active_dp_width, activeCount, zero_idx, decoded);
 
     alignas(64) Float actual_sequence_length[simdWidth] = {};
     for (int idx = 0; idx < activeCount; idx++) {
@@ -1322,15 +1344,10 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         {
         alignas(64) Float gather_buf[simdWidth];
         auto gather_w1 = [&](int i_row, int col) -> simd_t {
-            for (int k = 0; k < activeCount; k++)
-                gather_buf[k] = scratch.W1[k].get(i_row, col);
-            for (int k = activeCount; k < simdWidth; k++) gather_buf[k] = Float(0);
-            return Kokkos::Experimental::simd_unchecked_load<simd_t>(gather_buf);
+            return simdGather(scratch.W1.data(), gather_buf, activeCount, i_row, col);
         };
         auto scatter_w1 = [&](simd_t val, int i_row, int col) {
-            simd_unchecked_store(val, gather_buf, Kokkos::Experimental::simd_flag_default);
-            for (int k = 0; k < activeCount; k++)
-                scratch.W1[k].set(i_row, col, gather_buf[k]);
+            simdScatter(val, scratch.W1.data(), gather_buf, activeCount, i_row, col);
         };
 
         for (int i = profile.length; i >= 0; i--) {
@@ -1447,10 +1464,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
         alignas(64) Float gather_buf[simdWidth];
         auto gather_w1 = [&](int i_row, int col) -> simd_t {
-            for (int k = 0; k < activeCount; k++)
-                gather_buf[k] = scratch.W1[k].get(i_row, col);
-            for (int k = activeCount; k < simdWidth; k++) gather_buf[k] = Float(0);
-            return Kokkos::Experimental::simd_unchecked_load<simd_t>(gather_buf);
+            return simdGather(scratch.W1.data(), gather_buf, activeCount, i_row, col);
         };
 
         bool w1_ip1_avail = (i + 1 <= profile.length);
@@ -1462,26 +1476,16 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
 #ifdef ALIGN
         auto gather_x = [&](int i_row, int col) -> simd_t {
-            for (int k = 0; k < activeCount; k++)
-                gather_buf[k] = scratch.X[k].get(i_row, col);
-            for (int k = activeCount; k < simdWidth; k++) gather_buf[k] = Float(0);
-            return Kokkos::Experimental::simd_unchecked_load<simd_t>(gather_buf);
+            return simdGather(scratch.X.data(), gather_buf, activeCount, i_row, col);
         };
         auto gather_xpfx = [&](int i_row, int col) -> simd_t {
-            for (int k = 0; k < activeCount; k++)
-                gather_buf[k] = scratch.X_pfx[k].get(i_row, col);
-            for (int k = activeCount; k < simdWidth; k++) gather_buf[k] = Float(0);
-            return Kokkos::Experimental::simd_unchecked_load<simd_t>(gather_buf);
+            return simdGather(scratch.X_pfx.data(), gather_buf, activeCount, i_row, col);
         };
         auto scatter_x = [&](simd_t val, int i_row, int col) {
-            simd_unchecked_store(val, gather_buf, Kokkos::Experimental::simd_flag_default);
-            for (int k = 0; k < activeCount; k++)
-                scratch.X[k].set(i_row, col, gather_buf[k]);
+            simdScatter(val, scratch.X.data(), gather_buf, activeCount, i_row, col);
         };
         auto scatter_xpfx = [&](simd_t val, int i_row, int col) {
-            simd_unchecked_store(val, gather_buf, Kokkos::Experimental::simd_flag_default);
-            for (int k = 0; k < activeCount; k++)
-                scratch.X_pfx[k].set(i_row, col, gather_buf[k]);
+            simdScatter(val, scratch.X_pfx.data(), gather_buf, activeCount, i_row, col);
         };
 #endif
 
@@ -1688,21 +1692,13 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     {
     alignas(64) Float gather_buf[simdWidth];
     auto gather_w1 = [&](int i_row, int col) -> simd_t {
-        for (int k = 0; k < activeCount; k++)
-            gather_buf[k] = scratch.W1[k].get(i_row, col);
-        for (int k = activeCount; k < simdWidth; k++) gather_buf[k] = Float(0);
-        return Kokkos::Experimental::simd_unchecked_load<simd_t>(gather_buf);
+        return simdGather(scratch.W1.data(), gather_buf, activeCount, i_row, col);
     };
     auto gather_x = [&](int i_row, int col) -> simd_t {
-        for (int k = 0; k < activeCount; k++)
-            gather_buf[k] = scratch.X[k].get(i_row, col);
-        for (int k = activeCount; k < simdWidth; k++) gather_buf[k] = Float(0);
-        return Kokkos::Experimental::simd_unchecked_load<simd_t>(gather_buf);
+        return simdGather(scratch.X.data(), gather_buf, activeCount, i_row, col);
     };
     auto scatter_w1 = [&](simd_t val, int i_row, int col) {
-        simd_unchecked_store(val, gather_buf, Kokkos::Experimental::simd_flag_default);
-        for (int k = 0; k < activeCount; k++)
-            scratch.W1[k].set(i_row, col, gather_buf[k]);
+        simdScatter(val, scratch.W1.data(), gather_buf, activeCount, i_row, col);
     };
 
     for (int i = profile.length; i >= 0; i--) {
