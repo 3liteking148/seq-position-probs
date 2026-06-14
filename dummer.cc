@@ -527,13 +527,38 @@ class FlatMatrix {
     std::vector<T> data;
     size_t logical_cols;
     size_t logical_rows;
+    int offset_ = 0;
 
     size_t phys_cols() const { return PrePad + logical_cols + PostPad; }
+
+    int phys_index(int j) const { return (j - offset_) + PrePad; }
 
 public:
     FlatMatrix() : logical_cols(0), logical_rows(0) {}
 
+    int offset() const { return offset_; }
+    void set_offset(int off) { offset_ = off; }
+
+    T get(size_t i, int j) const {
+        int p = phys_index(j);
+        if (p < 0 || p >= (int)phys_cols()) return T{};
+        if constexpr (Rolling)
+            return data[(i & 1) * phys_cols() + p];
+        else
+            return data[i * phys_cols() + p];
+    }
+
+    void set(size_t i, int j, T val) {
+        int p = phys_index(j);
+        if (p < 0 || p >= (int)phys_cols()) return;
+        if constexpr (Rolling)
+            data[(i & 1) * phys_cols() + p] = val;
+        else
+            data[i * phys_cols() + p] = val;
+    }
+
     void resize(size_t r, size_t c) {
+        offset_ = 0;
         logical_rows = r;
         logical_cols = c;
         size_t n = Rolling ? 2 : r;
@@ -542,6 +567,7 @@ public:
     }
 
     void assign(size_t r, size_t c, T init = T()) {
+        offset_ = 0;
         logical_rows = r;
         logical_cols = c;
         size_t n = Rolling ? 2 : r;
@@ -556,17 +582,17 @@ public:
 
     inline T &operator()(size_t i, int j) {
         if constexpr (Rolling) {
-            return data[(i & 1) * phys_cols() + PrePad + j];
+            return data[(i & 1) * phys_cols() + phys_index(j)];
         } else {
-            return data[i * phys_cols() + PrePad + j];
+            return data[i * phys_cols() + phys_index(j)];
         }
     }
 
     inline const T &operator()(size_t i, int j) const {
         if constexpr (Rolling) {
-            return data[(i & 1) * phys_cols() + PrePad + j];
+            return data[(i & 1) * phys_cols() + phys_index(j)];
         } else {
-            return data[i * phys_cols() + PrePad + j];
+            return data[i * phys_cols() + phys_index(j)];
         }
     }
 
@@ -595,6 +621,7 @@ public:
     size_t cols() const { return logical_cols; }
 
     void set_cols(size_t c) {
+        offset_ = 0;
         logical_cols = c;
         size_t n = Rolling ? 2 : logical_rows;
         size_t total = n * phys_cols();
@@ -668,14 +695,15 @@ public:
             }
         }
 
-        // Shift into second half: shifted[j][k] = buf[(j + delta[k])][k]
+        // Shift into second half: shifted[j][k] = buf[(j - delta[k])][k]
+        // Data at old position p → new position p + delta[k]
         Float* shifted = buf.data() + max_cols * simdWidth;
         for (int j = 0; j < max_cols; j++) {
             Float* dst = &shifted[j * simdWidth];
             std::fill_n(dst, simdWidth, Float(0));
             for (int k = 0; k < activeCount; k++) {
-                int src = j + delta[k];
-                if (src < old_phys)
+                int src = j - delta[k];
+                if (src >= 0)
                     dst[k] = buf[src * simdWidth + k];
             }
         }
@@ -1245,15 +1273,14 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         alignas(64) Float gather_buf[simdWidth];
         auto gather_w1 = [&](int i_row, int col) -> simd_t {
             for (int k = 0; k < activeCount; k++)
-                gather_buf[k] = (col >= 0 && col < (int)scratch.W1[k].cols()) ? scratch.W1[k](i_row, col) : Float(0);
+                gather_buf[k] = scratch.W1[k].get(i_row, col);
             for (int k = activeCount; k < simdWidth; k++) gather_buf[k] = Float(0);
             return Kokkos::Experimental::simd_unchecked_load<simd_t>(gather_buf);
         };
         auto scatter_w1 = [&](simd_t val, int i_row, int col) {
             simd_unchecked_store(val, gather_buf, Kokkos::Experimental::simd_flag_default);
             for (int k = 0; k < activeCount; k++)
-                if (col >= 0 && col < (int)scratch.W1[k].cols())
-                    scratch.W1[k](i_row, col) = gather_buf[k];
+                scratch.W1[k].set(i_row, col, gather_buf[k]);
         };
 
         for (int i = profile.length; i >= 0; i--) {
@@ -1371,7 +1398,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         alignas(64) Float gather_buf[simdWidth];
         auto gather_w1 = [&](int i_row, int col) -> simd_t {
             for (int k = 0; k < activeCount; k++)
-                gather_buf[k] = (col >= 0 && col < (int)scratch.W1[k].cols()) ? scratch.W1[k](i_row, col) : Float(0);
+                gather_buf[k] = scratch.W1[k].get(i_row, col);
             for (int k = activeCount; k < simdWidth; k++) gather_buf[k] = Float(0);
             return Kokkos::Experimental::simd_unchecked_load<simd_t>(gather_buf);
         };
@@ -1386,27 +1413,25 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 #ifdef ALIGN
         auto gather_x = [&](int i_row, int col) -> simd_t {
             for (int k = 0; k < activeCount; k++)
-                gather_buf[k] = (col >= 0 && col < (int)scratch.X[k].cols()) ? scratch.X[k](i_row, col) : Float(0);
+                gather_buf[k] = scratch.X[k].get(i_row, col);
             for (int k = activeCount; k < simdWidth; k++) gather_buf[k] = Float(0);
             return Kokkos::Experimental::simd_unchecked_load<simd_t>(gather_buf);
         };
         auto gather_xpfx = [&](int i_row, int col) -> simd_t {
             for (int k = 0; k < activeCount; k++)
-                gather_buf[k] = (col >= 0 && col < (int)scratch.X_pfx[k].cols()) ? scratch.X_pfx[k](i_row, col) : Float(0);
+                gather_buf[k] = scratch.X_pfx[k].get(i_row, col);
             for (int k = activeCount; k < simdWidth; k++) gather_buf[k] = Float(0);
             return Kokkos::Experimental::simd_unchecked_load<simd_t>(gather_buf);
         };
         auto scatter_x = [&](simd_t val, int i_row, int col) {
             simd_unchecked_store(val, gather_buf, Kokkos::Experimental::simd_flag_default);
             for (int k = 0; k < activeCount; k++)
-                if (col >= 0 && col < (int)scratch.X[k].cols())
-                    scratch.X[k](i_row, col) = gather_buf[k];
+                scratch.X[k].set(i_row, col, gather_buf[k]);
         };
         auto scatter_xpfx = [&](simd_t val, int i_row, int col) {
             simd_unchecked_store(val, gather_buf, Kokkos::Experimental::simd_flag_default);
             for (int k = 0; k < activeCount; k++)
-                if (col >= 0 && col < (int)scratch.X_pfx[k].cols())
-                    scratch.X_pfx[k](i_row, col) = gather_buf[k];
+                scratch.X_pfx[k].set(i_row, col, gather_buf[k]);
         };
 #endif
 
@@ -1605,21 +1630,20 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     alignas(64) Float gather_buf[simdWidth];
     auto gather_w1 = [&](int i_row, int col) -> simd_t {
         for (int k = 0; k < activeCount; k++)
-            gather_buf[k] = (col >= 0 && col < (int)scratch.W1[k].cols()) ? scratch.W1[k](i_row, col) : Float(0);
+            gather_buf[k] = scratch.W1[k].get(i_row, col);
         for (int k = activeCount; k < simdWidth; k++) gather_buf[k] = Float(0);
         return Kokkos::Experimental::simd_unchecked_load<simd_t>(gather_buf);
     };
     auto gather_x = [&](int i_row, int col) -> simd_t {
         for (int k = 0; k < activeCount; k++)
-            gather_buf[k] = (col >= 0 && col < (int)scratch.X[k].cols()) ? scratch.X[k](i_row, col) : Float(0);
+            gather_buf[k] = scratch.X[k].get(i_row, col);
         for (int k = activeCount; k < simdWidth; k++) gather_buf[k] = Float(0);
         return Kokkos::Experimental::simd_unchecked_load<simd_t>(gather_buf);
     };
     auto scatter_w1 = [&](simd_t val, int i_row, int col) {
         simd_unchecked_store(val, gather_buf, Kokkos::Experimental::simd_flag_default);
         for (int k = 0; k < activeCount; k++)
-            if (col >= 0 && col < (int)scratch.W1[k].cols())
-                scratch.W1[k](i_row, col) = gather_buf[k];
+            scratch.W1[k].set(i_row, col, gather_buf[k]);
     };
 
     for (int i = profile.length; i >= 0; i--) {
