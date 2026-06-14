@@ -143,28 +143,6 @@ private:
     bool stop = false;
 };
 
-Float simdHorizontalMax(SimdFloat x) { // assuming it doesn't need to be fast
-    Float y[simdLen];
-    simdStore(y, x);
-    return *std::max_element(y, y + simdLen);
-}
-
-SimdFloat simdPowersFwd(Float x) {
-    Float a[simdLen];
-    a[0] = x;
-    for (int i = 1; i < simdLen; ++i)
-        a[i] = a[i - 1] * x;
-    return simdLoad(a);
-}
-
-SimdFloat simdPowersRev(Float x) {
-    Float a[simdLen];
-    a[simdLen - 1] = x;
-    for (int i = simdLen - 1; i > 0; --i)
-        a[i - 1] = a[i] * x;
-    return simdLoad(a);
-}
-
 // Only consider similarities that are local maxima.  If 2
 // similarities have identical 1st anchor coordinates, and their 2nd
 // anchor coordinates are closer than this, omit the lower-scoring one.
@@ -445,17 +423,12 @@ void printSimilarity(const char *names, Profile &p, Sequence s, const FinalSimil
     if (std::isnan(evalue)) {
         return;
     }
-#ifdef PIPELINE_MODE
     char strand = "+-"[!s.is_plus];
-#else
-    char strand = "+-"[sim.strandNum % 2];
-#endif
     const char *seq = sim.alignedSequences.data();
     int length = sim.alignedSequences.size() / 2;
     int span1 = length - std::count(seq, seq + length, '-');
     int span2 = length - std::count(seq + length, seq + length * 2, '-');
     int start2 = strandPosition(sim.strandNum, s.length, sim.start2);
-#ifdef PIPELINE_MODE
     if (s.has_pipeline_fields) {
         if (s.is_plus) {
             start2 = s.w_start - 1 + start2;
@@ -464,9 +437,6 @@ void printSimilarity(const char *names, Profile &p, Sequence s, const FinalSimil
         }
     }
     int reportSeqLength = s.has_pipeline_fields ? s.true_length : s.length;
-#else
-    int reportSeqLength = s.length;
-#endif
     int anchor2 = strandPosition(sim.strandNum, reportSeqLength, sim.anchor2);
     int w1 = std::max(strlen(names + p.nameIdx), strlen(names + s.nameIdx));
     int w2 = std::max(numOfDigits(sim.start1), numOfDigits(start2));
@@ -512,11 +482,6 @@ void addReverseMatch(std::vector<SegmentPair> &alignment, int pos1, int pos2) {
     }
     SegmentPair sp = {pos1, pos2, 1};
     alignment.push_back(sp);
-}
-
-template <typename T, typename U>
-std::pair<T, U> operator+(const std::pair<T, U> &a, const std::pair<T, U> &b) {
-    return {a.first + b.first, b.second};
 }
 
 using DP_Cell = Float;
@@ -842,46 +807,6 @@ bool isOverlapping(const std::vector<SegmentPair> &alignment1,
     return false;
 }
 
-void nonredundantize(std::vector<AlignedSimilarity> &similarities) {
-    sort(similarities.begin(), similarities.end(), isLess);
-
-    size_t k = 0;
-    for (size_t i = 0; i < similarities.size(); ++i) {
-        AlignedSimilarity &x = similarities[i];
-        int end = simEnd2(x);
-        for (size_t j = i + 1; j < similarities.size(); ++j) {
-            AlignedSimilarity &y = similarities[j];
-            if (simBeg2(y) >= end)
-                break;
-            if (isOverlapping(x.alignment, y.alignment)) {
-                if (x.probRatio < y.probRatio) {
-                    x.probRatio = 0;
-                } else {
-                    y.probRatio = 0;
-                }
-            }
-        }
-        if (x.probRatio > 0) {
-            std::swap(similarities[k], similarities[i]);
-            ++k;
-        }
-    }
-
-    similarities.resize(k);
-}
-
-int updateInitialSimilarities(InitialSimilarity *sims, int count, int anchor2, Float probRatio) {
-    int i = 0;
-    int j = 0;
-    while (i < count && sims[i].anchor2 <= anchor2 - minSeparation)
-        ++i;
-    while (i < count && sims[i].probRatio > probRatio)
-        sims[j++] = sims[i++];
-    sims[j].probRatio = probRatio;
-    sims[j].anchor2 = anchor2;
-    return j + 1;
-}
-
 void setCharToNumber(char *charToNumber, const char *alphabet) {
     for (int i = 0; alphabet[i]; ++i) {
         int c = alphabet[i];
@@ -889,16 +814,8 @@ void setCharToNumber(char *charToNumber, const char *alphabet) {
     }
 }
 
-/*
-    vibe coded!!
-    might not be accurate
-
-    todo: rewrite
-*/
 std::unordered_map<char, std::vector<std::string>> aa2codons;
 std::unordered_map<char, std::vector<std::string>> &build_standard_genetic_code() {
-    // Amino acids are single-letter codes.
-    // DNA codons (T not U).
     if (aa2codons.size() > 0) {
         return aa2codons;
     }
@@ -927,59 +844,6 @@ std::unordered_map<char, std::vector<std::string>> &build_standard_genetic_code(
     aa2codons['?'] = {"???"}; // masked
 
     return aa2codons;
-}
-
-static void normalize(std::unordered_map<char, double> &m) {
-    double s = 0.0;
-    for (auto &kv : m)
-        s += kv.second;
-    if (s <= 0)
-        return;
-    for (auto &kv : m)
-        kv.second /= s;
-
-    // hardcode probabilities
-    m['A'] = 0.25;
-    m['T'] = 0.25;
-    m['G'] = 0.25;
-    m['C'] = 0.25;
-}
-struct NucDist {
-    std::unordered_map<char, double> overall{{'A', 0}, {'C', 0}, {'G', 0}, {'T', 0}};
-};
-
-NucDist
-infer_nucleotide_distribution_equal_synonyms(const std::unordered_map<char, double> &aaFreq) {
-    auto aa2codons = build_standard_genetic_code();
-    NucDist out;
-
-    // Distribute each amino acid's probability equally across its codons.
-    double sm = 0;
-    for (auto &kv : aaFreq) {
-        char aa = (char)toupper((unsigned char)kv.first);
-        auto it = aa2codons.find(aa);
-        sm += kv.second;
-        // std::cout << kv.first << " probs " << kv.second << std::endl;
-
-        const std::vector<std::string> &codons = it->second;
-        double perCodon = kv.second / (double)codons.size();
-
-        for (const std::string &codon : codons) {
-            char b1 = codon[0], b2 = codon[1], b3 = codon[2];
-
-            out.overall[b1] += perCodon;
-            out.overall[b2] += perCodon;
-            out.overall[b3] += perCodon;
-        }
-    }
-
-    // std::cout << "assert " << sm << " == 1" << std::endl;
-    //  At this point:
-    //  - overall sums to 3 (because each codon contributes 3 bases) after AA normalization,
-    //  - pos1/pos2/pos3 each sum to 1.
-    normalize(out.overall);
-
-    return out;
 }
 
 // Fast codon translation via flat lookup table (no heap alloc, no hashing)
@@ -1029,11 +893,6 @@ inline char translateFast(const char *dna, int i) {
                  | (((unsigned)(unsigned char)dna[i+1] & 0x1f) << 5)
                  | (((unsigned)(unsigned char)dna[i+2] & 0x1f) << 10);
     return codonTableFlat[key];
-}
-
-// Keep original for compatibility but mark as legacy
-char translate(const char *dna, int i) {
-    return translateFast(dna, i);
 }
 
 Float log2_sum_exp(Float a, Float b) {
@@ -2202,9 +2061,6 @@ public:
 
 void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int sequenceLength,
                int border, int numOfSequences, int printVerbosity, ThreadPool &threadPool, std::vector<DPScratch> &threadScratches) {
-    Float estimateK_lambdas = 0;
-    Float estimateK_n = 0;
-
     CacheEntry entry;
     if (cache.lookup(profile, letterFreqs, sequenceLength, border, numOfSequences, entry)) {
         if (printVerbosity > 1) {
@@ -2217,7 +2073,6 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
         profile.lambda = entry.MMmidL;
     } else {
         int alphabetSize = profile.width - nonLetterWidth;
-#ifdef ESTIMATOR_USE_RANDOM_CODONS
 
         std::vector<double> aaFreqs;
         Float sum = 0;
@@ -2236,9 +2091,6 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
 
         std::cout << "# sum is " << sum << std::endl;
         std::discrete_distribution<> dist(aaFreqs.begin(), aaFreqs.end());
-#else
-        std::discrete_distribution<> dist(letterFreqs, letterFreqs + alphabetSize);
-#endif
         std::vector<double> scores(numOfSequences * 3);
         double *endScores = scores.data();
         double *begScores = endScores + numOfSequences;
@@ -2285,7 +2137,6 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
                     std::mt19937_64 trialRandGen(5489 + trialIdx);
                     char *seqBuf = localSeqs[lane].data();
 
-#ifdef ESTIMATOR_USE_RANDOM_CODONS
                     const char bases[] = {'A', 'C', 'G', 'T'};
                     std::uniform_int_distribution<int> distDNA(0, 3);
                     std::uniform_int_distribution<int> distOffset(0, 2);
@@ -2323,10 +2174,6 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
                             }
                         }
                     }
-#else
-                    for (int j = 0; j <= sequenceLength; ++j)
-                        seqBuf[j] = dist(trialRandGen);
-#endif
 
                     for (int j = 0; j < border; ++j)
                         seqBuf[sequenceLength + j] = seqBuf[j];
@@ -2434,8 +2281,6 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
     }
 
     std::cout << "# Lambda: " << entry.MMmidL << "\n";
-    estimateK_n++, estimateK_lambdas += entry.MMmidL;
-    std::cout << "# Avg Lambda: " << (estimateK_lambdas / estimateK_n) << "\n";
 }
 
 int intFromText(const char *text) {
@@ -2760,23 +2605,6 @@ int readProfiles(std::istream &in, std::vector<Profile> &profiles, std::vector<F
     return state == 0;
 }
 
-Float *resizeMem(Float *v, size_t &size, int profileLength, int sequenceLength) {
-    long rowSize = simdRoundUp(sequenceLength + 1) + simdLen;
-    if (rowSize > LONG_MAX / (profileLength + 2)) {
-        std::cerr << "too big combination of sequence and profile\n";
-        return 0;
-    }
-    size_t s = rowSize * (profileLength + 2);
-    if (s > size) {
-        size = s;
-        free(v);
-        v = (Float *)aligned_alloc(simdLen * sizeof(Float), s * sizeof(Float));
-        // this memory allocation doesn't get "free"-d at the end: that is ok!
-        if (!v)
-            std::cerr << "failed to allocate memory for " << s << " numbers\n";
-    }
-    return v;
-}
 
 void makeMaskedSequence(char *sequence, int length, int alphabetSize) {
     std::vector<float> tantanProbs(length);
@@ -3044,18 +2872,7 @@ Options for background letter probabilities:\n\
         setCharToNumber(charToNumber, getAlphabet(p.width - nonLetterWidth));
 
 #ifdef EVALUE
-#ifdef ESTIMATOR_USE_RANDOM_CODONS
         estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen, border, randomSeqNum, printVerbosity, threadPool, threadScratches);
-#else
-        NucDist dist = *reinterpret_cast<NucDist *>(p.debug);
-        Float bgProbsDNA[256] = {0};
-        bgProbsDNA[charToNumber['A']] = dist.overall['A'];
-        bgProbsDNA[charToNumber['C']] = dist.overall['C'];
-        bgProbsDNA[charToNumber['G']] = dist.overall['G'];
-        bgProbsDNA[charToNumber['T']] = dist.overall['T'];
-        estimateK(p, bgProbsDNA, &charVec[seqIdx], randomSeqLen, border, randomSeqNum,
-                  printVerbosity, threadPool, threadScratches);
-#endif
 #endif
     }
 
@@ -3140,9 +2957,6 @@ Options for background letter probabilities:\n\
 #endif
                 }
             }
-#ifndef PIPELINE_MODE
-            reverseComplement(seq, seq + contig.length);
-#endif
         }
         charVec.resize(seqIdx);
     }
