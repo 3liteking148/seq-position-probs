@@ -1089,7 +1089,7 @@ std::vector<uint8_t> decodeSequence(const char *sequence, int sequenceLength, co
 void reoffset(DPScratch& scratch, int activeCount,
               const std::array<std::vector<uint8_t>*, simdWidth>& decoded,
               const Profile& profile, const Float* bg_probs_ptr,
-              Float* first_arr, Float* last_arr, simd_t& active_seq_len) {
+              Float* first_arr, Float* last_arr) {
     std::array<int, simdWidth> deltas = {};
     for (int k = 0; k < activeCount; k++) deltas[k] = 5;
 
@@ -1145,10 +1145,6 @@ void reoffset(DPScratch& scratch, int activeCount,
         first_arr[k] += (Float)deltas[k];
         last_arr[k] += (Float)deltas[k];
     }
-
-    alignas(64) Float delta_f[simdWidth] = {};
-    for (int k = 0; k < activeCount; k++) delta_f[k] = (Float)deltas[k];
-    active_seq_len = active_seq_len + simd_t(Kokkos::Experimental::simd_unchecked_load<simd_t>(delta_f));
 }
 
 void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &similarities, const Profile &profile,
@@ -1176,13 +1172,10 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     }
 
     alignas(64) Float actual_sequence_length[simdWidth] = {};
-    alignas(64) Float active_sequence_length[simdWidth] = {};
     for (int idx = 0; idx < activeCount; idx++) {
         actual_sequence_length[idx] = (Float)decoded[idx]->size();
-        active_sequence_length[idx] = actual_sequence_length[idx];
     }
     simd_t actual_seq_len = Kokkos::Experimental::simd_unchecked_load<simd_t>(actual_sequence_length);
-    simd_t active_seq_len = Kokkos::Experimental::simd_unchecked_load<simd_t>(active_sequence_length);
 
     auto &null_probs_prefix = scratch.null_probs_prefix;
     auto &null_probs_suffix = scratch.null_probs_suffix;
@@ -1195,11 +1188,11 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         SimdFloat bg_raw = simdLookup(bg_probs_ptr, indices);
         simd_t bg_codon_emit_probs(bg_raw);
 
-        Kokkos::Experimental::simd_mask<Float> msk = i + 2 < active_seq_len;
-        Kokkos::Experimental::simd_mask<Float> msk_fs2 = i + 1 < active_seq_len;
-        Kokkos::Experimental::simd_mask<Float> msk_fs1 = i < active_seq_len;
+        Kokkos::Experimental::simd_mask<Float> msk = i + 2 < actual_seq_len;
+        Kokkos::Experimental::simd_mask<Float> msk_fs2 = i + 1 < actual_seq_len;
+        Kokkos::Experimental::simd_mask<Float> msk_fs1 = i < actual_seq_len;
         simd_t full_codon = (Float)log2(1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) + bg_codon_emit_probs + null_probs_suffix[i + 3];
-        simd_t partial_codon = (Float)log2(1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) + (Float)log2(0.25) * (active_seq_len - (Float)i);
+        simd_t partial_codon = (Float)log2(1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) + (Float)log2(0.25) * (actual_seq_len - (Float)i);
         simd_t t1 = Kokkos::Experimental::condition(msk, full_codon, partial_codon);
 
         simd_t fs1 = (Float)log2(BACKGROUND_FRAMESHIFT_RATE * 0.25) + null_probs_suffix[i + 1];
@@ -1231,7 +1224,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         simd_t bg_codon_emit_probs(bg_raw);
 
         // Mask for variable-length sequences (per-lane)
-        Kokkos::Experimental::simd_mask<Float> msk_valid = (Float)i < active_seq_len;
+        Kokkos::Experimental::simd_mask<Float> msk_valid = (Float)i < actual_seq_len;
 
         // t1: codon branch — i is scalar, so use plain if/else
         simd_t t1;
@@ -1513,6 +1506,10 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         simd_t lane_last_active = simd_t(0.0);
         simd_t row_active_count = simd_t(0);
 
+        alignas(64) Float seq_end_f[simdWidth] = {};
+        for (int k = 0; k < activeCount; k++)
+            seq_end_f[k] = (Float)(scratch.seq_offset[k] + (int)decoded[k]->size());
+        simd_t seq_end = Kokkos::Experimental::simd_unchecked_load<simd_t>(seq_end_f);
 
         for (int j = seq_start; j <= hi; j++) {
             bool in_band = (j >= lo);
@@ -1593,7 +1590,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                     is_active > 0 && (Float)j > lane_last_active,
                     simd_t((Float)j), lane_last_active);
 
-                Kokkos::Experimental::simd_mask<Float> mask = (wMid > scratch.best_wMid[j]) && ((Float)j < active_seq_len);
+                Kokkos::Experimental::simd_mask<Float> mask = (wMid > scratch.best_wMid[j]) && ((Float)j < seq_end);
                 scratch.best_wMid[j] = Kokkos::Experimental::condition(mask, wMid, scratch.best_wMid[j]);
                 scratch.best_wEnd[j] = Kokkos::Experimental::condition(mask, w0, scratch.best_wEnd[j]);
                 scratch.best_i[j] = Kokkos::Experimental::condition(mask, simd_t((Float)i), scratch.best_i[j]);
@@ -1628,7 +1625,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
         if (useXDrop && i >= XDROP_MIN_I) {
             reoffset(scratch, activeCount, decoded, profile, bg_probs_ptr,
-                     first_arr, last_arr, active_seq_len);
+                     first_arr, last_arr);
             transposed_base = scratch.transposed_decoded.data() + 4 * simdWidth;
             bg_codon_probs_base = scratch.bg_codon_probs.data();
 
@@ -1728,7 +1725,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
 
     for (int idx = 0; idx < activeCount; idx++) {
-        int len = (int)active_sequence_length[idx];
+        int len = (int)decoded[idx]->size();
         int offset = scratch.seq_offset[idx];
 
         scratch.opt_profile_position[idx].assign(len, AlignedSimilarity(-INFINITY));
