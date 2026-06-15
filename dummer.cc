@@ -641,7 +641,7 @@ public:
 
     int logical_size() const { return logical_size_; }
 
-    void shiftExpand(const std::array<int, simdWidth>& delta,
+    void shiftExpand(const std::array<int64_t, simdWidth>& delta,
                      int new_logical, int activeCount,
                      std::vector<Float>& buf) {
         int old_phys = logical_size_ + PrePad + PostPad;
@@ -708,7 +708,7 @@ struct DPScratch {
     std::vector<int> fwd_band_lo, fwd_band_hi;
 
     // Per-lane cumulative sequence offset for band harmonization
-    std::array<int, simdWidth> seq_offset = {};
+    std::array<int64_t, simdWidth> seq_offset = {};
     // Reusable temp buffer for column shifting
     std::vector<Float> shift_buf;
     // Current DP column count (grows on reoffset)
@@ -969,7 +969,7 @@ void reoffset(DPScratch& scratch, int activeCount,
     scratch.active_dp_width = 0;
     for (int k = 0; k < activeCount; k++) {
         scratch.seq_offset[k] += deltas[k];
-        scratch.active_dp_width = std::max(scratch.active_dp_width, (int)decoded[k]->size() + scratch.seq_offset[k]);
+        scratch.active_dp_width = std::max((int64_t)scratch.active_dp_width, (int64_t)decoded[k]->size() + scratch.seq_offset[k]);
     }
 
     int alphabetSize = profile.width - nonLetterWidth;
@@ -992,22 +992,20 @@ void reoffset(DPScratch& scratch, int activeCount,
         scratch.bg_codon_probs[j] = simd_t(simdLookup(bg_probs_ptr, indices));
     }
 
-    std::array<int, simdWidth> darr = {};
-    for (int k = 0; k < activeCount; k++) darr[k] = deltas[k];
 
-    scratch.null_probs_prefix.shiftExpand(darr, scratch.active_dp_width, activeCount, scratch.shift_buf);
-    scratch.null_probs_suffix.shiftExpand(darr, scratch.active_dp_width, activeCount, scratch.shift_buf);
-    scratch.W0_curr.shiftExpand(darr, scratch.active_dp_width, activeCount, scratch.shift_buf);
-    scratch.W0_next.shiftExpand(darr, scratch.active_dp_width, activeCount, scratch.shift_buf);
-    scratch.Y0_next.shiftExpand(darr, scratch.active_dp_width, activeCount, scratch.shift_buf);
-    scratch.Y0_curr.shiftExpand(darr, scratch.active_dp_width, activeCount, scratch.shift_buf);
-    scratch.best_wMid.shiftExpand(darr, scratch.active_dp_width, activeCount, scratch.shift_buf);
-    scratch.best_wEnd.shiftExpand(darr, scratch.active_dp_width, activeCount, scratch.shift_buf);
-    scratch.best_i.shiftExpand(darr, scratch.active_dp_width, activeCount, scratch.shift_buf);
-    scratch.null_model_prefix.shiftExpand(darr, scratch.active_dp_width, activeCount, scratch.shift_buf);
-    scratch.null_model_suffix.shiftExpand(darr, scratch.active_dp_width, activeCount, scratch.shift_buf);
-    scratch.right_side.shiftExpand(darr, scratch.active_dp_width, activeCount, scratch.shift_buf);
-    scratch.left_side.shiftExpand(darr, scratch.active_dp_width, activeCount, scratch.shift_buf);
+    scratch.null_probs_prefix.shiftExpand(deltas, scratch.active_dp_width, activeCount, scratch.shift_buf);
+    scratch.null_probs_suffix.shiftExpand(deltas, scratch.active_dp_width, activeCount, scratch.shift_buf);
+    scratch.W0_curr.shiftExpand(deltas, scratch.active_dp_width, activeCount, scratch.shift_buf);
+    scratch.W0_next.shiftExpand(deltas, scratch.active_dp_width, activeCount, scratch.shift_buf);
+    scratch.Y0_next.shiftExpand(deltas, scratch.active_dp_width, activeCount, scratch.shift_buf);
+    scratch.Y0_curr.shiftExpand(deltas, scratch.active_dp_width, activeCount, scratch.shift_buf);
+    scratch.best_wMid.shiftExpand(deltas, scratch.active_dp_width, activeCount, scratch.shift_buf);
+    scratch.best_wEnd.shiftExpand(deltas, scratch.active_dp_width, activeCount, scratch.shift_buf);
+    scratch.best_i.shiftExpand(deltas, scratch.active_dp_width, activeCount, scratch.shift_buf);
+    scratch.null_model_prefix.shiftExpand(deltas, scratch.active_dp_width, activeCount, scratch.shift_buf);
+    scratch.null_model_suffix.shiftExpand(deltas, scratch.active_dp_width, activeCount, scratch.shift_buf);
+    scratch.right_side.shiftExpand(deltas, scratch.active_dp_width, activeCount, scratch.shift_buf);
+    scratch.left_side.shiftExpand(deltas, scratch.active_dp_width, activeCount, scratch.shift_buf);
 
     for (int k = 0; k < activeCount; k++) {
         scratch.W1[k].set_offset(scratch.seq_offset[k]);
@@ -1517,8 +1515,8 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
             int next_lo = scratch.active_dp_width, next_hi = 0, next_has_active = 0;
             for (int k = 0; k < activeCount; k++) {
-                int first = (int)first_arr[k];
-                int last  = (int)last_arr[k];
+                int first = first_arr[k];
+                int last  = last_arr[k];
                 if (first <= last) {
                     next_lo = std::min(next_lo, first);
                     next_hi = std::max(next_hi, last);
