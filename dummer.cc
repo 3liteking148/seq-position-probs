@@ -951,16 +951,6 @@ void reoffset(DPScratch& scratch, int activeCount,
               Float* first_arr, Float* last_arr,
               simd_t row_best_j) {
     std::array<int64_t, simdWidth> deltas = {};
-#if 0
-    // debug
-    std::ostringstream out;
-    for (int k = 0; k < activeCount; k++) {
-        out << "# " << first_arr[k] << " - " << last_arr[k] << '\n';
-        out << "# original size: " << decoded[k]->size() << '\n';
-    }
-    out << '\n';
-    std::cerr << out.str();
-#endif
 
     for (int k = 1; k < activeCount; k++) {
         deltas[k] = row_best_j[0] - row_best_j[k];
