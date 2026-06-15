@@ -952,11 +952,14 @@ void reoffset(DPScratch& scratch, int activeCount,
               simd_t row_best_j) {
     std::array<int64_t, simdWidth> deltas = {};
 
+    Float best_reference = 0;
     int64_t reference = -1;
     for (int k = 0; k < activeCount; k++) {
         if (first_arr[k] <= last_arr[k]) {
+        Float cur_val = scratch.W0_curr[k][row_best_j[k]];
+        if (first_arr[k] <= last_arr[k] && cur_val > best_reference) {
+            best_reference = cur_val;
             reference = row_best_j[k];
-            break;
         }
     }
 
@@ -964,7 +967,7 @@ void reoffset(DPScratch& scratch, int activeCount,
         return;
     }
 
-    for (int k = 1; k < activeCount; k++) {
+    for (int k = 0; k < activeCount; k++) {
         if (first_arr[k] <= last_arr[k]) {
             deltas[k] = reference - (int64_t)row_best_j[k];
         }
@@ -1388,13 +1391,13 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         int lo, hi;
         if (useXDrop && i >= XDROP_MIN_I) {
             lo = scratch.fwd_band_lo[i];
-            hi = std::min(scratch.active_dp_width - 1, scratch.fwd_band_hi[i] + 3);
+            hi = scratch.fwd_band_hi[i];
         } else {
             lo = 0; hi = scratch.active_dp_width - 1;
         }
 
-        int seq_start = std::max(0, lo - 3); // zero appropriate W, Y, Z
-        band_cells += (hi - seq_start + 1);
+        int seq_start = lo;
+        band_cells += std::max(hi - seq_start + 1, 0);
 
         // Shift register for w[1..3] — avoids 3 matrix reads per iteration
         simd_t w_shift[3] = {(seq_start == 0) ? w1_boundary_init : simd_t(0.0), 0, 0}; // w_shift[0]=w0(i,j-1), [1]=w0(i,j-2), [2]=w0(i,j-3)
@@ -1551,18 +1554,18 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                 int first = first_arr[k];
                 int last  = last_arr[k];
                 if (first <= last) {
-                    next_lo = std::min(next_lo, first);
-                    next_hi = std::max(next_hi, last);
+                    next_lo = std::min(next_lo, std::max(first - 3, (int)scratch.seq_offset[k])); // // zero appropriate W, Y, Z TODO: check if needed
+                    next_hi = std::max(next_hi, std::min(last + 3, (int)decoded[k]->size() - 1 + (int)scratch.seq_offset[k]));
                     next_has_active = 1;
                 }
             }
 
             if (next_has_active) {
                 scratch.fwd_band_lo[i + 1] = std::clamp(next_lo, 0, scratch.active_dp_width - 1);
-                scratch.fwd_band_hi[i + 1] = std::clamp(next_hi + 3, 0, scratch.active_dp_width - 1);
+                scratch.fwd_band_hi[i + 1] = std::clamp(next_hi, 0, scratch.active_dp_width - 1);
             } else {
                 scratch.fwd_band_lo[i + 1] = std::clamp(lo, 0, scratch.active_dp_width - 1);
-                scratch.fwd_band_hi[i + 1] = std::clamp(lo + 3, 0, scratch.active_dp_width - 1);
+                scratch.fwd_band_hi[i + 1] = std::clamp(lo, 0, scratch.active_dp_width - 1);
             }
         }
 
