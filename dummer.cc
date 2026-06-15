@@ -948,10 +948,35 @@ std::vector<uint8_t> decodeSequence(const char *sequence, int sequenceLength, co
 void reoffset(DPScratch& scratch, int activeCount,
               const std::array<std::vector<uint8_t>*, simdWidth>& decoded,
               const Profile& profile, const Float* bg_probs_ptr,
-              Float* first_arr, Float* last_arr) {
-    std::array<int, simdWidth> deltas = {};
-    for (int k = 0; k < activeCount; k++) deltas[k] = 5;
+              Float* first_arr, Float* last_arr,
+              simd_t row_best_j) {
+    std::array<int64_t, simdWidth> deltas = {};
+#if 0
+    // debug
+    std::ostringstream out;
+    for (int k = 0; k < activeCount; k++) {
+        out << "# " << first_arr[k] << " - " << last_arr[k] << '\n';
+        out << "# original size: " << decoded[k]->size() << '\n';
+    }
+    out << '\n';
+    std::cerr << out.str();
+#endif
 
+    for (int k = 1; k < activeCount; k++) {
+        deltas[k] = row_best_j[0] - row_best_j[k];
+    }
+
+    int64_t extra_offset_to_0_idx_left = INT64_MIN;
+    for (int k = 0; k < activeCount; k++) {
+        extra_offset_to_0_idx_left = std::max(extra_offset_to_0_idx_left, -((int64_t)first_arr[k] + deltas[k]));
+    }
+
+    for (int k = 0; k < activeCount; k++) {
+        deltas[k] += extra_offset_to_0_idx_left;
+    }
+
+    // perform actual offsetting using deltas
+    scratch.active_dp_width = 0;
     for (int k = 0; k < activeCount; k++) {
         scratch.seq_offset[k] += deltas[k];
         scratch.active_dp_width = std::max(scratch.active_dp_width, (int)decoded[k]->size() + scratch.seq_offset[k]);
@@ -1292,6 +1317,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     }
 #endif
 
+    size_t active_ij = 0, total_ij = 0;
     size_t active_cells = 0, total_cells = 0;
     size_t band_cells = 0;
     simd_t global_best = simd_t(0.0);
@@ -1351,7 +1377,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         int lo, hi;
         if (useXDrop && i >= XDROP_MIN_I) {
             lo = scratch.fwd_band_lo[i];
-            hi = std::min(scratch.active_dp_width - 1, scratch.fwd_band_hi[i] + 6);
+            hi = std::min(scratch.active_dp_width - 1, scratch.fwd_band_hi[i] + 3);
         } else {
             lo = 0; hi = scratch.active_dp_width - 1;
         }
@@ -1368,12 +1394,16 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         simd_t lane_first_active = simd_t((Float)scratch.active_dp_width);
         simd_t lane_last_active = simd_t(0.0);
         simd_t row_active_count = simd_t(0);
+        simd_t row_best_wMid = simd_t(-INFINITY);
+        simd_t row_best_j = simd_t(0.0);
 
         alignas(64) Float seq_end_f[simdWidth] = {};
         for (int k = 0; k < activeCount; k++)
             seq_end_f[k] = (Float)(scratch.seq_offset[k] + (int)decoded[k]->size());
         simd_t seq_end = Kokkos::Experimental::simd_unchecked_load<simd_t>(seq_end_f);
 
+        active_ij += hi - seq_start + 1;
+        total_ij += maxSequenceLength;
         for (int j = seq_start; j <= hi; j++) {
             bool in_band = (j >= lo);
 
@@ -1425,7 +1455,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                 global_best = Kokkos::max(global_best, wMid);
             }
             simd_t is_active = (in_band && useXDrop && i >= XDROP_MIN_I)
-                ? Kokkos::Experimental::condition(wMid >= global_best * OPT_x, simd_t(1), simd_t(0))
+                ? Kokkos::Experimental::condition(wMid >= global_best * OPT_x && wMid > 0 /* disallow 0 probability regardless to avoid infinite extension */, simd_t(1), simd_t(0))
                 : (in_band ? simd_t(1) : simd_t(0));
             row_active_count += is_active;
             w0 *= is_active;
@@ -1457,6 +1487,10 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                 scratch.best_wMid[j] = Kokkos::Experimental::condition(mask, wMid, scratch.best_wMid[j]);
                 scratch.best_wEnd[j] = Kokkos::Experimental::condition(mask, w0, scratch.best_wEnd[j]);
                 scratch.best_i[j] = Kokkos::Experimental::condition(mask, simd_t((Float)i), scratch.best_i[j]);
+
+                Kokkos::Experimental::simd_mask<Float> row_mask = (wMid > row_best_wMid) && ((Float)j < seq_end);
+                row_best_wMid = Kokkos::Experimental::condition(row_mask, wMid, row_best_wMid);
+                row_best_j = Kokkos::Experimental::condition(row_mask, simd_t((Float)j), row_best_j);
             }
         }
 
@@ -1484,14 +1518,14 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                 fprintf(stderr, "  lane %d: first=%d last=%d\n", k, (int)first_arr[k], (int)last_arr[k]);
         }
 
-        int next_lo = scratch.active_dp_width, next_hi = 0, next_has_active = 0;
 
         if (useXDrop && i >= XDROP_MIN_I) {
             reoffset(scratch, activeCount, decoded, profile, bg_probs_ptr,
-                     first_arr, last_arr);
+                     first_arr, last_arr, row_best_j);
             transposed_base = scratch.transposed_decoded.data() + 4 * simdWidth;
             bg_codon_probs_base = scratch.bg_codon_probs.data();
 
+            int next_lo = scratch.active_dp_width, next_hi = 0, next_has_active = 0;
             for (int k = 0; k < activeCount; k++) {
                 int first = (int)first_arr[k];
                 int last  = (int)last_arr[k];
@@ -1519,12 +1553,9 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     }
 
     if (useXDrop) {
-        static int64_t debug_full = 0, debug_band = 0;
-        debug_full += (int64_t)(profile.length + 1) * scratch.active_dp_width;
-        debug_band += band_cells;
         std::ostringstream ss;
-        ss << "# X-drop: " << debug_band << "/" << debug_full
-           << " (" << (100.0 * debug_band / debug_full) << "%)"
+        ss << "# X-drop: " << active_ij << "/" << total_ij
+           << " (" << (100.0 * active_ij / total_ij) << "%)"
            << "  active: " << active_cells << "/" << total_cells
            << " (" << (100.0 * active_cells / total_cells) << "%)" << std::endl;
         std::cerr << ss.str();
