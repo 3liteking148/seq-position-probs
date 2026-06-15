@@ -955,7 +955,6 @@ void reoffset(DPScratch& scratch, int activeCount,
     Float best_reference = 0;
     int64_t reference = -1;
     for (int k = 0; k < activeCount; k++) {
-        if (first_arr[k] <= last_arr[k]) {
         Float cur_val = scratch.W0_curr[k][row_best_j[k]];
         if (first_arr[k] <= last_arr[k] && cur_val > best_reference) {
             best_reference = cur_val;
