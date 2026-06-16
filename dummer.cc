@@ -3037,7 +3037,7 @@ Options for background letter probabilities:\n\
                         if (verbosity > 1)
                             std::cerr << "Profile: " << &charVec[p.nameIdx] << "\n";
 
-                        allRequests[j].push_back({sd, minProbRatio});
+                        allRequests[j].push_back({sd, minProbRatio, sequence.seeds});
 #ifdef PIPELINE_MODE
                     }
 #endif
