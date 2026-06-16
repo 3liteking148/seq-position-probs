@@ -186,6 +186,7 @@ struct Sequence {
     std::string target_profile;
     bool is_plus;
     bool has_pipeline_fields = false;
+    std::vector<std::array<int, 4>> seeds;
 #endif
 };
 
@@ -214,6 +215,7 @@ struct SequenceData {
 struct SequenceRequest {
     std::shared_ptr<SequenceData> seqData;
     Float minProbRatio;
+    std::vector<std::array<int, 4>> seeds;
 
     bool operator<(const SequenceRequest &other) const {
         return seqData->decoded.size() < other.seqData->decoded.size();
@@ -310,6 +312,7 @@ std::istream &readContig(std::istream &in, Sequence &sequence, Contig &contig,
             return in;
         if (x != '>')
             return fail(in, "bad sequence data: no '>'");
+        sequence.seeds.clear();
         std::string line, word;
         getline(in, line);
         std::istringstream iss(line);
@@ -330,6 +333,29 @@ std::istream &readContig(std::istream &in, Sequence &sequence, Contig &contig,
                 sequence.true_length = stoll(length.substr(length.find('=') + 1));
                 sequence.target_profile = profile.substr(profile.find('=') + 1);
                 sequence.is_plus = strand.find("plus_strand") != std::string::npos;
+            }
+            std::string seed_token;
+            if (iss >> seed_token) {
+                if (seed_token.rfind("seed=", 0) == 0) {
+                    auto s = seed_token.substr(5);
+                    size_t pos = 0;
+                    while (pos < s.size()) {
+                        size_t semi = s.find(';', pos);
+                        std::string seed_str = (semi == std::string::npos) ? s.substr(pos) : s.substr(pos, semi - pos);
+                        std::array<int, 4> seed = {};
+                        size_t c = 0, st = 0;
+                        for (size_t i = 0; i <= seed_str.size(); ++i) {
+                            if (i == seed_str.size() || seed_str[i] == ',') {
+                                if (c < 4) seed[c] = std::stoi(seed_str.substr(st, i - st));
+                                ++c;
+                                st = i + 1;
+                            }
+                        }
+                        if (c == 4) sequence.seeds.push_back(seed);
+                        if (semi == std::string::npos) break;
+                        pos = semi + 1;
+                    }
+                }
             }
             sequence.has_pipeline_fields = true;
             word = chr;

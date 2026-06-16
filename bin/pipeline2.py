@@ -84,6 +84,10 @@ def main():
                         help="Path to an existing padded target DB (skips createdb + makepaddedseqdb)")
     parser.add_argument("--query-db", dest="query_db", default=None,
                         help="Path to an existing query profile DB (skips convertmsa + msa2profile)")
+    parser.add_argument("--skip-dummer", action="store_true",
+                        help="Skip running dummer (only generate debug.fa)")
+    parser.add_argument("--output-fa", dest="output_fa", default=None,
+                        help="Save debug FASTA to this path (persistent copy)")
 
     args = parser.parse_args()
 
@@ -162,10 +166,9 @@ def main():
             "--threads", cpus,
             #"-e", "10000",
             "-e", "1000",
-            "--prefilter-mode", "3",
             "--min-ungapped-score", "0",
             #"--num-iterations", "3",
-            "--alignment-mode", "1",
+            "--alignment-mode", "2",
         ]
 
         # mmseqs_cmd = [
@@ -183,7 +186,40 @@ def main():
         # ---------------------------------------------------------
         # 4. Map Amino Acid Hits -> Genomic DNA Windows
         # ---------------------------------------------------------
-        # todo: double check ts
+        #
+        # Coordinate conventions:
+        #
+        #   mmseqs convertalis output (BLAST-tab fields):
+        #     fields[6]=qstart, fields[7]=qend  — 1-indexed inclusive profile positions
+        #     fields[8]=tstart, fields[9]=tend  — 1-indexed inclusive target protein positions
+        #
+        #   Six-frame translation:
+        #     Forward frame N (N=1,2,3): protein[1] ↔ genome nucleotide [N-1] (0-indexed)
+        #       protein position p ↔ genome nucleotide (N-1) + 3*(p-1)   (1st nt of codon)
+        #       protein position p ↔ genome nucleotide (N-1) + 3*(p-1)+2 (3rd nt of codon)
+        #     Reverse frame N (N=1,2,3): translation runs over reverse-complement of genome.
+        #       RC position i (0-indexed) ↔ original genome position L-1-i
+        #       protein position p in frame N ↔ 1st nt of codon at original position:
+        #         L - N - 3*p + 3   (0-indexed, inclusive)
+        #
+        #   Seed format "seed=prof_s,dna_s,prof_e,dna_e" (semicolons between seeds):
+        #     All values are 0-indexed inclusive.
+        #     prof_s, prof_e — positions in the HMM profile (query)
+        #     dna_s, dna_e   — positions within the EXTRACTED FASTA window
+        #       Forward strand: dna position 0 = genome position (start-1), left-to-right
+        #       Reverse strand: bedtools getfasta -s produces reverse-complemented FASTA;
+        #         dna position 0 = genome position (end-1), right-to-left
+        #     dna_s = first  nucleotide of the codon at prof_s
+        #     dna_e = first  nucleotide of the codon at prof_e
+        #
+        #   Genomic overlap check (0-indexed half-open genome intervals):
+        #     gen_s  — 0-indexed inclusive start of alignment in genome
+        #     gen_e  — 0-indexed exclusive end   of alignment in genome
+        #     Window — [start-1, end)  (0-indexed, half-open)
+        #     Overlap: gen_e > (start-1) AND gen_s < end
+        #
+        hits_by_window = {}
+
         def parse_mmseqs_to_intervals(filepath):
             for line in open(filepath):
                 if line.startswith("#"):
@@ -195,16 +231,27 @@ def main():
 
                 query_acc = fields[0]
                 target_full = fields[1]
-                t_start = int(fields[8]) # 0 in align-mode 1
+                q_start = int(fields[6])
+                q_end   = int(fields[7])
+                t_start = int(fields[8])
                 t_end = int(fields[9])
                 hmm_len = hmm_lens.get(query_acc, 0)
-                p_pos = max(1, t_end - (hmm_len // 2))
+                p_pos = max(1, (t_start + t_end) // 2)
                 e_value = fields[10]
                 bitscore = fields[11]
                 
                 *target_parts, strand_frame = target_full.rsplit('_', 1)
                 target_base = '_'.join(target_parts)
                 strand, frame = strand_frame[0], int(strand_frame[1])
+
+                hits_by_window.setdefault((target_base, query_acc, strand), []).append({
+                    'q_start': q_start,
+                    'q_end':   q_end,
+                    't_start': t_start,
+                    't_end':   t_end,
+                    'frame':   frame,
+                    'bitscore': float(bitscore),
+                })
 
                 L = dna_lens.get(target_base, 0)
                 if L == 0: 
@@ -256,21 +303,68 @@ def main():
                     
                     start, end = int(start_str), int(end_str)
                     strand_label = "plus_strand" if strand_sign == '+' else "minus_strand_revcomp"
-                    fout.write(f">{chrom}/{start+1}-{end} length={dna_lens.get(chrom, 0)} profile={query} {strand_label}\n")
+
+                    seed_str = ""
+                    strand_key = 'F' if strand_sign == '+' else 'R'
+                    hits = hits_by_window.get((chrom, query, strand_key), [])
+                    if hits:
+                        seeds = []
+                        for h in hits:
+                            frame   = h['frame']
+                            t_start = h['t_start']
+                            t_end   = h['t_end']
+                            prof_s  = h['q_start'] - 1
+                            prof_e  = h['q_end']   - 1
+                            L = dna_lens.get(chrom, 0)
+                            if L > 0:
+                                win_start = start - 1
+                                win_end   = end
+                                if strand_sign == '+':
+                                    # gen_s: 1st nt of t_start codon, 0-indexed genome
+                                    # gen_e: one past 3rd nt of t_end codon, 0-indexed genome (half-open)
+                                    gen_s = (frame - 1) + 3 * (t_start - 1)
+                                    gen_e = (frame - 1) + 3 * (t_end   - 1) + 3
+                                    if gen_e <= win_start or gen_s >= win_end:
+                                        continue
+                                    dna_s = gen_s - win_start       # 1st nt within window
+                                    dna_e = gen_e - 3 - win_start   # 1st nt of t_end codon within window
+                                else:
+                                    # Reverse strand: alignment runs on reverse-complement.
+                                    # gen_s = leftmost genome position (t_end codon 3rd nt)
+                                    # gen_e = one past rightmost genome position (t_start codon 1st nt + 1)
+                                    gen_s = L - frame - 3 * t_end + 1
+                                    gen_e = L - frame - 3 * t_start + 4
+                                    if gen_e <= win_start or gen_s >= win_end:
+                                        continue
+                                    dna_s = (end - 1) - (L - frame - 3 * t_start + 3)
+                                    dna_e = (end - 1) - (L - frame - 3 * t_end   + 3)
+                                win_size = end - start + 1
+                                dna_s = max(0, min(dna_s, win_size - 1))
+                                dna_e = max(0, min(dna_e, win_size - 1))
+                                seeds.append(f"{prof_s},{dna_s},{prof_e},{dna_e}")
+                        seed_str = f" seed={';'.join(seeds)}"
+
+                    fout.write(f">{chrom}/{start+1}-{end} length={dna_lens.get(chrom, 0)} profile={query} {strand_label}{seed_str}\n")
                 else:
                     fout.write(line)
+
+        if args.output_fa:
+            import shutil
+            shutil.copy2(merged_fa_path, args.output_fa)
+            print(f"# Debug FASTA saved to: {args.output_fa}")
 
         # ---------------------------------------------------------
         # 6. Run Dummer
         # ---------------------------------------------------------
-        custom_env = os.environ.copy()
-        #custom_env["ASAN_OPTIONS"] = "detect_container_overflow=1:strict_memcmp=1"
-        
-        try:
-            subprocess.run([dummer_exec, hmm_file, merged_fa_path, '-T 16'], env=custom_env, check=True)
-        except subprocess.CalledProcessError as e:
-            print(f"Error: dummer encountered an issue (Exit status: {e.returncode})")
-            sys.exit(1)
+        if not args.skip_dummer:
+            custom_env = os.environ.copy()
+            #custom_env["ASAN_OPTIONS"] = "detect_container_overflow=1:strict_memcmp=1"
+            
+            try:
+                subprocess.run([dummer_exec, hmm_file, merged_fa_path, '-T 16'], env=custom_env, check=True)
+            except subprocess.CalledProcessError as e:
+                print(f"Error: dummer encountered an issue (Exit status: {e.returncode})")
+                sys.exit(1)
 
 if __name__ == "__main__":
     main()
