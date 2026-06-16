@@ -1665,10 +1665,12 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
         scratch.opt_profile_position[idx].assign(len, AlignedSimilarity(-INFINITY));
 
+        Float best_overall = -INFINITY;
         for (int j = 0; j < len; j++) {
             int phys_j = j + offset;
             Float best_prob = scratch.best_wMid[idx][j];
             if (best_prob > -INFINITY) {
+                best_overall = std::max(best_overall, best_prob);
                 scratch.opt_profile_position[idx][j] = {
                     best_prob,
                     scratch.best_i[idx][j],
@@ -1679,28 +1681,31 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         }
 
         if (minProbRatio[idx] >= 0) {
-            std::ranges::sort(scratch.opt_profile_position[idx], std::greater<>());
-            auto &aligned = scratch.aligned;
-            aligned[idx].assign(decoded[idx]->size() + 0, false);
+            if (best_overall >= minProbRatio[idx]) {
+                std::cerr << "has" << std::endl;
+                std::ranges::sort(scratch.opt_profile_position[idx], std::greater<>());
+                auto &aligned = scratch.aligned;
+                aligned[idx].assign(decoded[idx]->size() + 0, false);
 
-            for (auto &aligned_similarity : scratch.opt_profile_position[idx]) {
-                int logical_j = aligned_similarity.anchor2 - offset;
+                for (auto &aligned_similarity : scratch.opt_profile_position[idx]) {
+                    int logical_j = aligned_similarity.anchor2 - offset;
 
-                if (aligned_similarity.probRatio >= minProbRatio[idx] &&
-                    !aligned[idx][logical_j]) {
+                    if (aligned_similarity.probRatio >= minProbRatio[idx] &&
+                        !aligned[idx][logical_j]) {
 
-                    addMidAnchored(idx, profile.length, similarities[idx], aligned_similarity.anchor1,
-                                   aligned_similarity.anchor2,
-                                   aligned_similarity.probRatio * scale /
-                                       aligned_similarity.wEndAnchored,
-                                   aligned_similarity.wEndAnchored, scratch);
-                    auto &x = similarities[idx].back();
-                    finishMidAnchored(idx, x, scratch);
-                    x.anchor2 -= offset;
+                        addMidAnchored(idx, profile.length, similarities[idx], aligned_similarity.anchor1,
+                                       aligned_similarity.anchor2,
+                                       aligned_similarity.probRatio * scale /
+                                           aligned_similarity.wEndAnchored,
+                                       aligned_similarity.wEndAnchored, scratch);
+                        auto &x = similarities[idx].back();
+                        finishMidAnchored(idx, x, scratch);
+                        x.anchor2 -= offset;
 
-                    int startIdx = std::max(logical_j - 12 * profile.length, 0);
-                    int endIdx = std::min(logical_j + 12 * profile.length, (int)decoded[idx]->size() + 0);
-                    std::fill(aligned[idx].begin() + startIdx, aligned[idx].begin() + endIdx, true);
+                        int startIdx = std::max(logical_j - 12 * profile.length, 0);
+                        int endIdx = std::min(logical_j + 12 * profile.length, (int)decoded[idx]->size() + 0);
+                        std::fill(aligned[idx].begin() + startIdx, aligned[idx].begin() + endIdx, true);
+                        }
                 }
             }
         } else {
