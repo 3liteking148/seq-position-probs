@@ -13,6 +13,17 @@ add_link_options(
         $<$<CONFIG:Debug>:-fsanitize=address,undefined>
 )
 
+if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
+    string(REPLACE "-DNDEBUG" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+    string(REPLACE "-DNDEBUG" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
+
+    # MSVC specific flag handling (uses forward slash)
+    if(MSVC)
+        string(REPLACE "/DNDEBUG" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+        string(REPLACE "/DNDEBUG" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
+    endif()
+endif()
+
 find_package(Git QUIET)
 if(GIT_FOUND)
     execute_process(
