@@ -88,6 +88,8 @@ def main():
                         help="Skip running dummer (only generate debug.fa)")
     parser.add_argument("--output-fa", dest="output_fa", default=None,
                         help="Save debug FASTA to this path (persistent copy)")
+    parser.add_argument("--no-seeds", action="store_true",
+                        help="Omit seed annotations from FASTA headers (dummer runs without seed gating)")
 
     args = parser.parse_args()
 
@@ -305,44 +307,40 @@ def main():
                     strand_label = "plus_strand" if strand_sign == '+' else "minus_strand_revcomp"
 
                     seed_str = ""
-                    strand_key = 'F' if strand_sign == '+' else 'R'
-                    hits = hits_by_window.get((chrom, query, strand_key), [])
-                    if hits:
-                        seeds = []
-                        for h in hits:
-                            frame   = h['frame']
-                            t_start = h['t_start']
-                            t_end   = h['t_end']
-                            prof_s  = h['q_start'] - 1
-                            prof_e  = h['q_end']   - 1
-                            L = dna_lens.get(chrom, 0)
-                            if L > 0:
-                                win_start = start - 1
-                                win_end   = end
-                                if strand_sign == '+':
-                                    # gen_s: 1st nt of t_start codon, 0-indexed genome
-                                    # gen_e: one past 3rd nt of t_end codon, 0-indexed genome (half-open)
-                                    gen_s = (frame - 1) + 3 * (t_start - 1)
-                                    gen_e = (frame - 1) + 3 * (t_end   - 1) + 3
-                                    if gen_e <= win_start or gen_s >= win_end:
-                                        continue
-                                    dna_s = gen_s - win_start       # 1st nt within window
-                                    dna_e = gen_e - 3 - win_start   # 1st nt of t_end codon within window
-                                else:
-                                    # Reverse strand: alignment runs on reverse-complement.
-                                    # gen_s = leftmost genome position (t_end codon 3rd nt)
-                                    # gen_e = one past rightmost genome position (t_start codon 1st nt + 1)
-                                    gen_s = L - frame - 3 * t_end + 1
-                                    gen_e = L - frame - 3 * t_start + 4
-                                    if gen_e <= win_start or gen_s >= win_end:
-                                        continue
-                                    dna_s = (end - 1) - (L - frame - 3 * t_start + 3)
-                                    dna_e = (end - 1) - (L - frame - 3 * t_end   + 3)
-                                win_size = end - start + 1
-                                dna_s = max(0, min(dna_s, win_size - 1))
-                                dna_e = max(0, min(dna_e, win_size - 1))
-                                seeds.append(f"{prof_s},{dna_s},{prof_e},{dna_e}")
-                        seed_str = f" seed={';'.join(seeds)}"
+                    if not args.no_seeds:
+                        strand_key = 'F' if strand_sign == '+' else 'R'
+                        hits = hits_by_window.get((chrom, query, strand_key), [])
+                        if hits:
+                            seeds = []
+                            for h in hits:
+                                frame   = h['frame']
+                                t_start = h['t_start']
+                                t_end   = h['t_end']
+                                prof_s  = h['q_start'] - 1
+                                prof_e  = h['q_end']   - 1
+                                L = dna_lens.get(chrom, 0)
+                                if L > 0:
+                                    win_start = start - 1
+                                    win_end   = end
+                                    if strand_sign == '+':
+                                        gen_s = (frame - 1) + 3 * (t_start - 1)
+                                        gen_e = (frame - 1) + 3 * (t_end   - 1) + 3
+                                        if gen_e <= win_start or gen_s >= win_end:
+                                            continue
+                                        dna_s = gen_s - win_start
+                                        dna_e = gen_e - 3 - win_start
+                                    else:
+                                        gen_s = L - frame - 3 * t_end + 1
+                                        gen_e = L - frame - 3 * t_start + 4
+                                        if gen_e <= win_start or gen_s >= win_end:
+                                            continue
+                                        dna_s = (end - 1) - (L - frame - 3 * t_start + 3)
+                                        dna_e = (end - 1) - (L - frame - 3 * t_end   + 3)
+                                    win_size = end - start + 1
+                                    dna_s = max(0, min(dna_s, win_size - 1))
+                                    dna_e = max(0, min(dna_e, win_size - 1))
+                                    seeds.append(f"{prof_s},{dna_s},{prof_e},{dna_e}")
+                            seed_str = f" seed={';'.join(seeds)}"
 
                     fout.write(f">{chrom}/{start+1}-{end} length={dna_lens.get(chrom, 0)} profile={query} {strand_label}{seed_str}\n")
                 else:
