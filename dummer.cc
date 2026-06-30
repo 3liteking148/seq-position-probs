@@ -101,6 +101,10 @@ public:
     ThreadPool(size_t numThreads) {
         for (size_t i = 0; i < numThreads; ++i) {
             workers.emplace_back([this, i] {
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
+                _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
+                _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
+#endif
                 while (true) {
                     std::function<void(int)> task;
                     {
