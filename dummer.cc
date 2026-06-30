@@ -53,7 +53,7 @@
 #define OPT_e 10
 #define OPT_s 2
 #define OPT_m 3
-#define OPT_t 20
+#define OPT_t 1000
 #define OPT_l 5000
 #define OPT_b 100
 #define OPT_x 1e-5 // 0 to enable full DP mode
@@ -2181,7 +2181,7 @@ void findFinalSimilarities(std::vector<FinalSimilarity> &similarities, std::arra
             lane_lo[k].resize(profile.length + 2);
             lane_hi[k].resize(profile.length + 2);
         }
-        findSimilarities(sims, profile, decoded, minProbRatio, scratch, activeCount, false, DPArgs{.in_lo = &lane_lo, .in_hi = &lane_hi});
+        findSimilarities(sims, profile, decoded, minProbRatio, scratch, activeCount, false);
     }
 
     for (int idx = 0; idx < activeCount; idx++) {
