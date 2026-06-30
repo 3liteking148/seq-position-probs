@@ -3073,8 +3073,8 @@ void makeMaskedSequence(char *sequence, int length, int alphabetSize) {
             val = 3;
             break;
         default:
-            //assert(0);
-                break;
+            val = 0;
+            break;
         }
         seq2 += val;
     }
