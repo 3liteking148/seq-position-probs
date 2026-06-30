@@ -707,12 +707,43 @@ public:
     }
 };
 
+// SIMD-native 2D matrix: rows of PaddedVec<simd_t>.  Lane k of element [i][j]
+// holds the value for sequence k at (row i, column j).  This eliminates the
+// per-lane gather/scatter transpose that FlatMatrix required.
+template <int PrePad = 0, int PostPad = 0>
+class SimdMatrix {
+    std::vector<PaddedVec<simd_t, PrePad, PostPad>> rows_;
+    int logical_cols_ = 0;
+public:
+    SimdMatrix() = default;
+
+    void assign(size_t nrows, int ncols, simd_t init = simd_t(0.0)) {
+        logical_cols_ = ncols;
+        rows_.resize(nrows);
+        for (auto& r : rows_) r.resize(ncols, init);
+    }
+
+    simd_t get(size_t i, int j) const { return rows_[i][j]; }
+    void set(size_t i, int j, simd_t v) { rows_[i][j] = v; }
+    Float get_lane(size_t i, int j, int k) const { return rows_[i][j][k]; }
+
+    int cols() const { return logical_cols_; }
+    size_t rows() const { return rows_.size(); }
+
+    void shiftAllRows(const std::array<int64_t, simdWidth>& delta,
+                      int new_cols, int activeCount, std::vector<Float>& buf) {
+        logical_cols_ = new_cols;
+        for (auto& r : rows_) r.shiftExpand(delta, new_cols, activeCount, buf);
+    }
+};
+
 struct DPScratch {
-    // Per-sequence scalar FlatMatrices (each sequence has its own width)
-    std::array<FlatMatrix<Float>, simdWidth> W1;
-    std::array<FlatMatrix<Float, true>, simdWidth> W1_rolling;
-    std::array<FlatMatrix<Float>, simdWidth> X;
-    std::array<FlatMatrix<Float, false, 3, 0>, simdWidth> X_pfx;
+    // SIMD-native W1 matrix: simd_t per cell, one value per lane
+    SimdMatrix<0, 0> W1;
+    // 2-row rolling buffer for capture_bands mode
+    std::array<PaddedVec<simd_t, 0, 0>, 2> W1_rolling;
+    SimdMatrix<0, 0> X;
+    SimdMatrix<3, 0> X_pfx;
 
     // Reusable temporary buffers for findSimilarities
     PaddedVec<simd_t, 0, 0> W0_curr, W0_next;
@@ -755,15 +786,15 @@ struct DP_Cell_v2 {
 void addForwardAlignment(int idx, size_t profileLength, std::vector<SegmentPair> &alignment, int iBeg, int jBeg,
                          DPScratch &scratch) {
     int off = scratch.seq_offset[idx];
-    int cols = (int)scratch.W1[idx].cols();
+    int cols = (int)scratch.W1.cols();
     int dp_bound = off + cols - 4;
 
     int i = iBeg, abs_pos = jBeg;
     while (i <= profileLength && abs_pos < dp_bound) {
         auto choice = std::max({
-            DP_Cell_v2{.metric=(abs_pos + 3 < off + cols ? scratch.X[idx].get(i, abs_pos + 3) + scratch.W1[idx].get(i + 1, abs_pos + 3) : -INFINITY), .i=i + 1, .j=abs_pos + 3, .emit=true},
-            DP_Cell_v2{.metric=scratch.W1[idx].get(i + 1, abs_pos), .i=i + 1, .j=abs_pos, .emit=false},
-            DP_Cell_v2{.metric=scratch.W1[idx].get(i, abs_pos + 1), .i=i, .j=abs_pos + 1, .emit=false},
+            DP_Cell_v2{.metric=(abs_pos + 3 < off + cols ? scratch.X.get_lane(i, abs_pos + 3, idx) + scratch.W1.get_lane(i + 1, abs_pos + 3, idx) : -INFINITY), .i=i + 1, .j=abs_pos + 3, .emit=true},
+            DP_Cell_v2{.metric=scratch.W1.get_lane(i + 1, abs_pos, idx), .i=i + 1, .j=abs_pos, .emit=false},
+            DP_Cell_v2{.metric=scratch.W1.get_lane(i, abs_pos + 1, idx), .i=i, .j=abs_pos + 1, .emit=false},
             DP_Cell_v2{.metric=scratch.left_side[abs_pos][idx], .i=INT_MAX, .j=INT_MAX, .emit=false},
         });
 
@@ -781,12 +812,12 @@ void addReverseAlignment(int idx, std::vector<SegmentPair> &alignment, int iEnd,
     while (i >= 0 && abs_pos >= off) {
         DP_Cell opt_succ = 0;
         if (i >= 1 && abs_pos >= off + 3) {
-            opt_succ = scratch.X_pfx[idx].get(i - 1, abs_pos - 3);
+            opt_succ = scratch.X_pfx.get_lane(i - 1, abs_pos - 3, idx);
         }
         auto choice = std::max({
-            DP_Cell_v2{.metric=(abs_pos >= off + 3 ? scratch.X[idx].get(i, abs_pos) + opt_succ : -INFINITY), .i=i - 1, .j=abs_pos - 3, .emit=true},
-            DP_Cell_v2{.metric=(i >= 1 ? scratch.X_pfx[idx].get(i - 1, abs_pos) : -INFINITY), .i=i - 1, .j=abs_pos, .emit=false},
-            DP_Cell_v2{.metric=(abs_pos > off ? scratch.X_pfx[idx].get(i, abs_pos - 1) : -INFINITY), .i=i, .j=abs_pos - 1, .emit=false},
+            DP_Cell_v2{.metric=(abs_pos >= off + 3 ? scratch.X.get_lane(i, abs_pos, idx) + opt_succ : -INFINITY), .i=i - 1, .j=abs_pos - 3, .emit=true},
+            DP_Cell_v2{.metric=(i >= 1 ? scratch.X_pfx.get_lane(i - 1, abs_pos, idx) : -INFINITY), .i=i - 1, .j=abs_pos, .emit=false},
+            DP_Cell_v2{.metric=(abs_pos > off ? scratch.X_pfx.get_lane(i, abs_pos - 1, idx) : -INFINITY), .i=i, .j=abs_pos - 1, .emit=false},
             DP_Cell_v2{.metric=scratch.right_side[abs_pos][idx], .i=-1, .j=-1, .emit=false},
         });
 
@@ -1049,6 +1080,12 @@ void reoffset(DPScratch& scratch, int activeCount,
     if (!capture_bands) {
     scratch.right_side.shiftExpand(deltas, scratch.active_dp_width, activeCount, scratch.shift_buf);
     scratch.left_side.shiftExpand(deltas, scratch.active_dp_width, activeCount, scratch.shift_buf);
+    scratch.W1.shiftAllRows(deltas, scratch.active_dp_width + 4, activeCount, scratch.shift_buf);
+    scratch.X.shiftAllRows(deltas, scratch.active_dp_width + 4, activeCount, scratch.shift_buf);
+    scratch.X_pfx.shiftAllRows(deltas, scratch.active_dp_width + 4, activeCount, scratch.shift_buf);
+    } else {
+    scratch.W1_rolling[0].shiftExpand(deltas, scratch.active_dp_width + 4, activeCount, scratch.shift_buf);
+    scratch.W1_rolling[1].shiftExpand(deltas, scratch.active_dp_width + 4, activeCount, scratch.shift_buf);
     }
 
     // Shift per-lane band arrays into the new physical frame so that
@@ -1076,15 +1113,6 @@ void reoffset(DPScratch& scratch, int activeCount,
                 scratch.rev_band_lo[k][r] = rv.first;
                 scratch.rev_band_hi[k][r] = rv.second;
             }
-        }
-    }
-
-    for (int k = 0; k < activeCount; k++) {
-        scratch.W1_rolling[k].set_offset(scratch.seq_offset[k]);
-        if (!capture_bands) {
-            scratch.W1[k].set_offset(scratch.seq_offset[k]);
-            scratch.X[k].set_offset(scratch.seq_offset[k]);
-            scratch.X_pfx[k].set_offset(scratch.seq_offset[k]);
         }
     }
 
@@ -1193,7 +1221,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     const bool capture_bands = (args.out_lo != nullptr);
     const bool seed_gating = (args.seed_j != nullptr);
 
-    const simd_t simd_OPT_x(Float(OPT_x));
+    const simd_t simd_OPT_x{Float(OPT_x)};
 
     int maxSequenceLength = 0;
     for (int idx = 0; idx < activeCount; idx++) {
@@ -1320,11 +1348,11 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     scratch.W0_curr.resize(scratch.active_dp_width + 4, simd_t(0.0));
     scratch.W0_next.resize(scratch.active_dp_width + 4, simd_t(0.0));
 
-    for (int k = 0; k < activeCount; k++) {
-        if (capture_bands)
-            scratch.W1_rolling[k].assign(profile.length + 2, scratch.active_dp_width + 4);
-        else
-            scratch.W1[k].assign(profile.length + 2, scratch.active_dp_width + 4);
+    if (capture_bands) {
+        scratch.W1_rolling[0].resize(scratch.active_dp_width + 4, simd_t(0.0));
+        scratch.W1_rolling[1].resize(scratch.active_dp_width + 4, simd_t(0.0));
+    } else {
+        scratch.W1.assign(profile.length + 2, scratch.active_dp_width + 4);
     }
 
     if (args.in_lo && args.in_hi) {
@@ -1362,10 +1390,8 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     left_side.assign(null_model_prefix.size(), 0.0);
     right_side.assign(null_model_prefix.size(), 0.0);
     if (!capture_bands) {
-        for (int k = 0; k < activeCount; k++) {
-            scratch.X[k].assign(profile.length + 2, scratch.active_dp_width + 4);
-            scratch.X_pfx[k].assign(profile.length + 2, scratch.active_dp_width + 4);
-        }
+        scratch.X.assign(profile.length + 2, scratch.active_dp_width + 4);
+        scratch.X_pfx.assign(profile.length + 2, scratch.active_dp_width + 4);
     }
 #endif
         const Float *bg_probs_ptr = profile.bg_probs.data() + 4;
@@ -1378,16 +1404,16 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
         simd_t global_best_backward = simd_t(0.0);
         {
-        alignas(64) Float gather_buf[simdWidth];
         auto gather_w1 = [&](int i_row, int col) -> simd_t {
             return capture_bands
-                ? simdGather(scratch.W1_rolling.data(), gather_buf, activeCount, i_row, col)
-                : simdGather(scratch.W1.data(), gather_buf, activeCount, i_row, col);
+                ? scratch.W1_rolling[i_row & 1][col]
+                : scratch.W1.get(i_row, col);
         };
         auto scatter_w1 = [&](simd_t val, int i_row, int col) {
-            capture_bands
-                ? simdScatter(val, scratch.W1_rolling.data(), gather_buf, activeCount, i_row, col)
-                : simdScatter(val, scratch.W1.data(), gather_buf, activeCount, i_row, col);
+            if (capture_bands)
+                scratch.W1_rolling[i_row & 1][col] = val;
+            else
+                scratch.W1.set(i_row, col, val);
         };
 
         for (int i = profile.length; i >= 0; i--) {
@@ -1451,6 +1477,8 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                 rev_lo = 0; rev_hi = scratch.active_dp_width - 1;
             }
 
+            if (rev_lo > rev_hi) break;
+
             alignas(64) Float rev_lane_lo_f[simdWidth], rev_lane_hi_f[simdWidth];
             for (int k = 0; k < activeCount; k++) {
                 rev_lane_lo_f[k] = (Float)(scratch.rev_band_lo[k][i]);
@@ -1459,8 +1487,21 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             simd_t rev_lane_lo_vec = Kokkos::Experimental::simd_unchecked_load<simd_t>(rev_lane_lo_f);
             simd_t rev_lane_hi_vec = Kokkos::Experimental::simd_unchecked_load<simd_t>(rev_lane_hi_f);
 
-            simd_t bwd_lane_first_active = simd_t((Float)INT_MAX);
-            simd_t bwd_lane_last_active = simd_t((Float)INT_MIN);
+            // Shift registers to eliminate redundant W1 gathers.
+            // Between consecutive j iterations, 3/5 W1 reads overlap:
+            //   iter j:   reads (i+1,j+1),(i+1,j+2),(i+1,j+3),(i,j+1),(i,j+2)
+            //   iter j-1: reads (i+1,j),  (i+1,j+1),(i+1,j+2),(i,j),  (i,j+1)
+            // We keep the last 5 columns as shift registers and only gather
+            // the one truly new value W1[i+1][j] each iteration.
+            // W1[i][j] is w_val itself — already in register, no gather needed.
+            simd_t sr_n3 = gather_w1(i + 1, rev_hi + 3);
+            simd_t sr_n2 = gather_w1(i + 1, rev_hi + 2);
+            simd_t sr_n1 = gather_w1(i + 1, rev_hi + 1);
+            simd_t sr_c2 = gather_w1(i, rev_hi + 2);
+            simd_t sr_c1 = gather_w1(i, rev_hi + 1);
+
+            simd_t row_best_metric_bwd = simd_t(-INFINITY);
+            simd_t row_best_j_bwd = simd_t(0.0);
 
             for (int j = rev_hi; j >= rev_lo; j--) {
                 int r_0 = j & 3;
@@ -1473,14 +1514,17 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                 simd_t codon_emit_probs(codon_raw);
                 simd_t bg_codon_emit_probs = bg_codon_probs_base[j + 1];
 
+                // Only gather the one new column needed for next iteration
+                simd_t w1_next_at_j = gather_w1(i + 1, j);
+
                 simd_t w_val =
-                    gather_w1(i + 1, j + 3) * codon_emit_probs * C_enter +
+                    sr_n3 * codon_emit_probs * C_enter +
                     Y0_next[j + 0] * C_delta0 +
-                    gather_w1(i + 1, j + 2) * C_delta1 +
-                    gather_w1(i + 1, j + 1) * C_delta2 +
+                    sr_n2 * C_delta1 +
+                    sr_n1 * C_delta2 +
                     Z0_ring[r_3] * bg_codon_emit_probs * C_alpha0 +
-                    gather_w1(i, j + 1) * C_alpha1 +
-                    gather_w1(i, j + 2) * C_alpha2
+                    sr_c2 * C_alpha1 +
+                    sr_c1 * C_alpha2
                  + null_model_prefix[j] * (row_has_seeds ?  null_gate[j] : simd_t(1)) * C_scale;
 
                 // Apply per-lane band mask first so X-drop threshold is correct
@@ -1493,6 +1537,13 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                 // Backward X-drop: score = W1[i][j] * null_model_prefix
                 simd_t bwd_score = w_val * scratch.null_model_prefix[j];
                 global_best_backward = Kokkos::max(global_best_backward, bwd_score);
+                {
+                    simd_t j_vec_bwd((Float)j);
+                    Kokkos::Experimental::simd_mask<Float> bwd_row_mask =
+                        (bwd_score > row_best_metric_bwd) && (bwd_score > simd_t(0));
+                    row_best_metric_bwd = Kokkos::Experimental::condition(bwd_row_mask, bwd_score, row_best_metric_bwd);
+                    row_best_j_bwd = Kokkos::Experimental::condition(bwd_row_mask, j_vec_bwd, row_best_j_bwd);
+                }
                 simd_t bwd_active = useXDrop
                     ? Kokkos::Experimental::condition(bwd_score >= global_best_backward * simd_OPT_x && bwd_score > simd_t(0), simd_t(1), simd_t(0))
                     : simd_t(1);
@@ -1507,44 +1558,62 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                 simd_t z0_future = Z0_ring[r_3] * bg_codon_emit_probs;
                 Z0_ring[r_0] = Kokkos::fma(C_beta0, z0_future, w_val);
 
-                bwd_lane_first_active = Kokkos::Experimental::condition(
-                    bwd_active > 0 && (Float)j < bwd_lane_first_active,
-                    simd_t((Float)j), bwd_lane_first_active);
-                bwd_lane_last_active = Kokkos::Experimental::condition(
-                    bwd_active > 0 && (Float)j > bwd_lane_last_active,
-                    simd_t((Float)j), bwd_lane_last_active);
+                // Rotate shift registers for next iteration (j-1)
+                sr_n3 = sr_n2;
+                sr_n2 = sr_n1;
+                sr_n1 = w1_next_at_j;
+                sr_c2 = sr_c1;
+                sr_c1 = w_val;
             }
 
             if (useXDrop && i > 0) {
-                alignas(64) Float first_arr[simdWidth], last_arr[simdWidth];
-                simd_unchecked_store(bwd_lane_first_active, first_arr, Kokkos::Experimental::simd_flag_default);
-                simd_unchecked_store(bwd_lane_last_active, last_arr, Kokkos::Experimental::simd_flag_default);
+                int bw = rev_hi - rev_lo;
+                int dist = profile.length - i;
+                bool do_reoffset = (dist >= XDROP_MIN_I * 2) && (dist % XDROP_MIN_I == 0) &&
+                                   (bw > scratch.active_dp_width / 2);
+                if (do_reoffset) {
+                    Float first_arr[simdWidth], last_arr[simdWidth];
+                    for (int k = 0; k < activeCount; k++) {
+                        first_arr[k] = (Float)scratch.rev_band_lo[k][i];
+                        last_arr[k] = (Float)scratch.rev_band_hi[k][i];
+                    }
+                    reoffset(scratch, activeCount, decoded, profile, bg_probs_ptr,
+                             first_arr, last_arr, row_best_j_bwd, row_best_metric_bwd, capture_bands);
+                    transposed_base = scratch.transposed_decoded.data() + 4 * simdWidth;
+                    bg_codon_probs_base = scratch.bg_codon_probs.data();
+                }
 
                 for (int k = 0; k < activeCount; k++) {
-                    int first = (int)first_arr[k], last = (int)last_arr[k];
-                    if (first >= 0 && last < scratch.active_dp_width && first <= last) {
-                        int lane_lo = (int)scratch.seq_offset[k];
-                        int lane_hi = (int)(scratch.seq_offset[k] + (int64_t)decoded[k]->size() - 1);
-                        int seq_lo = std::max(first - 3, lane_lo);
-                        int seq_hi = std::min(last, lane_hi);
-                        if (seq_lo <= seq_hi) {
-                            scratch.rev_band_lo[k][i - 1] = std::clamp(seq_lo, lane_lo, lane_hi);
-                            scratch.rev_band_hi[k][i - 1] = std::clamp(seq_hi, lane_lo, lane_hi);
-                        } else {
-                            scratch.rev_band_lo[k][i - 1] = INT_MAX;
-                            scratch.rev_band_hi[k][i - 1] = INT_MIN;
-                        }
+                    int lo_k = scratch.rev_band_lo[k][i];
+                    int hi_k = scratch.rev_band_hi[k][i];
+                    if (lo_k > hi_k) {
+                        scratch.rev_band_lo[k][i - 1] = INT_MAX;
+                        scratch.rev_band_hi[k][i - 1] = INT_MIN;
+                        continue;
+                    }
+                    int lane_lo = (int)scratch.seq_offset[k];
+                    int lane_hi = (int)(scratch.seq_offset[k] + (int64_t)decoded[k]->size() - 1);
+                    lo_k = std::max(lo_k - 3, lane_lo);
+                    hi_k = std::min(hi_k + 3, lane_hi);
+                    if (lo_k <= hi_k) {
+                        scratch.rev_band_lo[k][i - 1] = lo_k;
+                        scratch.rev_band_hi[k][i - 1] = hi_k;
                     } else {
                         scratch.rev_band_lo[k][i - 1] = INT_MAX;
                         scratch.rev_band_hi[k][i - 1] = INT_MIN;
                     }
                 }
 
-            if (useXDrop) {
 #ifdef DEBUG_PRINT_ROWS
-                logBandStats("# bwd", i, activeCount, first_arr, last_arr, global_best_backward, decoded);
+                {
+                    Float first_arr[simdWidth], last_arr[simdWidth];
+                    for (int k = 0; k < activeCount; k++) {
+                        first_arr[k] = (Float)scratch.rev_band_lo[k][i];
+                        last_arr[k] = (Float)scratch.rev_band_hi[k][i];
+                    }
+                    logBandStats("# bwd", i, activeCount, first_arr, last_arr, global_best_backward, decoded);
+                }
 #endif
-            }
             }
 
             std::swap(Y0_curr, Y0_next);
@@ -1553,13 +1622,30 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
     std::fill(Y0_next.begin(), Y0_next.begin() + padded_seq_len, simd_t(0.0));
 
+    // {
+    //     alignas(64) Float bwd_best_arr[simdWidth];
+    //     simd_unchecked_store(global_best_backward, bwd_best_arr, Kokkos::Experimental::simd_flag_default);
+    //
+    //     bool any_bwd_above = false;
+    //     auto divider = capture_bands ? 100.0 : 100.0;
+    //     for (int k = 0; k < activeCount; k++) {
+    //         if (minProbRatio[k] < 0 || bwd_best_arr[k] >= minProbRatio[k] / divider) {
+    //             any_bwd_above = true;
+    //             break;
+    //         }
+    //     }
+    //     if (!any_bwd_above) {
+    //         return;
+    //     }
+    // }
+
     if (!capture_bands) {
-    for (int k = 0; k < activeCount; k++) {
-        int len = (int)decoded[k]->size();
-        scratch.best_wMid[k].assign(len, Float(-INFINITY));
-        scratch.best_wEnd[k].assign(len, Float(0.0));
-        scratch.best_i[k].assign(len, -1);
-    }
+        for (int k = 0; k < activeCount; k++) {
+            int len = (int)decoded[k]->size();
+            scratch.best_wMid[k].assign(len, Float(-INFINITY));
+            scratch.best_wEnd[k].assign(len, Float(0.0));
+            scratch.best_i[k].assign(len, -1);
+        }
     }
     for (int j = 0; j < scratch.active_dp_width; j++) {
         simd_t exponent = -null_prob_per_pos * (Float)(j + 1) + null_probs_prefix[j];
@@ -1591,7 +1677,6 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 #endif
 
     size_t active_ij = 0, total_ij = 0;
-    size_t active_cells = 0, total_cells = 0;
     size_t band_cells = 0;
     simd_t global_best = simd_t(0.0);
     for (int i = 0; i <= profile.length; i++) {
@@ -1618,11 +1703,10 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         simd_t *__restrict__ w0_row_i = scratch.W0_curr.data();
         simd_t *__restrict__ w0_row_ip1 = (i + 1 <= profile.length) ? scratch.W0_next.data() : nullptr;
 
-        alignas(64) Float gather_buf[simdWidth];
         auto gather_w1 = [&](int i_row, int col) -> simd_t {
             return capture_bands
-                ? simdGather(scratch.W1_rolling.data(), gather_buf, activeCount, i_row, col)
-                : simdGather(scratch.W1.data(), gather_buf, activeCount, i_row, col);
+                ? scratch.W1_rolling[i_row & 1][col]
+                : scratch.W1.get(i_row, col);
         };
 
         bool w1_ip1_avail = (i + 1 <= profile.length);
@@ -1636,17 +1720,14 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         };
 
 #ifdef ALIGN
-        auto gather_x = [&](int i_row, int col) -> simd_t {
-            return simdGather(scratch.X.data(), gather_buf, activeCount, i_row, col);
-        };
         auto gather_xpfx = [&](int i_row, int col) -> simd_t {
-            return simdGather(scratch.X_pfx.data(), gather_buf, activeCount, i_row, col);
+            return scratch.X_pfx.get(i_row, col);
         };
         auto scatter_x = [&](simd_t val, int i_row, int col) {
-            simdScatter(val, scratch.X.data(), gather_buf, activeCount, i_row, col);
+            scratch.X.set(i_row, col, val);
         };
         auto scatter_xpfx = [&](simd_t val, int i_row, int col) {
-            simdScatter(val, scratch.X_pfx.data(), gather_buf, activeCount, i_row, col);
+            scratch.X_pfx.set(i_row, col, val);
         };
 #endif
 
@@ -1709,9 +1790,6 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
         const simd_t simd_invScale(invScale);
 
-        simd_t lane_first_active = simd_t((Float)scratch.active_dp_width);
-        simd_t lane_last_active = simd_t(0.0);
-        simd_t row_active_count = simd_t(0);
         simd_t row_best_metric = simd_t(-INFINITY);
         simd_t row_best_j = simd_t(0.0);
 
@@ -1781,13 +1859,10 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             simd_t xdrop_score = (capture_bands)
                 ? w0 * scratch.null_model_suffix[j]
                 : wMid;
-            if (in_band) {
-                global_best = Kokkos::max(global_best, xdrop_score);
-            }
+            global_best = Kokkos::max(global_best, xdrop_score);
             simd_t is_active = (in_band && useXDrop)
                 ? Kokkos::Experimental::condition(xdrop_score >= global_best * simd_OPT_x && xdrop_score > 0 /* disallow 0 probability regardless to avoid infinite extension */, simd_t(1), simd_t(0))
                 : Kokkos::Experimental::condition(fwd_lane_lo_vec <= j_vec && j_vec <= fwd_lane_hi_vec, simd_t(1), simd_t(0));
-            row_active_count += is_active;
             w0 *= is_active;
             w0_row_i[j] = w0;
 
@@ -1806,13 +1881,6 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
             // Per-lane anchor tracking — update best values per logical position
             if (in_band) {
-                lane_first_active = Kokkos::Experimental::condition(
-                    is_active > 0 && (Float)j < lane_first_active,
-                    simd_t((Float)j), lane_first_active);
-                lane_last_active = Kokkos::Experimental::condition(
-                    is_active > 0 && (Float)j > lane_last_active,
-                    simd_t((Float)j), lane_last_active);
-
                 if (!capture_bands) {
                 alignas(64) Float wMid_arr[simdWidth], w0_arr[simdWidth];
                 simd_unchecked_store(wMid, wMid_arr, Kokkos::Experimental::simd_flag_default);
@@ -1836,39 +1904,17 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             }
         }
 
-        int64_t row_active_this;
-        {
-            Float row_active_arr[simdWidth];
-            simd_unchecked_store(row_active_count, row_active_arr, Kokkos::Experimental::simd_flag_default);
-            row_active_this = 0;
-            for (int k = 0; k < activeCount; k++) {
-                row_active_this += (int64_t)row_active_arr[k];
-                active_cells += (int64_t)row_active_arr[k];
-            }
-            total_cells += activeCount * (hi - seq_start + 1);
-        }
-
-        Float first_arr[simdWidth], last_arr[simdWidth];
-        simd_unchecked_store(lane_first_active, first_arr, Kokkos::Experimental::simd_flag_default);
-        simd_unchecked_store(lane_last_active, last_arr, Kokkos::Experimental::simd_flag_default);
-
-        int64_t row_total = (int64_t)activeCount * (hi - seq_start + 1);
-        if (row_active_this > row_total) {
-            std::ostringstream o;
-            o << "BUG at i=" << i << ": row_active=" << row_active_this << " row_total=" << row_total
-              << " lo=" << lo << " hi=" << hi << " seq_start=" << seq_start
-              << " active_dp_width=" << scratch.active_dp_width << "\n";
-            for (int k = 0; k < activeCount; k++)
-                o << "  lane " << k << ": first=" << (int)first_arr[k] << " last=" << (int)last_arr[k] << "\n";
-            std::cerr << o.str();
-        }
         if (useXDrop) {
             // Re-offset: re-center the DP frame when the active band drifts
-            // too far. Throttled to avoid rebuilding transposed_decoded every row.
             int bw = hi - lo;
             bool do_reoffset = (i >= XDROP_MIN_I * 2) && (i % XDROP_MIN_I == 0) &&
                                (i < profile.length) && (bw > scratch.active_dp_width / 2);
             if (do_reoffset) {
+                Float first_arr[simdWidth], last_arr[simdWidth];
+                for (int k = 0; k < activeCount; k++) {
+                    first_arr[k] = (Float)scratch.fwd_band_lo[k][i];
+                    last_arr[k] = (Float)scratch.fwd_band_hi[k][i];
+                }
                 reoffset(scratch, activeCount, decoded, profile, bg_probs_ptr,
                          first_arr, last_arr, row_best_j, row_best_metric, capture_bands);
                 transposed_base = scratch.transposed_decoded.data() + 4 * simdWidth;
@@ -1876,15 +1922,20 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             }
 
             for (int k = 0; k < activeCount; k++) {
-                int first = first_arr[k];
-                int last  = last_arr[k];
-                if (first <= last) {
-                    int lane_lo = (int)scratch.seq_offset[k];
-                    int lane_hi = (int)(scratch.seq_offset[k] + (int64_t)decoded[k]->size() - 1);
-                    int seq_lo = std::max(first, lane_lo);
-                    int seq_hi = std::min(last + 3, lane_hi);
-                    scratch.fwd_band_lo[k][i + 1] = std::clamp(seq_lo, lane_lo, lane_hi);
-                    scratch.fwd_band_hi[k][i + 1] = std::clamp(seq_hi, lane_lo, lane_hi);
+                int lo_k = scratch.fwd_band_lo[k][i];
+                int hi_k = scratch.fwd_band_hi[k][i];
+                if (lo_k > hi_k) {
+                    scratch.fwd_band_lo[k][i + 1] = INT_MAX;
+                    scratch.fwd_band_hi[k][i + 1] = INT_MIN;
+                    continue;
+                }
+                int lane_lo = (int)scratch.seq_offset[k];
+                int lane_hi = (int)(scratch.seq_offset[k] + (int64_t)decoded[k]->size() - 1);
+                lo_k = std::max(lo_k - 3, lane_lo);
+                hi_k = std::min(hi_k + 3, lane_hi);
+                if (lo_k <= hi_k) {
+                    scratch.fwd_band_lo[k][i + 1] = lo_k;
+                    scratch.fwd_band_hi[k][i + 1] = hi_k;
                 } else {
                     scratch.fwd_band_lo[k][i + 1] = INT_MAX;
                     scratch.fwd_band_hi[k][i + 1] = INT_MIN;
@@ -1893,7 +1944,14 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         }
 
 #ifdef DEBUG_PRINT_ROWS
-        logBandStats("#", i, activeCount, first_arr, last_arr, row_best_metric, decoded);
+        {
+            Float first_arr[simdWidth], last_arr[simdWidth];
+            for (int k = 0; k < activeCount; k++) {
+                first_arr[k] = (Float)scratch.fwd_band_lo[k][i];
+                last_arr[k] = (Float)scratch.fwd_band_hi[k][i];
+            }
+            logBandStats("#", i, activeCount, first_arr, last_arr, row_best_metric, decoded);
+        }
 #endif
 
         std::swap(Y0_curr, Y0_next);
@@ -1906,10 +1964,26 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     if (true) {
         std::ostringstream ss;
         ss << "# X-drop enabled: " << useXDrop << " (i, j) used " <<  active_ij << "/" << total_ij
-           << " (" << (100.0 * active_ij / total_ij) << "%)"
-           << "  SIMD lanes active: " << active_cells << "/" << total_cells
-           << " (" << (100.0 * active_cells / total_cells) << "%)" << std::endl;
+           << " (" << (100.0 * active_ij / total_ij) << "%"
+           << "  band cells: " << band_cells << ")" << std::endl;
         std::cerr << ss.str();
+    }
+
+    {
+        alignas(64) Float fwd_best_arr[simdWidth];
+        simd_unchecked_store(global_best, fwd_best_arr, Kokkos::Experimental::simd_flag_default);
+
+        bool any_fwd_above = false;
+        auto divider = capture_bands ? 10000.0 : 1.0;
+        for (int k = 0; k < activeCount; k++) {
+            if (minProbRatio[k] < 0 || fwd_best_arr[k] >= minProbRatio[k] / divider) {
+                any_fwd_above = true;
+                break;
+            }
+        }
+        if (!any_fwd_above) {
+            return;
+        }
     }
 
 #ifdef ALIGN
@@ -1932,15 +2006,14 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
     }
 
     {
-    alignas(64) Float gather_buf[simdWidth];
     auto gather_w1 = [&](int i_row, int col) -> simd_t {
-        return simdGather(scratch.W1.data(), gather_buf, activeCount, i_row, col);
+        return scratch.W1.get(i_row, col);
     };
     auto gather_x = [&](int i_row, int col) -> simd_t {
-        return simdGather(scratch.X.data(), gather_buf, activeCount, i_row, col);
+        return scratch.X.get(i_row, col);
     };
     auto scatter_w1 = [&](simd_t val, int i_row, int col) {
-        simdScatter(val, scratch.W1.data(), gather_buf, activeCount, i_row, col);
+        scratch.W1.set(i_row, col, val);
     };
 
     for (int i = profile.length; i >= 0; i--) {
@@ -2103,7 +2176,12 @@ void findFinalSimilarities(std::vector<FinalSimilarity> &similarities, std::arra
         findSimilarities(sims, profile, decoded, minProbRatio, scratch, activeCount, false,
             DPArgs{.in_lo = &lane_lo, .in_hi = &lane_hi});
     } else {
-        findSimilarities(sims, profile, decoded, minProbRatio, scratch, activeCount, false);
+        std::array<std::vector<int>, simdWidth> lane_lo, lane_hi;
+        for (int k = 0; k < activeCount; k++) {
+            lane_lo[k].resize(profile.length + 2);
+            lane_hi[k].resize(profile.length + 2);
+        }
+        findSimilarities(sims, profile, decoded, minProbRatio, scratch, activeCount, false, DPArgs{.in_lo = &lane_lo, .in_hi = &lane_hi});
     }
 
     for (int idx = 0; idx < activeCount; idx++) {
