@@ -2897,7 +2897,7 @@ int finalizeProfile(Profile &p, char *consensusSequence, int backgroundProbsType
         p.values_v2.push_back({0});
 
         Float *probs = p.values + i * p.width;
-        double alpha = probs[0];
+        double alpha = probs[0] * (1 - INSERT1 - INSERT2 - DELETE1 - DELETE2);
         double beta = probs[1];
 
         double alphaFS1 = INSERT1;
@@ -2912,7 +2912,7 @@ int finalizeProfile(Profile &p, char *consensusSequence, int backgroundProbsType
             p.values_v2.rbegin()->beta_prime[j] = 0;
         }
 
-        double delta = probs[2];
+        double delta = probs[2] * (1 - INSERT1 - INSERT2 - DELETE1 - DELETE2);;
         double epsilon = probs[3];
         if (i == p.length)
             break;
