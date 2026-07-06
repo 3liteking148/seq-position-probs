@@ -3426,8 +3426,14 @@ Options for background letter probabilities:\n\
     memset(charToNumber, 125, ' ' + 1); // map "space characters" (<= ' ') to 125
     charToNumber['>'] = 126;            // record separator for FASTA-format sequences
     setCharToNumber(charToNumber, alphabet);
-    if (alphabetSize == 4)
-        setCharToNumber(charToNumber, "ACGU"); // set U = T
+
+    // IUPAC ambiguity
+    char charToNumberIUPAC[256];
+    std::copy(charToNumber, charToNumber + 256, charToNumberIUPAC);
+    for (auto c : "RYSWKMBDHVN") {
+        if (c != '\0') charToNumberIUPAC[c] = charToNumberIUPAC[tolower(c)] = 22;
+    }
+
 #ifdef PIPELINE_MODE
     strandOpt = 1;
 #endif
@@ -3444,7 +3450,7 @@ Options for background letter probabilities:\n\
     Sequence sequence;
     Contig contig = {0, 0};
     std::vector<std::vector<SequenceRequest>> allRequests(numOfProfiles);
-    while (readContig(in, sequence, contig, charVec, charToNumber)) {
+    while (readContig(in, sequence, contig, charVec, charToNumberIUPAC)) {
         if (contig.length == 0) {
             sequences.push_back(sequence);
             continue;
