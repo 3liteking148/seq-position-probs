@@ -944,6 +944,8 @@ static void buildCodonTable() {
 }
 
 inline char translateFast(const char *dna, int i) {
+    if (dna[i] == '?' || dna[i + 1] == '?' || dna[i + 2] == '?') return '?';
+
     unsigned key = ((unsigned)(unsigned char)dna[i] & 0x1f)
                  | (((unsigned)(unsigned char)dna[i+1] & 0x1f) << 5)
                  | (((unsigned)(unsigned char)dna[i+2] & 0x1f) << 10);
