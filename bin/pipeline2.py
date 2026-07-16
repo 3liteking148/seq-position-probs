@@ -42,7 +42,7 @@ def main():
     cpus = args.cpus
 
     script_dir = os.path.dirname(os.path.realpath(__file__))
-    dummer_exec = os.path.join(script_dir, "dummer")
+    dummer_exec = args.dummer_bin or os.path.join(script_dir, "../cmake-build-release/dummer")
 
     # ---------------------------------------------------------
     # 1. Parse sequences and HMMs
@@ -113,7 +113,7 @@ def main():
             "--threads", cpus,
             #"-e", "10000",
             "-e", "1000",
-            "--min-ungapped-score", "0",
+            #"--min-ungapped-score", "0",
             #"--num-iterations", "3",
             "--alignment-mode", "2",
         ]
