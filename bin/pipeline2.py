@@ -28,6 +28,11 @@ def main():
                         help="Save debug FASTA to this path (persistent copy)")
     parser.add_argument("--no-seeds", action="store_true",
                         help="Omit seed annotations from FASTA headers (dummer runs without seed gating)")
+    parser.add_argument("--dummer-bin", dest="dummer_bin", default=None,
+                        help="Path to dummer binary (overrides default dummer)")
+    parser.add_argument("--prefilter-mode", type=int, default=None, choices=[3],
+                        help="MMseqs2 --prefilter-mode 3 (GPU combined ungapped+gapped). "
+                             "Seeds use only endpoint positions (point seeds).")
 
     args = parser.parse_args()
 
@@ -112,6 +117,9 @@ def main():
             #"--num-iterations", "3",
             "--alignment-mode", "2",
         ]
+        if args.prefilter_mode is not None:
+            mmseqs_cmd.extend(["--prefilter-mode", str(args.prefilter_mode)])
+            mmseqs_cmd[mmseqs_cmd.index("--alignment-mode") + 1] = "1"
 
         # mmseqs_cmd = [
         #     "mmseqs", "search", query_db, target_db_pad, ali_file, tmpdir,
