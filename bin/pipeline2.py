@@ -6,68 +6,6 @@ import tempfile
 import argparse
 import pybedtools
 
-COMPLEMENT_TABLE = str.maketrans("ATCGatcgNn", "TAGCtagcNn")
-
-def reverse_complement(seq):
-    complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A', 'N': 'N', 'a': 't', 'c': 'g', 'g': 'c', 't': 'a', 'n': 'n'}
-    return "".join(complement.get(base, base) for base in reversed(seq))
-
-def translate(seq):
-    table = {
-        'ATA':'I', 'ATC':'I', 'ATT':'I', 'ATG':'M',
-        'ACA':'T', 'ACC':'T', 'ACG':'T', 'ACT':'T',
-        'AAC':'N', 'AAT':'N', 'AAA':'K', 'AAG':'K',
-        'AGC':'S', 'AGT':'S', 'AGA':'R', 'AGG':'R',
-        'CTA':'L', 'CTC':'L', 'CTG':'L', 'CTT':'L',
-        'CCA':'P', 'CCC':'P', 'CCG':'P', 'CCT':'P',
-        'CAC':'H', 'CAT':'H', 'CAA':'Q', 'CAG':'Q',
-        'CGA':'R', 'CGC':'R', 'CGG':'R', 'CGT':'R',
-        'GTA':'V', 'GTC':'V', 'GTG':'V', 'GTT':'V',
-        'GCA':'A', 'GCC':'A', 'GCG':'A', 'GCT':'A',
-        'GAC':'D', 'GAT':'D', 'GAA':'E', 'GAG':'E',
-        'GGA':'G', 'GGC':'G', 'GGG':'G', 'GGT':'G',
-        'TCA':'S', 'TCC':'S', 'TCG':'S', 'TCT':'S',
-        'TTC':'F', 'TTT':'F', 'TTA':'L', 'TTG':'L',
-        'TAC':'Y', 'TAT':'Y', 'TAA':'*', 'TAG':'*',
-        'TGC':'C', 'TGT':'C', 'TGA':'*', 'TGG':'W',
-    }
-    protein = []
-    for i in range(0, len(seq) - 2, 3):
-        codon = seq[i:i+3].upper()
-        protein.append(table.get(codon, 'X'))
-    return "".join(protein)
-
-def six_frame_translate(input_fasta, output_fasta):
-    with open(input_fasta, 'r') as f, open(output_fasta, 'w') as out:
-        header = None
-        seq = []
-        
-        def process_seq(h, s):
-            full_seq = "".join(s)
-            rc_seq = reverse_complement(full_seq)
-            
-            # Forward frames
-            for frame in range(3):
-                prot = translate(full_seq[frame:])
-                out.write(f"{h}_F{frame+1}\n{prot}\n")
-            
-            # Reverse frames
-            for frame in range(3):
-                prot = translate(rc_seq[frame:])
-                out.write(f"{h}_R{frame+1}\n{prot}\n")
-
-        for line in f:
-            line = line.strip()
-            if line.startswith('>'):
-                if header:
-                    process_seq(header, seq)
-                header = line
-                seq = []
-            else:
-                seq.append(line)
-        if header:
-            process_seq(header, seq)
-
 def main():
     parser = argparse.ArgumentParser(
         description="Pipeline2: HMM-guided genomic search via MMseqs2 + dummer",
@@ -146,7 +84,11 @@ def main():
             print(f"# Using existing target_db_pad: {target_db_pad}")
         else:
             prot_fa_path = os.path.join(tmpdir, "translated_6frame.pfa")
-            six_frame_translate(fa_file, prot_fa_path)
+            subprocess.run([
+                "seqkit", "translate", "-f", "6", "-F",
+                "--threads", cpus,
+                "-o", prot_fa_path, fa_file
+            ], check=True)
 
             target_db = os.path.join(db_dir, "targetDB")
             target_db_pad = os.path.join(db_dir, "targetDB_pad")
@@ -238,22 +180,36 @@ def main():
                 t_start = int(fields[8])
                 t_end = int(fields[9])
                 hmm_len = hmm_lens.get(query_acc, 0)
-                p_pos = max(1, (t_start + t_end) // 2)
+                if args.prefilter_mode == 3:
+                    p_pos = max(1, t_end - (hmm_len // 2))
+                else:
+                    p_pos = max(1, (t_start + t_end) // 2)
                 e_value = fields[10]
                 bitscore = fields[11]
                 
-                *target_parts, strand_frame = target_full.rsplit('_', 1)
+                *target_parts, frame_str = target_full.rsplit('_', 1)
                 target_base = '_'.join(target_parts)
-                strand, frame = strand_frame[0], int(strand_frame[1])
+                frame_val = int(frame_str.split('=')[1])
+                strand, frame = ('F', frame_val) if frame_val > 0 else ('R', abs(frame_val))
 
-                hits_by_window.setdefault((target_base, query_acc, strand), []).append({
-                    'q_start': q_start,
-                    'q_end':   q_end,
-                    't_start': t_start,
-                    't_end':   t_end,
-                    'frame':   frame,
-                    'bitscore': float(bitscore),
-                })
+                if args.prefilter_mode == 3:
+                    hits_by_window.setdefault((target_base, query_acc, strand), []).append({
+                        'q_start': q_end,
+                        'q_end':   q_end,
+                        't_start': t_end,
+                        't_end':   t_end,
+                        'frame':   frame,
+                        'bitscore': float(bitscore),
+                    })
+                else:
+                    hits_by_window.setdefault((target_base, query_acc, strand), []).append({
+                        'q_start': q_start,
+                        'q_end':   q_end,
+                        't_start': t_start,
+                        't_end':   t_end,
+                        'frame':   frame,
+                        'bitscore': float(bitscore),
+                    })
 
                 L = dna_lens.get(target_base, 0)
                 if L == 0: 
