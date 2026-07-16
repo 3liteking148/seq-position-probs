@@ -1,6 +1,5 @@
 version.hh
 bin/dummer*
-kokkos-5.1.1
 build
 
 # https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
