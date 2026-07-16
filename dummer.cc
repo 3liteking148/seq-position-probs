@@ -57,6 +57,7 @@
 #define OPT_l 5000
 #define OPT_b 100
 #define OPT_x 1e-5 // 0 to enable full DP mode
+#define OPT_v 0.1
 const int XDROP_MIN_I = 32;
 #define EVALUE
 #define ALIGN
@@ -178,6 +179,9 @@ struct Profile {   // position-specific (insert, delete, letter) probabilities
     size_t nameIdx;
     size_t consensusSequenceIdx;
     double gumbelKendAnchored, gumbelKbegAnchored, gumbelKmidAnchored, lambda;
+#ifdef VITERBI_FILTER
+    double gumbelKviterbi, lambdaViterbi;
+#endif
     std::string name;
 };
 
@@ -2130,6 +2134,229 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
 
 }
 
+#ifdef VITERBI_FILTER
+
+void findSimilaritiesBackwardOnly(
+    std::array<Float, simdWidth> &bestScores,
+    const Profile &profile,
+    const std::array<std::vector<uint8_t>*, simdWidth> &decoded,
+    DPScratch &scratch, int activeCount) {
+    assert(0 < activeCount && activeCount <= simdWidth);
+
+    int maxSequenceLength = 0;
+    for (int idx = 0; idx < activeCount; idx++) {
+        maxSequenceLength = std::max(maxSequenceLength, (int)decoded[idx]->size());
+        scratch.seq_offset[idx] = 0;
+    }
+    scratch.active_dp_width = maxSequenceLength;
+
+    int alphabetSize = profile.width - nonLetterWidth;
+    int zero_idx = alphabetSize + 4;
+
+    uint8_t* transposed_base = buildTransposedDecoded(scratch, scratch.active_dp_width, activeCount, zero_idx, decoded);
+
+    alignas(64) Float actual_sequence_length[simdWidth] = {};
+    for (int idx = 0; idx < activeCount; idx++)
+        actual_sequence_length[idx] = (Float)decoded[idx]->size();
+    simd_t actual_seq_len = Kokkos::Experimental::simd_unchecked_load<simd_t>(actual_sequence_length);
+
+    auto &null_probs_prefix = scratch.null_probs_prefix;
+    auto &null_probs_suffix = scratch.null_probs_suffix;
+    null_probs_prefix.resize(scratch.active_dp_width + 4);
+    null_probs_suffix.resize(scratch.active_dp_width + 4);
+
+    null_probs_suffix[scratch.active_dp_width] = 0;
+    for (int i = scratch.active_dp_width - 1; i >= 0; i--) {
+        const Float *bg_probs_ptr = profile.log2_bg_probs.data() + 4;
+        const char* indices = (const char*)&transposed_base[i * simdWidth];
+        SimdFloat bg_raw = simdLookup(bg_probs_ptr, indices);
+        simd_t bg_codon_emit_probs(bg_raw);
+
+        Kokkos::Experimental::simd_mask<Float> msk = i + 2 < actual_seq_len;
+        Kokkos::Experimental::simd_mask<Float> msk_fs2 = i + 1 < actual_seq_len;
+        Kokkos::Experimental::simd_mask<Float> msk_fs1 = i < actual_seq_len;
+        simd_t full_codon = (Float)log2(1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) + bg_codon_emit_probs + null_probs_suffix[i + 3];
+        simd_t partial_codon = (Float)log2(1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2) + (Float)log2(0.25) * (actual_seq_len - (Float)i);
+        simd_t t1 = Kokkos::Experimental::condition(msk, full_codon, partial_codon);
+
+        simd_t fs1 = (Float)log2(BACKGROUND_FRAMESHIFT_RATE * 0.25) + null_probs_suffix[i + 1];
+        simd_t fs2 = (Float)log2(BACKGROUND_FRAMESHIFT_RATE_2 * 0.0625) + null_probs_suffix[i + 2];
+        simd_t neg_inf_vec((Float)-INFINITY);
+        simd_t t_fs1 = Kokkos::Experimental::condition(msk_fs1, fs1, neg_inf_vec);
+        simd_t t_fs2 = Kokkos::Experimental::condition(msk_fs2, fs2, neg_inf_vec);
+
+        null_probs_suffix[i] = log2_sum_exp(t1, log2_sum_exp(t_fs1, t_fs2));
+    }
+
+    null_probs_prefix[scratch.active_dp_width] = 0;
+    const Float *log2_bg_probs_ptr = profile.log2_bg_probs.data() + 4;
+    const Float log2_1_bg_fs = log2(1 - BACKGROUND_FRAMESHIFT_RATE - BACKGROUND_FRAMESHIFT_RATE_2);
+    const Float log2_bg_fs_025 = log2(BACKGROUND_FRAMESHIFT_RATE * 0.25);
+    const Float log2_bg_fs2_00625 = log2(BACKGROUND_FRAMESHIFT_RATE_2 * 0.0625);
+    const Float log2_025 = log2(0.25);
+    const simd_t simd_log2_1_bg_fs(log2_1_bg_fs);
+    const simd_t simd_log2_bg_fs_025(log2_bg_fs_025);
+    const simd_t simd_log2_bg_fs2_00625(log2_bg_fs2_00625);
+    const simd_t simd_log2_025(log2_025);
+    const simd_t simd_neg_inf(-INFINITY);
+
+    for (int i = 0; i < scratch.active_dp_width; i++) {
+        const char* indices = (const char*)&transposed_base[(i - 2) * simdWidth];
+        SimdFloat bg_raw = simdLookup(log2_bg_probs_ptr, indices);
+        simd_t bg_codon_emit_probs(bg_raw);
+
+        Kokkos::Experimental::simd_mask<Float> msk_valid = (Float)i < actual_seq_len;
+
+        simd_t t1;
+        if (i >= 3) {
+            t1 = simd_log2_1_bg_fs + bg_codon_emit_probs + null_probs_prefix[i - 3];
+        } else if (i == 2) {
+            t1 = simd_log2_1_bg_fs + bg_codon_emit_probs;
+        } else {
+            t1 = simd_log2_1_bg_fs + simd_log2_025 * (Float)(i + 1);
+        }
+
+        simd_t t2 = simd_log2_bg_fs_025 + (i > 0 ? null_probs_prefix[i - 1] : simd_t(0));
+
+        simd_t t3;
+        if (i >= 2) {
+            t3 = simd_log2_bg_fs2_00625 + null_probs_prefix[i - 2];
+        } else if (i == 1) {
+            t3 = simd_log2_bg_fs2_00625 + simd_t(0);
+        } else {
+            t3 = simd_neg_inf;
+        }
+
+        simd_t result = log2_sum_exp(t1, log2_sum_exp(t2, t3));
+        null_probs_prefix[i] = Kokkos::Experimental::condition(msk_valid, result, simd_neg_inf);
+    }
+
+    alignas(64) Float null_emit_tmp[simdWidth] = {0}, null_seq_log_prob[simdWidth] = {0};
+
+    for (int idx = 0; idx < activeCount; idx++) {
+        if (actual_sequence_length[idx] >= 3) {
+            null_seq_log_prob[idx] =
+            log2_sum_exp(log2_sum_exp(null_probs_prefix[actual_sequence_length[idx] - 1][idx], null_probs_prefix[actual_sequence_length[idx] - 2][idx]),
+                null_probs_prefix[actual_sequence_length[idx] - 3][idx]
+            );
+        } else {
+            null_seq_log_prob[idx] = -INFINITY;
+        }
+
+        Float null_emit_raw = exp2(-(null_seq_log_prob[idx] / actual_sequence_length[idx]));
+        null_emit_tmp[idx] = null_emit_raw;
+    }
+
+    auto null_emit_1 = Kokkos::Experimental::simd_unchecked_load<simd_t>(null_emit_tmp);
+    auto null_emit_2 = null_emit_1 * null_emit_1;
+    auto null_emit_3 = null_emit_2 * null_emit_1;
+
+    null_emit_2 *= (Float)(0.25 * 0.25);
+    null_emit_1 *= (Float)0.25;
+
+    auto null_seq_log_prob_simd = Kokkos::Experimental::simd_unchecked_load<simd_t>(null_seq_log_prob);
+    simd_t inv_actual_seq_len = (Float)1.0 / actual_seq_len;
+    simd_t null_prob_per_pos = null_seq_log_prob_simd * inv_actual_seq_len;
+
+    const size_t padded_seq_len = scratch.active_dp_width + 4;
+    scratch.W1_rolling[0].resize(padded_seq_len, simd_t(0.0));
+    scratch.W1_rolling[1].resize(padded_seq_len, simd_t(0.0));
+    auto &Y0_next = scratch.Y0_next; Y0_next.resize(padded_seq_len, 0.0);
+    auto &Y0_curr = scratch.Y0_curr; Y0_curr.resize(padded_seq_len, 0.0);
+
+    auto &null_model_prefix = scratch.null_model_prefix; null_model_prefix.resize(padded_seq_len, 0.0);
+    auto &null_model_suffix = scratch.null_model_suffix; null_model_suffix.resize(padded_seq_len, 0.0);
+
+    for (int j = 0; j < scratch.active_dp_width; j++) {
+        simd_t suffix_exponent = -null_prob_per_pos * (actual_seq_len - (Float)1.0 - (Float)j) + null_probs_suffix[j + 1];
+        null_model_suffix[j] = Kokkos::exp2(suffix_exponent);
+
+        simd_t prefix_exponent = -null_prob_per_pos * (Float)(j + 1) + null_probs_prefix[j];
+        null_model_prefix[j] = Kokkos::exp2(prefix_exponent);
+    }
+
+    const Float *bg_probs_ptr = profile.bg_probs.data() + 4;
+    scratch.bg_codon_probs.resize(scratch.active_dp_width);
+    simd_t* bg_codon_probs_base = scratch.bg_codon_probs.data();
+    for (int j = -4; j < scratch.active_dp_width + 4; j++) {
+        const char* indices = (const char*)&transposed_base[j * simdWidth];
+        bg_codon_probs_base[j] = simd_t(simdLookup(bg_probs_ptr, indices));
+    }
+
+    simd_t global_best = simd_t(0.0);
+
+    for (int i = profile.length; i >= 0; i--) {
+        const Params &params_cur = profile.values_v2[i];
+        const Float *params_emission_probabilities = profile.values + (i)*profile.width + 4;
+
+        const simd_t C_enter = params_cur.enter_match_probability * null_emit_3;
+        const simd_t C_delta0 = params_cur.delta_prime[0];
+        const simd_t C_delta1 = params_cur.delta_prime[1] * null_emit_2;
+        const simd_t C_delta2 = params_cur.delta_prime[2] * null_emit_1;
+        const simd_t C_alpha0 = params_cur.alpha_prime[0] * null_emit_3;
+        const simd_t C_alpha1 = params_cur.alpha_prime[1] * null_emit_1;
+        const simd_t C_alpha2 = params_cur.alpha_prime[2] * null_emit_2;
+        const simd_t C_beta0 = params_cur.beta_prime[0] * null_emit_3;
+        simd_t Z0_ring[4] = {0, 0, 0, 0};
+        const simd_t C_eps0 = params_cur.epsilon_prime;
+        const simd_t C_scale = scale;
+
+        simd_t sr_n3 = scratch.W1_rolling[(i + 1) & 1][scratch.active_dp_width + 3];
+        simd_t sr_n2 = scratch.W1_rolling[(i + 1) & 1][scratch.active_dp_width + 2];
+        simd_t sr_n1 = scratch.W1_rolling[(i + 1) & 1][scratch.active_dp_width + 1];
+        simd_t sr_c2 = scratch.W1_rolling[i & 1][scratch.active_dp_width + 2];
+        simd_t sr_c1 = scratch.W1_rolling[i & 1][scratch.active_dp_width + 1];
+
+        for (int j = scratch.active_dp_width - 1; j >= 0; j--) {
+            int r_0 = j & 3;
+            int r_3 = (j + 3) & 3;
+
+            const char* indices = (const char*)&transposed_base[(j + 1) * simdWidth];
+            SimdFloat codon_raw = simdLookup(params_emission_probabilities, indices);
+            simd_t codon_emit_probs(codon_raw);
+            simd_t bg_codon_emit_probs = bg_codon_probs_base[j + 1];
+
+            simd_t w1_next_at_j = scratch.W1_rolling[(i + 1) & 1][j];
+
+            simd_t w_val =
+                sr_n3 * codon_emit_probs * C_enter +
+                Y0_next[j + 0] * C_delta0 +
+                sr_n2 * C_delta1 +
+                sr_n1 * C_delta2 +
+                Z0_ring[r_3] * bg_codon_emit_probs * C_alpha0 +
+                sr_c2 * C_alpha1 +
+                sr_c1 * C_alpha2
+             + null_model_suffix[j] * C_scale;
+
+            simd_t mid_score = w_val * null_model_prefix[j];
+            global_best = Kokkos::max(global_best, mid_score);
+
+            scratch.W1_rolling[i & 1][j] = w_val;
+
+            Y0_curr[j] = Kokkos::fma(C_eps0, Y0_next[j], w_val);
+            simd_t z0_future = Z0_ring[r_3] * bg_codon_emit_probs;
+            Z0_ring[r_0] = Kokkos::fma(C_beta0, z0_future, w_val);
+
+            sr_n3 = sr_n2;
+            sr_n2 = sr_n1;
+            sr_n1 = w1_next_at_j;
+            sr_c2 = sr_c1;
+            sr_c1 = w_val;
+        }
+
+        std::swap(Y0_curr, Y0_next);
+    }
+
+    alignas(64) Float best_arr[simdWidth];
+    simd_unchecked_store(global_best, best_arr, Kokkos::Experimental::simd_flag_default);
+    for (int k = 0; k < activeCount; k++)
+        bestScores[k] = best_arr[k];
+    for (int k = activeCount; k < simdWidth; k++)
+        bestScores[k] = 0;
+}
+
+#endif // VITERBI_FILTER
+
 int contigToSequencePos(Contig contig, size_t strandNum, int posInContig) {
     return contig.start + strandPosition(strandNum, contig.length, posInContig);
 }
@@ -2209,10 +2436,99 @@ void findFinalSimilarities(std::vector<FinalSimilarity> &similarities, std::arra
 void findFinalSimilaritiesBatched(std::vector<FinalSimilarity> &similarities,
                                   std::vector<std::vector<SequenceRequest>> &allRequests,
                                   const std::vector<Profile> &profiles, const char *charVec,
-                                  ThreadPool &threadPool, std::vector<DPScratch> &threadScratches) {
-    for (size_t i = 0; i < profiles.size(); ++i) {
-        std::sort(allRequests[i].begin(), allRequests[i].end(), std::greater<>());
+                                  ThreadPool &threadPool, std::vector<DPScratch> &threadScratches
+#ifdef VITERBI_FILTER
+                                  , double viterbiEvalue = -1, double totSequenceLength = 0
+#endif
+                                  ) {
+#ifdef VITERBI_FILTER
+    // Run Viterbi pre-filter if enabled: filter sequences below threshold
+    std::vector<std::vector<SequenceRequest>> filteredRequests(profiles.size());
+    if (viterbiEvalue > 0) {
+        struct ViterbiJob {
+            size_t profileIdx;
+            size_t startRequestIdx;
+            int activeCount;
+        };
+        std::vector<ViterbiJob> viterbiJobs;
+        for (size_t i = 0; i < profiles.size(); ++i) {
+            const auto &requests = allRequests[i];
+            size_t n = requests.size();
+            for (size_t start = 0; start < n; start += simdWidth) {
+                int count = (int)std::min((size_t)simdWidth, n - start);
+                viterbiJobs.push_back({i, start, count});
+            }
+        }
+
+        if (!viterbiJobs.empty()) {
+            std::vector<std::vector<SequenceRequest>> viterbiJobResults(viterbiJobs.size());
+            std::atomic<size_t> completedViterbi(0);
+            std::mutex viterbiMtx;
+            std::condition_variable viterbiCv;
+
+            for (size_t jobIdx = 0; jobIdx < viterbiJobs.size(); ++jobIdx) {
+                threadPool.enqueue([&, jobIdx](int threadId) {
+                    DPScratch &ts = threadScratches[threadId];
+                    const auto &job = viterbiJobs[jobIdx];
+                    const auto &p = profiles[job.profileIdx];
+                    const auto &requests = allRequests[job.profileIdx];
+
+                    std::array<std::vector<uint8_t>*, simdWidth> decodedPtrs = {};
+                    for (int k = 0; k < job.activeCount; k++)
+                        decodedPtrs[k] = &requests[job.startRequestIdx + k].seqData->decoded;
+
+                    std::array<Float, simdWidth> bestScores;
+                    findSimilaritiesBackwardOnly(bestScores, p, decodedPtrs, ts, job.activeCount);
+
+                    for (int k = 0; k < job.activeCount; k++) {
+                        if (bestScores[k] > 0) {
+                            double log_probRatio = log((double)bestScores[k]);
+                            double probRatio = exp(log_probRatio * p.lambdaViterbi);
+                            double evalue = p.gumbelKviterbi * totSequenceLength / probRatio;
+                            double pvalue = 1.0 - exp(-evalue);
+
+                            std::ostringstream s;
+                            s << "# DBG " << p.name << " log: " << log_probRatio << " p: " << pvalue << std::endl;
+
+                            std::cout << s.str();
+
+                            if (pvalue <= viterbiEvalue) {
+                                viterbiJobResults[jobIdx].push_back(requests[job.startRequestIdx + k]);
+                            }
+                        }
+                    }
+
+                    if (++completedViterbi == viterbiJobs.size()) {
+                        std::lock_guard<std::mutex> lock(viterbiMtx);
+                        viterbiCv.notify_one();
+                    }
+                });
+            }
+
+            {
+                std::unique_lock<std::mutex> lock(viterbiMtx);
+                viterbiCv.wait(lock, [&]{ return completedViterbi == viterbiJobs.size(); });
+            }
+
+            for (size_t jobIdx = 0; jobIdx < viterbiJobs.size(); ++jobIdx) {
+                size_t pi = viterbiJobs[jobIdx].profileIdx;
+                for (auto &req : viterbiJobResults[jobIdx])
+                    filteredRequests[pi].push_back(req);
+            }
+        }
+        // Sort filtered requests by size
+        for (size_t i = 0; i < profiles.size(); ++i)
+            std::sort(filteredRequests[i].begin(), filteredRequests[i].end(), std::greater<>());
+
+        allRequests = std::move(filteredRequests);
+    } else {
+        for (size_t i = 0; i < profiles.size(); ++i)
+            std::sort(allRequests[i].begin(), allRequests[i].end(), std::greater<>());
     }
+#else
+    for (size_t i = 0; i < profiles.size(); ++i)
+        std::sort(allRequests[i].begin(), allRequests[i].end(), std::greater<>());
+#endif
 
     struct BatchJob {
         size_t profileIdx;
@@ -2443,6 +2759,9 @@ struct CacheEntry {
     double MLendKsimple, MLbegKsimple, MLmidKsimple;
     double LMendL, LMbegL, LMmidL;
     double LMendK, LMbegK, LMmidK;
+#ifdef VITERBI_FILTER
+    double VMMmidL, VMMmidK;
+#endif
 
     template<class Archive>
     void serialize(Archive& archive) {
@@ -2455,6 +2774,9 @@ struct CacheEntry {
             MLendKsimple, MLbegKsimple, MLmidKsimple,
             LMendL, LMbegL, LMmidL,
             LMendK, LMbegK, LMmidK
+#ifdef VITERBI_FILTER
+            , VMMmidL, VMMmidK
+#endif
         );
     }
 };
@@ -2467,7 +2789,8 @@ public:
     }
 
     std::string computeCacheKey(const Profile &profile, const Float *letterFreqs,
-                                    int sequenceLength, int border, int numOfSequences) {
+                                    int sequenceLength, int border, int numOfSequences,
+                                    bool useViterbi = false) {
         Hash128 h;
         h.add(binaryHash);
         h.add(profile.name);
@@ -2487,6 +2810,9 @@ public:
         h.add(STOP_CODON_PROB);
         h.add(BG_STOP_CODON_PROB);
         h.add(TANTAN_MASK_THRESHOLD);
+#ifdef VITERBI_FILTER
+        h.add(useViterbi);
+#endif
 
         return h.to_string();
     }
@@ -2551,11 +2877,12 @@ private:
 
 public:
     bool lookup(const Profile &profile, const Float *letterFreqs, int sequenceLength,
-                int border, int numOfSequences, CacheEntry &outEntry) {
+                int border, int numOfSequences, CacheEntry &outEntry,
+                bool useViterbi = false) {
         std::scoped_lock lock(cacheMutex);
         load();
 
-        std::string key = computeCacheKey(profile, letterFreqs, sequenceLength, border, numOfSequences);
+        std::string key = computeCacheKey(profile, letterFreqs, sequenceLength, border, numOfSequences, useViterbi);
         if (auto it = entries.find(key); it != entries.end()) {
             outEntry = it->second;
             return true;
@@ -2564,11 +2891,12 @@ public:
     }
 
     void store(const Profile &profile, const Float *letterFreqs, int sequenceLength,
-              int border, int numOfSequences, const CacheEntry &entry) {
+               int border, int numOfSequences, const CacheEntry &entry,
+               bool useViterbi = false) {
         std::scoped_lock lock(cacheMutex);
         load();
 
-        std::string key = computeCacheKey(profile, letterFreqs, sequenceLength, border, numOfSequences);
+        std::string key = computeCacheKey(profile, letterFreqs, sequenceLength, border, numOfSequences, useViterbi);
         entries[key] = entry;
     }
 
@@ -2593,17 +2921,26 @@ public:
 } cache;
 
 void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int sequenceLength,
-               int border, int numOfSequences, int printVerbosity, ThreadPool &threadPool, std::vector<DPScratch> &threadScratches) {
+               int border, int numOfSequences, int printVerbosity, ThreadPool &threadPool, std::vector<DPScratch> &threadScratches,
+               bool useViterbi = false) {
     CacheEntry entry;
-    if (cache.lookup(profile, letterFreqs, sequenceLength, border, numOfSequences, entry)) {
+    if (cache.lookup(profile, letterFreqs, sequenceLength, border, numOfSequences, entry, useViterbi)) {
         if (printVerbosity > 1) {
             std::cout << "# Warning: using cached results\n";
         }
 
-        profile.gumbelKendAnchored = entry.MMendK;
-        profile.gumbelKbegAnchored = entry.MMbegK;
-        profile.gumbelKmidAnchored = entry.MMmidK;
-        profile.lambda = entry.MMmidL;
+#ifdef VITERBI_FILTER
+        if (useViterbi) {
+            profile.gumbelKviterbi = entry.VMMmidK;
+            profile.lambdaViterbi = entry.VMMmidL;
+        } else
+#endif
+        {
+            profile.gumbelKendAnchored = entry.MMendK;
+            profile.gumbelKbegAnchored = entry.MMbegK;
+            profile.gumbelKmidAnchored = entry.MMmidK;
+            profile.lambda = entry.MMmidL;
+        }
     } else {
         int alphabetSize = profile.width - nonLetterWidth;
 
@@ -2639,13 +2976,25 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
         char charToNumber[256];
         setCharToNumber(charToNumber, alphabet);
 
-        int batchStride = simdWidth;
+        int batchStride;
+#ifdef VITERBI_FILTER
+        batchStride = simdWidth;
+#else
+        batchStride = simdWidth;
+#endif
         static const char* lanes_env = getenv("DUMMER_MAX_LANES");
-        if (lanes_env) batchStride = std::clamp(std::atoi(lanes_env), 1, simdWidth);
+        if (lanes_env) batchStride = std::clamp(std::atoi(lanes_env), 1, batchStride);
         int numBatches = (numOfSequences + batchStride - 1) / batchStride;
-        std::vector<std::array<std::vector<char>, simdWidth>> threadLocalSeqs(threadScratches.size());
+
+#ifdef VITERBI_FILTER
+        int maxLanes = simdWidth;
+#else
+        int maxLanes = simdWidth;
+#endif
+        std::vector<std::vector<std::vector<char>>> threadLocalSeqs(threadScratches.size());
         for (auto &localSeqs : threadLocalSeqs) {
-            for (int lane = 0; lane < simdWidth; ++lane) {
+            localSeqs.resize(maxLanes);
+            for (int lane = 0; lane < maxLanes; ++lane) {
                 localSeqs[lane].resize(sequenceLength + border + 16);
             }
         }
@@ -2662,14 +3011,11 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
                 int start = batchIdx * batchStride;
                 int activeCount = std::min(static_cast<int>(batchStride), numOfSequences - start);
 
-                std::array<std::vector<uint8_t>, simdWidth> decoded;
-                std::array<std::vector<uint8_t>*, simdWidth> decodedPtrs = {};
-                std::array<Float, simdWidth> minProbRatio;
-                minProbRatio.fill(-2.0f);
+                // Generate random sequences; use maxLanes for array size
+                std::vector<std::vector<uint8_t>> decoded(maxLanes);
 
                 for (int lane = 0; lane < activeCount; ++lane) {
                     int trialIdx = start + lane;
-                    // Core-independent deterministic seeding based on trial index
                     std::mt19937_64 trialRandGen(5489 + trialIdx);
                     char *seqBuf = localSeqs[lane].data();
 
@@ -2715,26 +3061,48 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
                         seqBuf[sequenceLength + j] = seqBuf[j];
 
                     decoded[lane] = decodeSequence(seqBuf, sequenceLength + border, alphabet, charToNumber);
-                    decodedPtrs[lane] = &decoded[lane];
                 }
 
-                std::array<std::vector<AlignedSimilarity>, simdWidth> simsSIMD;
-                findSimilarities(simsSIMD, profile, decodedPtrs, minProbRatio, threadScratch, activeCount, false);
+#ifdef VITERBI_FILTER
+                if (useViterbi) {
+                    std::array<std::vector<uint8_t>*, simdWidth> intDecodedPtrs = {};
+                    for (int k = 0; k < activeCount; k++)
+                        intDecodedPtrs[k] = &decoded[k];
+                    std::array<Float, simdWidth> bestScores;
+                    findSimilaritiesBackwardOnly(bestScores, profile, intDecodedPtrs, threadScratch, activeCount);
+                    for (int lane = 0; lane < activeCount; ++lane) {
+                        int trialIdx = start + lane;
+                        double score = log((double)bestScores[lane]);
+                        endScores[trialIdx] = score;
+                        begScores[trialIdx] = score;
+                        midScores[trialIdx] = score;
+                    }
+                } else
+#endif
+                {
+                    std::array<std::vector<uint8_t>*, simdWidth> decodedPtrs = {};
+                    for (int k = 0; k < activeCount; ++k)
+                        decodedPtrs[k] = &decoded[k];
+                    std::array<Float, simdWidth> minProbRatio;
+                    minProbRatio.fill(-2.0f);
+                    std::array<std::vector<AlignedSimilarity>, simdWidth> simsSIMD;
+                    findSimilarities(simsSIMD, profile, decodedPtrs, minProbRatio, threadScratch, activeCount, false);
 
-                for (int lane = 0; lane < activeCount; ++lane) {
-                    int trialIdx = start + lane;
-                    const auto &sims = simsSIMD[lane];
-                    endScores[trialIdx] = log(sims[0].probRatio);
-                    begScores[trialIdx] = log(sims[1].probRatio);
-                    midScores[trialIdx] = log(sims[2].probRatio);
+                    for (int lane = 0; lane < activeCount; ++lane) {
+                        int trialIdx = start + lane;
+                        const auto &sims = simsSIMD[lane];
+                        endScores[trialIdx] = log(sims[0].probRatio);
+                        begScores[trialIdx] = log(sims[1].probRatio);
+                        midScores[trialIdx] = log(sims[2].probRatio);
 
-                    if (printVerbosity > 1) {
-                        std::lock_guard<std::mutex> lock(g_cout_mutex);
-                        std::cout << (trialIdx + 1) << "\t" << sims[0].anchor1 << "\t" << sims[0].anchor2 << "\t"
-                                  << log2(sims[0].probRatio) + shift << "\t" << sims[1].anchor1 << "\t"
-                                  << sims[1].anchor2 << "\t" << log2(sims[1].probRatio) + shift << "\t"
-                                  << sims[2].anchor1 << "\t" << sims[2].anchor2 << "\t"
-                                  << log2(sims[2].probRatio) + shift << std::endl;
+                        if (printVerbosity > 1) {
+                            std::lock_guard<std::mutex> lock(g_cout_mutex);
+                            std::cout << (trialIdx + 1) << "\t" << sims[0].anchor1 << "\t" << sims[0].anchor2 << "\t"
+                                      << log2(sims[0].probRatio) + shift << "\t" << sims[1].anchor1 << "\t"
+                                      << sims[1].anchor2 << "\t" << log2(sims[1].probRatio) + shift << "\t"
+                                      << sims[2].anchor1 << "\t" << sims[2].anchor2 << "\t"
+                                      << log2(sims[2].probRatio) + shift << std::endl;
+                        }
                     }
                 }
 
@@ -2764,10 +3132,25 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
     estimateGumbel(MMmidL, MMmidK, MMmidKsimple, MLmidL, MLmidK, MLmidKsimple, LMmidL, LMmidK,
                    midScores, numOfSequences, sequenceLength);
 
-        profile.gumbelKendAnchored = MMendK;
-        profile.gumbelKbegAnchored = MMbegK;
-        profile.gumbelKmidAnchored = MMmidK;
-        profile.lambda = MMmidL;
+    if (useViterbi) {
+        double mn = *std::min_element(midScores, midScores + numOfSequences);
+        double mx = *std::max_element(midScores, midScores + numOfSequences);
+        double mean_s = 0; for (int z = 0; z < numOfSequences; z++) mean_s += midScores[z]; mean_s /= numOfSequences;
+        std::cout << "# DBG viterbi scores: min=" << mn << " max=" << mx << " mean=" << mean_s << " range=" << (mx-mn) << "\n";
+    }
+
+#ifdef VITERBI_FILTER
+        if (useViterbi) {
+            profile.gumbelKviterbi = MMmidK;
+            profile.lambdaViterbi = MMmidL;
+        } else
+#endif
+        {
+            profile.gumbelKendAnchored = MMendK;
+            profile.gumbelKbegAnchored = MMbegK;
+            profile.gumbelKmidAnchored = MMmidK;
+            profile.lambda = MMmidL;
+        }
 
         entry = {
             MMendL, MMbegL, MMmidL,
@@ -2778,8 +3161,11 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
             MLendKsimple, MLbegKsimple, MLmidKsimple,
             LMendL, LMbegL, LMmidL,
             LMendK, LMbegK, LMmidK
+#ifdef VITERBI_FILTER
+            , MMmidL, MMmidK
+#endif
         };
-        cache.store(profile, letterFreqs, sequenceLength, border, numOfSequences, entry);
+        cache.store(profile, letterFreqs, sequenceLength, border, numOfSequences, entry, useViterbi);
     }
 
     double s = scale;
@@ -3180,6 +3566,9 @@ int main(int argc, char *argv[]) {
     double evalueOpt = OPT_e;
     int strandOpt = OPT_s;
     int maskOpt = OPT_m;
+#ifdef VITERBI_FILTER
+    double viterbiEvalueOpt = OPT_v;
+#endif
     double filterStdDev = 0;
     bool keepNonvaryingTerm = false;
     int randomSeqNum = OPT_t;
@@ -3219,10 +3608,19 @@ Options for random sequences:\n\
 Options for background letter probabilities:\n\
   --barithmetic     arithmetic mean of position-specific probabilities\n\
   --bgeometric      geometric mean of position-specific probabilities (default)\n\
-  --bmedian         median of position-specific probabilities\n\
-";
+  --bmedian         median of position-specific probabilities\n"
+#ifdef VITERBI_FILTER
+"\n\
+Int Viterbi pre-filter options:\n\
+  -W E, --viterbi-evalue E  Viterbi pre-filter E-value threshold (default: " STR(OPT_v) ")\n"
+#endif
+;
 
-    const char sOpts[] = "hVve:s:m:d:D:t:l:b:T:";
+    const char sOpts[] = "hVve:s:m:d:D:t:l:b:T:"
+#ifdef VITERBI_FILTER
+        "W:"
+#endif
+        ;
 
     static struct option lOpts[] = {{"help", no_argument, 0, 'h'},
                                     {"version", no_argument, 0, 'V'},
@@ -3239,6 +3637,9 @@ Options for background letter probabilities:\n\
                                     {"barithmetic", no_argument, 0, 'A'},
                                     {"bgeometric", no_argument, 0, 'G'},
                                     {"bmedian", no_argument, 0, 'M'},
+#ifdef VITERBI_FILTER
+                                    {"viterbi-evalue", required_argument, 0, 'W'},
+#endif
                                     {0, 0, 0, 0}};
 
     int c;
@@ -3311,6 +3712,13 @@ Options for background letter probabilities:\n\
         case 'M':
             backgroundProbsType = 'M';
             break;
+#ifdef VITERBI_FILTER
+        case 'W':
+            viterbiEvalueOpt = strtod(optarg, 0);
+            if (viterbiEvalueOpt < 0)
+                return badOpt();
+            break;
+#endif
         case '?':
             std::cerr << help;
             return 1;
@@ -3406,6 +3814,9 @@ Options for background letter probabilities:\n\
 
 #ifdef EVALUE
         estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen, border, randomSeqNum, printVerbosity, threadPool, threadScratches);
+#ifdef VITERBI_FILTER
+        estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen, border, randomSeqNum, printVerbosity, threadPool, threadScratches, true);
+#endif
 #endif
     }
 
@@ -3500,7 +3911,11 @@ Options for background letter probabilities:\n\
         charVec.resize(seqIdx);
     }
 
-    findFinalSimilaritiesBatched(similarities, allRequests, profiles, charVec.data(), threadPool, threadScratches);
+    findFinalSimilaritiesBatched(similarities, allRequests, profiles, charVec.data(), threadPool, threadScratches
+#ifdef VITERBI_FILTER
+        , viterbiEvalueOpt, totSequenceLength
+#endif
+    );
 
     std::cout << "# Total sequence length: " << totSequenceLength << "\n";
 
