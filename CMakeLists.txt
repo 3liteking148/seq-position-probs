@@ -42,7 +42,7 @@ execute_process(COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_BINARY_DI
 set(Kokkos_ARCH_NATIVE ON CACHE BOOL "" FORCE)
 add_subdirectory(kokkos-5.1.1)
 
-add_executable(dummer dummer.cc dummer-util.hh tantan-wrapper.hh version.hh can_i_haz_simd.hh can_i_haz_float_simd.hh)
+add_executable(dummer dummer.cc dummer-util.hh tantan-wrapper.hh version.hh can_i_haz_simd.hh)
 target_compile_definitions(dummer PRIVATE DOUBLE VITERBI_FILTER)
 target_include_directories(dummer PRIVATE "${CMAKE_SOURCE_DIR}/include")
 target_link_libraries(dummer Kokkos::kokkos)
