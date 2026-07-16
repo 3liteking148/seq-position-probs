@@ -90,10 +90,8 @@ def main():
                 "-o", prot_fa_path, fa_file
             ], check=True)
 
-            target_db = os.path.join(db_dir, "targetDB")
             target_db_pad = os.path.join(db_dir, "targetDB_pad")
-            subprocess.run(["mmseqs", "createdb", prot_fa_path, target_db], check=True, stdout=subprocess.DEVNULL)
-            subprocess.run(["mmseqs", "makepaddedseqdb", target_db, target_db_pad], check=True, stdout=subprocess.DEVNULL)
+            subprocess.run(["mmseqs", "createdb", prot_fa_path, target_db_pad, "--gpu", "1"], check=True, stdout=subprocess.DEVNULL)
 
         if args.query_db:
             query_db = args.query_db
