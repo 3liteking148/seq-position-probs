@@ -220,7 +220,7 @@ def main():
                 L = dna_lens.get(target_base, 0)
                 if L == 0: 
                     continue
-                pad = 2 * hmm_lens.get(query_acc, 0)
+                pad = 3 * hmm_lens.get(query_acc, 0)
 
                 base_pos = (frame - 1) + 3 * (p_pos - 1)
 
