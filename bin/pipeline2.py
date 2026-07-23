@@ -164,6 +164,7 @@ def main():
             "--threads", cpus,
             #"-e", "10000",
             "-e", "1000",
+            "--max-seqs", "1000",
             #"--min-ungapped-score", "0",
             #"--num-iterations", "3",
             "--alignment-mode", "2",
