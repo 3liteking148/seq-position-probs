@@ -26,6 +26,8 @@ def main():
                         help="Skip running dummer (only generate debug.fa)")
     parser.add_argument("--output-fa", dest="output_fa", default=None,
                         help="Save debug FASTA to this path (persistent copy)")
+    parser.add_argument("--max", action="store_true",
+                        help="Max sensitivity: disable heuristic windowing (pad=full contig)")
     parser.add_argument("--no-seeds", action="store_true",
                         help="Omit seed annotations from FASTA headers (dummer runs without seed gating)")
     parser.add_argument("--dummer-bin", dest="dummer_bin", default=None,
@@ -62,15 +64,64 @@ def main():
                 curr_acc, curr_name = None, None
 
     dna_lens = {}
+    dna_seqs = {}
     with open(fa_file, 'r') as f:
         curr_id = None
+        curr_seq = []
         for line in f:
             line = line.strip()
             if line.startswith(">"):
+                if curr_id:
+                    dna_lens[curr_id] = len("".join(curr_seq))
+                    dna_seqs[curr_id] = "".join(curr_seq)
                 curr_id = line[1:].split()[0]
-                dna_lens[curr_id] = 0
+                curr_seq = []
             elif curr_id:
-                dna_lens[curr_id] += len("".join(line.split()))
+                curr_seq.append(line)
+        if curr_id:
+            dna_lens[curr_id] = len("".join(curr_seq))
+            dna_seqs[curr_id] = "".join(curr_seq)
+
+    # total search space: all genome lengths, doubled for both strands
+    tot_seq_len = sum(dna_lens.values()) * 2
+
+    # ---------------------------------------------------------
+    # --max mode: skip mmseqs2, run dummer directly on all profiles x contigs
+    # ---------------------------------------------------------
+    if args.max:
+        merged_fa_path = os.path.join(tempfile.gettempdir(), "dummer_max.fa")
+        trans = str.maketrans("ACGTacgt", "TGCAtgca")
+
+        with open(merged_fa_path, "w") as fout:
+            for chrom, seq in dna_seqs.items():
+                L = len(seq)
+                rc_seq = seq.translate(trans)[::-1]
+                for prof in sorted(hmm_lens.keys()):
+                    fout.write(f">{chrom}/1-{L} length={L} profile={prof} plus_strand\n")
+                    fout.write(f"{seq}\n")
+                    fout.write(f">{chrom}/1-{L} length={L} profile={prof} minus_strand_revcomp\n")
+                    fout.write(f"{rc_seq}\n")
+
+        print(f"# Max-mode FASTA written to: {merged_fa_path}")
+
+        if not args.skip_dummer:
+            try:
+                subprocess.run(
+                    [dummer_exec, hmm_file, merged_fa_path, '-T 8', '-W 0.1', '-N', str(tot_seq_len)],
+                    env=os.environ.copy(), check=True,
+                )
+            except subprocess.CalledProcessError as e:
+                print(f"Error: dummer encountered an issue (Exit status: {e.returncode})")
+                sys.exit(1)
+
+        if args.output_fa:
+            import shutil
+            shutil.copy2(merged_fa_path, args.output_fa)
+            print(f"# Debug FASTA saved to: {args.output_fa}")
+        else:
+            os.remove(merged_fa_path)
+
+        return
 
     with tempfile.TemporaryDirectory(prefix="mmseqs_tmp_", delete=True) as tmpdir:
         print(f"# Temporary directory is: {tmpdir}")
@@ -321,7 +372,7 @@ def main():
             #custom_env["ASAN_OPTIONS"] = "detect_container_overflow=1:strict_memcmp=1"
             
             try:
-                subprocess.run([dummer_exec, hmm_file, merged_fa_path, '-T 8', '-W 0.1'], env=custom_env, check=True)
+                subprocess.run([dummer_exec, hmm_file, merged_fa_path, '-T 8', '-W 0.5' if not args.max else '-W 10', '-N', str(tot_seq_len)], env=custom_env, check=True)
             except subprocess.CalledProcessError as e:
                 print(f"Error: dummer encountered an issue (Exit status: {e.returncode})")
                 sys.exit(1)

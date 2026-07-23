@@ -3571,6 +3571,7 @@ int main(int argc, char *argv[]) {
 #ifdef VITERBI_FILTER
     double viterbiEvalueOpt = OPT_v;
 #endif
+    long long totSequenceLengthOverride = -1;
     double filterStdDev = 0;
     bool keepNonvaryingTerm = false;
     int randomSeqNum = OPT_t;
@@ -3594,6 +3595,7 @@ Options:\n\
   -v, --verbose     show progress messages\n\
   -T N, --threads N number of threads to use (default: CPU cores)\n\
   -e E, --evalue E  find similarities with E-value <= this (default: " STR(OPT_e) ")\n\
+  -N N, --total-length N  override total search space size (default: sum of input lengths)\n\
   -s S, --strand S  DNA strand: 0=reverse, 1=forward, 2=both (default: " STR(OPT_s) ")\n\
   -m M, --mask M    mask simple regions of:\n\
                     0=neither, 1=profile, 2=sequence, 3=both (default: " STR(OPT_m) ")\n\
@@ -3618,7 +3620,7 @@ Int Viterbi pre-filter options:\n\
 #endif
 ;
 
-    const char sOpts[] = "hVve:s:m:d:D:t:l:b:T:"
+    const char sOpts[] = "hVve:N:s:m:d:D:t:l:b:T:"
 #ifdef VITERBI_FILTER
         "W:"
 #endif
@@ -3629,6 +3631,7 @@ Int Viterbi pre-filter options:\n\
                                     {"verbose", no_argument, 0, 'v'},
                                     {"threads", required_argument, 0, 'T'},
                                     {"evalue", required_argument, 0, 'e'},
+                                    {"total-length", required_argument, 0, 'N'},
                                     {"strand", required_argument, 0, 's'},
                                     {"mask", required_argument, 0, 'm'},
                                     {"dev", required_argument, 0, 'd'},
@@ -3666,6 +3669,11 @@ Int Viterbi pre-filter options:\n\
         case 'e':
             evalueOpt = strtod(optarg, 0);
             if (evalueOpt < 0)
+                return badOpt();
+            break;
+        case 'N':
+            totSequenceLengthOverride = atoll(optarg);
+            if (totSequenceLengthOverride < 0)
                 return badOpt();
             break;
         case 's':
@@ -3857,6 +3865,8 @@ Int Viterbi pre-filter options:\n\
     std::vector<Sequence> sequences;
     std::vector<FinalSimilarity> similarities;
     size_t totSequenceLength = 0;
+    if (totSequenceLengthOverride >= 0)
+        totSequenceLength = (size_t)totSequenceLengthOverride;
 
     std::ifstream file;
     std::istream &in = openFile(file, argv[optind + 1]);
@@ -3875,9 +3885,11 @@ Int Viterbi pre-filter options:\n\
         // The algorithms need one arbitrary letter past the end
         // Then round up to a multiple of the SIMD length
         charVec.resize(maskedSeqIdx + simdRoundUp(contig.length + 1));
-        totSequenceLength += contig.length;
-        if (strandOpt == 2)
+        if (totSequenceLengthOverride < 0) {
             totSequenceLength += contig.length;
+            if (strandOpt == 2)
+                totSequenceLength += contig.length;
+        }
         char *seq = &charVec[seqIdx];
         for (int s = 0; s < 2; ++s) {
             if (s != strandOpt) {
