@@ -837,7 +837,8 @@ void addMidAnchored(int idx, size_t profileLength, std::vector<AlignedSimilarity
     Float wMidAnchored = wEndAnchored * wBegAnchored;
     AlignedSimilarity s = {wMidAnchored / scale, anchor1, anchor2, wEndAnchored};
 #ifdef ALIGN
-    addForwardAlignment(idx, profileLength, s.alignment, anchor1, anchor2, scratch);
+    if (!isinf(s.probRatio))
+        addForwardAlignment(idx, profileLength, s.alignment, anchor1, anchor2, scratch);
 #endif
     similarities.push_back(s);
 }
@@ -845,7 +846,8 @@ void addMidAnchored(int idx, size_t profileLength, std::vector<AlignedSimilarity
 void finishMidAnchored(int idx, AlignedSimilarity &s, DPScratch &scratch) {
     reverse(s.alignment.begin(), s.alignment.end());
 #ifdef ALIGN
-    addReverseAlignment(idx, s.alignment, s.anchor1, s.anchor2, scratch);
+    if (!isinf(s.probRatio))
+        addReverseAlignment(idx, s.alignment, s.anchor1, s.anchor2, scratch);
 #endif
     reverse(s.alignment.begin(), s.alignment.end());
 }
