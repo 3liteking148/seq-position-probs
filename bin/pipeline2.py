@@ -28,8 +28,8 @@ def main():
                         help="Save debug FASTA to this path (persistent copy)")
     parser.add_argument("--max", action="store_true",
                         help="Max sensitivity: disable heuristic windowing (pad=full contig)")
-    parser.add_argument("--no-seeds", action="store_true",
-                        help="Omit seed annotations from FASTA headers (dummer runs without seed gating)")
+    parser.add_argument("--seeds", action="store_true",
+                        help="Include seed annotations in FASTA headers (dummer runs with seed gating)")
     parser.add_argument("--dummer-bin", dest="dummer_bin", default=None,
                         help="Path to dummer binary (overrides default dummer)")
     parser.add_argument("--prefilter-mode", type=int, default=None, choices=[3],
@@ -321,7 +321,7 @@ def main():
                     strand_label = "plus_strand" if strand_sign == '+' else "minus_strand_revcomp"
 
                     seed_str = ""
-                    if not args.no_seeds:
+                    if args.seeds:
                         strand_key = 'F' if strand_sign == '+' else 'R'
                         hits = hits_by_window.get((chrom, query, strand_key), [])
                         if hits:
