@@ -43,7 +43,7 @@ set(Kokkos_ARCH_NATIVE ON CACHE BOOL "" FORCE)
 add_subdirectory(kokkos-5.1.1)
 
 add_executable(dummer dummer.cc dummer-util.hh tantan-wrapper.hh version.hh can_i_haz_simd.hh)
-target_compile_definitions(dummer PRIVATE DOUBLE VITERBI_FILTER)
+target_compile_definitions(dummer PRIVATE DOUBLE FORWARD_ONLY_FILTER)
 target_include_directories(dummer PRIVATE "${CMAKE_SOURCE_DIR}/include")
 target_link_libraries(dummer Kokkos::kokkos)
 add_custom_command(TARGET dummer POST_BUILD
@@ -51,7 +51,7 @@ add_custom_command(TARGET dummer POST_BUILD
         $<TARGET_FILE:dummer> "${CMAKE_SOURCE_DIR}/bin/dummer")
 
 add_executable(dummerl dummer.cc dummer-util.hh tantan-wrapper.hh version.hh can_i_haz_simd.hh)
-target_compile_definitions(dummerl PRIVATE VITERBI_FILTER)
+target_compile_definitions(dummerl PRIVATE FORWARD_ONLY_FILTER)
 target_include_directories(dummerl PRIVATE "${CMAKE_SOURCE_DIR}/include")
 target_link_libraries(dummerl Kokkos::kokkos)
 add_custom_command(TARGET dummerl POST_BUILD

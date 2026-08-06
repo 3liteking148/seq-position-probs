@@ -29,6 +29,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <filesystem>
+#include <fstream>
 #include <float.h>
 #include <limits.h>
 #include <math.h>
@@ -179,8 +180,8 @@ struct Profile {   // position-specific (insert, delete, letter) probabilities
     size_t nameIdx;
     size_t consensusSequenceIdx;
     double gumbelKendAnchored, gumbelKbegAnchored, gumbelKmidAnchored, lambda;
-#ifdef VITERBI_FILTER
-    double gumbelKviterbi, lambdaViterbi;
+#ifdef FORWARD_ONLY_FILTER
+    double gumbel_k_forward_only, lambda_forward_only;
 #endif
     std::string name;
 };
@@ -474,7 +475,7 @@ void printSimilarity(const char *names, Profile &p, Sequence s, const FinalSimil
     int w2 = std::max(numOfDigits(sim.start1), numOfDigits(start2));
     int w3 = std::max(numOfDigits(span1), numOfDigits(span2));
     int w4 = std::max(numOfDigits(p.length), numOfDigits(reportSeqLength));
-    std::cout << "a score=" << (log2(sim.probRatio) + shift) << " E=" << evalue
+    std::cout << "a score=" << (log(sim.probRatio) + shift) << " E=" << evalue
               << " anchor=" << sim.anchor1 << "," << anchor2 << "\n";
     std::cout << "s " << std::left << std::setw(w1) << names + p.nameIdx << " " << std::right
               << std::setw(w2) << sim.start1 << " " << std::setw(w3) << span1 << " " << '+' << " "
@@ -1969,7 +1970,7 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
         std::fill(scratch.W0_next.begin(), scratch.W0_next.end(), simd_t(0.0));
     }
 
-    if (true) {
+    if (false) {
         std::ostringstream ss;
         ss << "# X-drop enabled: " << useXDrop << " (i, j) used " <<  active_ij << "/" << total_ij
            << " (" << (100.0 * active_ij / total_ij) << "%"
@@ -2116,9 +2117,22 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
                         finishMidAnchored(idx, x, scratch);
                         x.anchor2 -= offset;
 
-                        int startIdx = std::max(logical_j - 12 * profile.length, 0);
-                        int endIdx = std::min(logical_j + 12 * profile.length, (int)decoded[idx]->size() + 0);
-                        std::fill(aligned[idx].begin() + startIdx, aligned[idx].begin() + endIdx, true);
+                        int seqBeg = simBeg2(x);
+                        int seqEnd = simEnd2(x);
+                        int clampedBeg = std::max(seqBeg, 0);
+                        int clampedEnd = std::min(seqEnd, (int)decoded[idx]->size());
+                        bool overlaps = false;
+                        for (int p = clampedBeg; p < clampedEnd; ++p) {
+                            if (aligned[idx][p]) {
+                                overlaps = true;
+                                break;
+                            }
+                        }
+                        if (overlaps) {
+                            similarities[idx].pop_back();
+                        } else {
+                            std::fill(aligned[idx].begin() + clampedBeg, aligned[idx].begin() + clampedEnd, true);
+                        }
                         }
                 }
             }
@@ -2133,10 +2147,9 @@ void findSimilarities(std::array<std::vector<AlignedSimilarity>, simdWidth> &sim
             similarities[idx].push_back(sel);
         }
     }
-
 }
 
-#ifdef VITERBI_FILTER
+#ifdef FORWARD_ONLY_FILTER
 
 void findSimilaritiesBackwardOnly(
     std::array<Float, simdWidth> &bestScores,
@@ -2357,7 +2370,7 @@ void findSimilaritiesBackwardOnly(
         bestScores[k] = 0;
 }
 
-#endif // VITERBI_FILTER
+#endif // FORWARD_ONLY_FILTER
 
 int contigToSequencePos(Contig contig, size_t strandNum, int posInContig) {
     return contig.start + strandPosition(strandNum, contig.length, posInContig);
@@ -2439,39 +2452,39 @@ void findFinalSimilaritiesBatched(std::vector<FinalSimilarity> &similarities,
                                   std::vector<std::vector<SequenceRequest>> &allRequests,
                                   const std::vector<Profile> &profiles, const char *charVec,
                                   ThreadPool &threadPool, std::vector<DPScratch> &threadScratches
-#ifdef VITERBI_FILTER
-                                  , double viterbiEvalue = -1, double totSequenceLength = 0
+#ifdef FORWARD_ONLY_FILTER
+                                  , double forward_only_evalue = -1, double totSequenceLength = 0
 #endif
                                   ) {
-#ifdef VITERBI_FILTER
-    // Run Viterbi pre-filter if enabled: filter sequences below threshold
+#ifdef FORWARD_ONLY_FILTER
+    // Run Forward-only pre-filter if enabled: filter sequences below threshold
     std::vector<std::vector<SequenceRequest>> filteredRequests(profiles.size());
-    if (viterbiEvalue > 0) {
-        struct ViterbiJob {
+    if (forward_only_evalue > 0) {
+        struct forward_only_job {
             size_t profileIdx;
             size_t startRequestIdx;
             int activeCount;
         };
-        std::vector<ViterbiJob> viterbiJobs;
+        std::vector<forward_only_job> forward_only_jobs;
         for (size_t i = 0; i < profiles.size(); ++i) {
             const auto &requests = allRequests[i];
             size_t n = requests.size();
             for (size_t start = 0; start < n; start += simdWidth) {
                 int count = (int)std::min((size_t)simdWidth, n - start);
-                viterbiJobs.push_back({i, start, count});
+                forward_only_jobs.push_back({i, start, count});
             }
         }
 
-        if (!viterbiJobs.empty()) {
-            std::vector<std::vector<SequenceRequest>> viterbiJobResults(viterbiJobs.size());
-            std::atomic<size_t> completedViterbi(0);
-            std::mutex viterbiMtx;
-            std::condition_variable viterbiCv;
+        if (!forward_only_jobs.empty()) {
+            std::vector<std::vector<SequenceRequest>> forward_only_job_results(forward_only_jobs.size());
+            std::atomic<size_t> completed_forward_only(0);
+            std::mutex forward_only_mtx;
+            std::condition_variable forward_only_cv;
 
-            for (size_t jobIdx = 0; jobIdx < viterbiJobs.size(); ++jobIdx) {
+            for (size_t jobIdx = 0; jobIdx < forward_only_jobs.size(); ++jobIdx) {
                 threadPool.enqueue([&, jobIdx](int threadId) {
                     DPScratch &ts = threadScratches[threadId];
-                    const auto &job = viterbiJobs[jobIdx];
+                    const auto &job = forward_only_jobs[jobIdx];
                     const auto &p = profiles[job.profileIdx];
                     const auto &requests = allRequests[job.profileIdx];
 
@@ -2485,8 +2498,8 @@ void findFinalSimilaritiesBatched(std::vector<FinalSimilarity> &similarities,
                     for (int k = 0; k < job.activeCount; k++) {
                         if (bestScores[k] > 0) {
                             double log_probRatio = log((double)bestScores[k]);
-                            double probRatio = exp(log_probRatio * p.lambdaViterbi);
-                            double evalue = p.gumbelKviterbi * totSequenceLength / probRatio;
+                            double probRatio = exp(log_probRatio * p.lambda_forward_only);
+                            double evalue = p.gumbel_k_forward_only * totSequenceLength / probRatio;
                             double pvalue = 1.0 - exp(-evalue);
 
                             std::ostringstream s;
@@ -2494,27 +2507,27 @@ void findFinalSimilaritiesBatched(std::vector<FinalSimilarity> &similarities,
 
                             std::cout << s.str();
 
-                            if (pvalue <= viterbiEvalue) {
-                                viterbiJobResults[jobIdx].push_back(requests[job.startRequestIdx + k]);
+                            if (pvalue <= forward_only_evalue) {
+                                forward_only_job_results[jobIdx].push_back(requests[job.startRequestIdx + k]);
                             }
                         }
                     }
 
-                    if (++completedViterbi == viterbiJobs.size()) {
-                        std::lock_guard<std::mutex> lock(viterbiMtx);
-                        viterbiCv.notify_one();
+                    if (++completed_forward_only == forward_only_jobs.size()) {
+                        std::lock_guard<std::mutex> lock(forward_only_mtx);
+                        forward_only_cv.notify_one();
                     }
                 });
             }
 
             {
-                std::unique_lock<std::mutex> lock(viterbiMtx);
-                viterbiCv.wait(lock, [&]{ return completedViterbi == viterbiJobs.size(); });
+                std::unique_lock<std::mutex> lock(forward_only_mtx);
+                forward_only_cv.wait(lock, [&]{ return completed_forward_only == forward_only_jobs.size(); });
             }
 
-            for (size_t jobIdx = 0; jobIdx < viterbiJobs.size(); ++jobIdx) {
-                size_t pi = viterbiJobs[jobIdx].profileIdx;
-                for (auto &req : viterbiJobResults[jobIdx])
+            for (size_t jobIdx = 0; jobIdx < forward_only_jobs.size(); ++jobIdx) {
+                size_t pi = forward_only_jobs[jobIdx].profileIdx;
+                for (auto &req : forward_only_job_results[jobIdx])
                     filteredRequests[pi].push_back(req);
             }
         }
@@ -2761,8 +2774,8 @@ struct CacheEntry {
     double MLendKsimple, MLbegKsimple, MLmidKsimple;
     double LMendL, LMbegL, LMmidL;
     double LMendK, LMbegK, LMmidK;
-#ifdef VITERBI_FILTER
-    double VMMmidL, VMMmidK;
+#ifdef FORWARD_ONLY_FILTER
+    double fmm_mid_l, fmm_mid_k;
 #endif
 
     template<class Archive>
@@ -2776,8 +2789,8 @@ struct CacheEntry {
             MLendKsimple, MLbegKsimple, MLmidKsimple,
             LMendL, LMbegL, LMmidL,
             LMendK, LMbegK, LMmidK
-#ifdef VITERBI_FILTER
-            , VMMmidL, VMMmidK
+#ifdef FORWARD_ONLY_FILTER
+            , fmm_mid_l, fmm_mid_k
 #endif
         );
     }
@@ -2792,7 +2805,7 @@ public:
 
     std::string computeCacheKey(const Profile &profile, const Float *letterFreqs,
                                     int sequenceLength, int border, int numOfSequences,
-                                    bool useViterbi = false) {
+                                    bool use_forward_only = false) {
         Hash128 h;
         h.add(binaryHash);
         h.add(profile.name);
@@ -2812,8 +2825,8 @@ public:
         h.add(STOP_CODON_PROB);
         h.add(BG_STOP_CODON_PROB);
         h.add(TANTAN_MASK_THRESHOLD);
-#ifdef VITERBI_FILTER
-        h.add(useViterbi);
+#ifdef FORWARD_ONLY_FILTER
+        h.add(use_forward_only);
 #endif
 
         return h.to_string();
@@ -2880,11 +2893,11 @@ private:
 public:
     bool lookup(const Profile &profile, const Float *letterFreqs, int sequenceLength,
                 int border, int numOfSequences, CacheEntry &outEntry,
-                bool useViterbi = false) {
+                bool use_forward_only = false) {
         std::scoped_lock lock(cacheMutex);
         load();
 
-        std::string key = computeCacheKey(profile, letterFreqs, sequenceLength, border, numOfSequences, useViterbi);
+        std::string key = computeCacheKey(profile, letterFreqs, sequenceLength, border, numOfSequences, use_forward_only);
         if (auto it = entries.find(key); it != entries.end()) {
             outEntry = it->second;
             return true;
@@ -2894,11 +2907,11 @@ public:
 
     void store(const Profile &profile, const Float *letterFreqs, int sequenceLength,
                int border, int numOfSequences, const CacheEntry &entry,
-               bool useViterbi = false) {
+               bool use_forward_only = false) {
         std::scoped_lock lock(cacheMutex);
         load();
 
-        std::string key = computeCacheKey(profile, letterFreqs, sequenceLength, border, numOfSequences, useViterbi);
+        std::string key = computeCacheKey(profile, letterFreqs, sequenceLength, border, numOfSequences, use_forward_only);
         entries[key] = entry;
     }
 
@@ -2924,17 +2937,18 @@ public:
 
 void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int sequenceLength,
                int border, int numOfSequences, int printVerbosity, ThreadPool &threadPool, std::vector<DPScratch> &threadScratches,
-               bool useViterbi = false) {
+               bool use_forward_only = false, std::ofstream* scoresFile = nullptr) {
     CacheEntry entry;
-    if (cache.lookup(profile, letterFreqs, sequenceLength, border, numOfSequences, entry, useViterbi)) {
+    if (scoresFile == nullptr &&
+        cache.lookup(profile, letterFreqs, sequenceLength, border, numOfSequences, entry, use_forward_only)) {
         if (printVerbosity > 1) {
             std::cout << "# Warning: using cached results\n";
         }
 
-#ifdef VITERBI_FILTER
-        if (useViterbi) {
-            profile.gumbelKviterbi = entry.VMMmidK;
-            profile.lambdaViterbi = entry.VMMmidL;
+#ifdef FORWARD_ONLY_FILTER
+        if (use_forward_only) {
+            profile.gumbel_k_forward_only = entry.fmm_mid_k;
+            profile.lambda_forward_only = entry.fmm_mid_l;
         } else
 #endif
         {
@@ -2979,7 +2993,7 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
         setCharToNumber(charToNumber, alphabet);
 
         int batchStride;
-#ifdef VITERBI_FILTER
+#ifdef FORWARD_ONLY_FILTER
         batchStride = simdWidth;
 #else
         batchStride = simdWidth;
@@ -2988,7 +3002,7 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
         if (lanes_env) batchStride = std::clamp(std::atoi(lanes_env), 1, batchStride);
         int numBatches = (numOfSequences + batchStride - 1) / batchStride;
 
-#ifdef VITERBI_FILTER
+#ifdef FORWARD_ONLY_FILTER
         int maxLanes = simdWidth;
 #else
         int maxLanes = simdWidth;
@@ -3065,8 +3079,8 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
                     decoded[lane] = decodeSequence(seqBuf, sequenceLength + border, alphabet, charToNumber);
                 }
 
-#ifdef VITERBI_FILTER
-                if (useViterbi) {
+#ifdef FORWARD_ONLY_FILTER
+                if (use_forward_only) {
                     std::array<std::vector<uint8_t>*, simdWidth> intDecodedPtrs = {};
                     for (int k = 0; k < activeCount; k++)
                         intDecodedPtrs[k] = &decoded[k];
@@ -3100,10 +3114,10 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
                         if (printVerbosity > 1) {
                             std::lock_guard<std::mutex> lock(g_cout_mutex);
                             std::cout << (trialIdx + 1) << "\t" << sims[0].anchor1 << "\t" << sims[0].anchor2 << "\t"
-                                      << log2(sims[0].probRatio) + shift << "\t" << sims[1].anchor1 << "\t"
-                                      << sims[1].anchor2 << "\t" << log2(sims[1].probRatio) + shift << "\t"
+                                      << log(sims[0].probRatio) + shift << "\t" << sims[1].anchor1 << "\t"
+                                      << sims[1].anchor2 << "\t" << log(sims[1].probRatio) + shift << "\t"
                                       << sims[2].anchor1 << "\t" << sims[2].anchor2 << "\t"
-                                      << log2(sims[2].probRatio) + shift << std::endl;
+                                      << log(sims[2].probRatio) + shift << std::endl;
                         }
                     }
                 }
@@ -3119,6 +3133,24 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
             std::unique_lock<std::mutex> lock(mtx);
             cv.wait(lock, [&]{ return completedBatches == numBatches; });
         }
+
+        if (scoresFile && scoresFile->is_open()) {
+            const char* mode = use_forward_only ? "forward-only" : "forward-backward";
+            for (int trial = 0; trial < numOfSequences; ++trial) {
+                if (use_forward_only) {
+                    (*scoresFile) << mode << "\t" << profile.name << "\t" << trial + 1 << "\tall\t"
+                                  << endScores[trial] + shift << "\n";
+                } else {
+                    (*scoresFile) << mode << "\t" << profile.name << "\t" << trial + 1 << "\tend\t"
+                                  << endScores[trial] + shift << "\n";
+                    (*scoresFile) << mode << "\t" << profile.name << "\t" << trial + 1 << "\tstart\t"
+                                  << begScores[trial] + shift << "\n";
+                    (*scoresFile) << mode << "\t" << profile.name << "\t" << trial + 1 << "\tmid\t"
+                                  << midScores[trial] + shift << "\n";
+                }
+            }
+        }
+
     double MMendL, MMendK, MMendKsimple, MLendL, MLendK, MLendKsimple;
     double LMendL, LMendK;
     estimateGumbel(MMendL, MMendK, MMendKsimple, MLendL, MLendK, MLendKsimple, LMendL, LMendK,
@@ -3134,17 +3166,17 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
     estimateGumbel(MMmidL, MMmidK, MMmidKsimple, MLmidL, MLmidK, MLmidKsimple, LMmidL, LMmidK,
                    midScores, numOfSequences, sequenceLength);
 
-    if (useViterbi) {
+    if (use_forward_only) {
         double mn = *std::min_element(midScores, midScores + numOfSequences);
         double mx = *std::max_element(midScores, midScores + numOfSequences);
         double mean_s = 0; for (int z = 0; z < numOfSequences; z++) mean_s += midScores[z]; mean_s /= numOfSequences;
-        std::cout << "# DBG viterbi scores: min=" << mn << " max=" << mx << " mean=" << mean_s << " range=" << (mx-mn) << "\n";
+        std::cout << "# DBG forward-only scores: min=" << mn << " max=" << mx << " mean=" << mean_s << " range=" << (mx-mn) << "\n";
     }
 
-#ifdef VITERBI_FILTER
-        if (useViterbi) {
-            profile.gumbelKviterbi = MMmidK;
-            profile.lambdaViterbi = MMmidL;
+#ifdef FORWARD_ONLY_FILTER
+        if (use_forward_only) {
+            profile.gumbel_k_forward_only = MMmidK;
+            profile.lambda_forward_only = MMmidL;
         } else
 #endif
         {
@@ -3163,11 +3195,11 @@ void estimateK(Profile &profile, const Float *letterFreqs, char *sequence, int s
             MLendKsimple, MLbegKsimple, MLmidKsimple,
             LMendL, LMbegL, LMmidL,
             LMendK, LMbegK, LMmidK
-#ifdef VITERBI_FILTER
+#ifdef FORWARD_ONLY_FILTER
             , MMmidL, MMmidK
 #endif
         };
-        cache.store(profile, letterFreqs, sequenceLength, border, numOfSequences, entry, useViterbi);
+        cache.store(profile, letterFreqs, sequenceLength, border, numOfSequences, entry, use_forward_only);
     }
 
     double s = scale;
@@ -3568,8 +3600,8 @@ int main(int argc, char *argv[]) {
     double evalueOpt = OPT_e;
     int strandOpt = OPT_s;
     int maskOpt = OPT_m;
-#ifdef VITERBI_FILTER
-    double viterbiEvalueOpt = OPT_v;
+#ifdef FORWARD_ONLY_FILTER
+    double forward_only_evalue_opt = OPT_v;
 #endif
     long long totSequenceLengthOverride = -1;
     double filterStdDev = 0;
@@ -3578,6 +3610,7 @@ int main(int argc, char *argv[]) {
     int randomSeqLen = OPT_l;
     int border = OPT_b;
     int backgroundProbsType = 'G';
+    char* scoresFilename = nullptr;
     int numThreadsOpt = std::thread::hardware_concurrency();
     if (numThreadsOpt == 0) {
         numThreadsOpt = 1;
@@ -3607,21 +3640,23 @@ Options for low-cut/high-pass filter on position-specific letter probabilities:\
 Options for random sequences:\n\
   -t T, --trials T  generate this many random sequences (default: " STR(OPT_t) ")\n\
   -l L, --length L  length of each random sequence (default: " STR(OPT_l) ")\n\
-  -b B, --border B  add this size border to each random sequence (default: " STR(OPT_b) ")\n\
+     -b B, --border B  add this size border to each random sequence (default: " STR(OPT_b) ")\n\
+   -S F, --scores-file F  write adjusted bit scores of random sequences to file F\n\
+                              and exit (skips sequence search)\n\
 \n\
 Options for background letter probabilities:\n\
   --barithmetic     arithmetic mean of position-specific probabilities\n\
   --bgeometric      geometric mean of position-specific probabilities (default)\n\
   --bmedian         median of position-specific probabilities\n"
-#ifdef VITERBI_FILTER
+#ifdef FORWARD_ONLY_FILTER
 "\n\
-Int Viterbi pre-filter options:\n\
-  -W E, --viterbi-evalue E  Viterbi pre-filter E-value threshold (default: " STR(OPT_v) ")\n"
+Int Forward-only pre-filter options:\n\
+  -W E, --forward-only-evalue E  Forward-only pre-filter E-value threshold (default: " STR(OPT_v) ")\n"
 #endif
 ;
 
-    const char sOpts[] = "hVve:N:s:m:d:D:t:l:b:T:"
-#ifdef VITERBI_FILTER
+    const char sOpts[] = "hVve:N:s:m:d:D:t:l:b:T:S:"
+#ifdef FORWARD_ONLY_FILTER
         "W:"
 #endif
         ;
@@ -3642,10 +3677,11 @@ Int Viterbi pre-filter options:\n\
                                     {"barithmetic", no_argument, 0, 'A'},
                                     {"bgeometric", no_argument, 0, 'G'},
                                     {"bmedian", no_argument, 0, 'M'},
-#ifdef VITERBI_FILTER
-                                    {"viterbi-evalue", required_argument, 0, 'W'},
+#ifdef FORWARD_ONLY_FILTER
+                                     {"forward-only-evalue", required_argument, 0, 'W'},
 #endif
-                                    {0, 0, 0, 0}};
+                                     {"scores-file", required_argument, 0, 'S'},
+                                     {0, 0, 0, 0}};
 
     int c;
     while ((c = getopt_long(argc, argv, sOpts, lOpts, &c)) != -1) {
@@ -3713,6 +3749,9 @@ Int Viterbi pre-filter options:\n\
             if (border < 0)
                 return badOpt();
             break;
+        case 'S':
+            scoresFilename = optarg;
+            break;
         case 'A':
             backgroundProbsType = 'A';
             break;
@@ -3722,10 +3761,10 @@ Int Viterbi pre-filter options:\n\
         case 'M':
             backgroundProbsType = 'M';
             break;
-#ifdef VITERBI_FILTER
+#ifdef FORWARD_ONLY_FILTER
         case 'W':
-            viterbiEvalueOpt = strtod(optarg, 0);
-            if (viterbiEvalueOpt < 0)
+            forward_only_evalue_opt = strtod(optarg, 0);
+            if (forward_only_evalue_opt < 0)
                 return badOpt();
             break;
 #endif
@@ -3802,6 +3841,15 @@ Int Viterbi pre-filter options:\n\
     ThreadPool threadPool(numThreadsOpt);
     std::vector<DPScratch> threadScratches(numThreadsOpt);
 
+    std::ofstream scoresFile;
+    if (scoresFilename) {
+        scoresFile.open(scoresFilename);
+        if (!scoresFile) {
+            return err("can't open scores file");
+        }
+        scoresFile << "mode\tprofile_name\ttrial\tanchor_type\tln_score\n";
+    }
+
     for (auto &p : profiles) {
         std::cout << "\n";
         std::cout << "# Profile name: " << &charVec[p.nameIdx] << "\n";
@@ -3823,11 +3871,16 @@ Int Viterbi pre-filter options:\n\
         setCharToNumber(charToNumber, getAlphabet(p.width - nonLetterWidth));
 
 #ifdef EVALUE
-        estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen, border, randomSeqNum, printVerbosity, threadPool, threadScratches);
-#ifdef VITERBI_FILTER
-        estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen, border, randomSeqNum, printVerbosity, threadPool, threadScratches, true);
+        estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen, border, randomSeqNum, printVerbosity, threadPool, threadScratches, false, scoresFilename ? &scoresFile : nullptr);
+#ifdef FORWARD_ONLY_FILTER
+        estimateK(p, bgProbs, &charVec[seqIdx], randomSeqLen, border, randomSeqNum, printVerbosity, threadPool, threadScratches, true, scoresFilename ? &scoresFile : nullptr);
 #endif
 #endif
+    }
+
+    if (scoresFilename) {
+        scoresFile.close();
+        return 0;
     }
 
     if (argc - optind < 2 || numOfProfiles < 1)
@@ -3926,8 +3979,8 @@ Int Viterbi pre-filter options:\n\
     }
 
     findFinalSimilaritiesBatched(similarities, allRequests, profiles, charVec.data(), threadPool, threadScratches
-#ifdef VITERBI_FILTER
-        , viterbiEvalueOpt, totSequenceLength
+#ifdef FORWARD_ONLY_FILTER
+        , forward_only_evalue_opt, totSequenceLength
 #endif
     );
 
