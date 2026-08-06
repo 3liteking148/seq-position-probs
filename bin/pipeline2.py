@@ -163,7 +163,7 @@ def main():
             "--gpu", "1",
             "--threads", cpus,
             #"-e", "10000",
-            "-e", "1000",
+            "-e", str(len(dna_seqs) * 6 * 0.01), # p-value 0.01
             "--max-seqs", "1000",
             #"--min-ungapped-score", "0",
             #"--num-iterations", "3",
