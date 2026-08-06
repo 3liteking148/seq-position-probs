@@ -2,6 +2,10 @@ version.hh
 bin/dummer*
 build
 
+# test_scores.sh outputs
+scores.tsv
+qc/
+
 # https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 .idea/editor.xml
 
